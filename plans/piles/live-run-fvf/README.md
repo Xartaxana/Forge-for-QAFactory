@@ -157,6 +157,7 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261117-p1b-uslovnyj-otvet-bez-usloviya-u-hodoka.md` | находка, id — | ответ ключа цен предлагается условно, у ходока нет условия: строка красная без дефекта продукта (бывшая `N4S14-1`; класс F-P4 (в)) | `scripts/tests/dry_exits.py`, `scripts/tests/dry_world.py` | пачка 3, FV3-17 | нет | отчёт N4:s1-s4 (`:55`); N4W-1; AR-1, AR-28 |
 | `findings/20261117-p1b-s5-zaglushka-kritika-ne-zapuskaet-probu.md` | находка, id — | заглушка критика кода S5 не зовёт `probe_by_code.py`: главный проход сухой стори встаёт на S5 (метка `main/S5`; `stub gap`) | `scripts/tests/dry_stub.py`, `scripts/tests/fixtures/stories/dry-1/story.json` | пачка 3, FV3-5 | нет | отчёт s5stub (`:43-47`); F-P7, F-P18; AR-29 |
 | `findings/20261117-p1b-probes-records-bez-pustogo-ishoda.md` | находка, id — | у вложенного списка `probes.records` нет объявленного пустого исхода: `null_outcomes` ключуется разделами верхнего уровня | `scripts/handoff.py`, `scripts/handoff_check.py` | пачка 3, FV3-19 | нет | отчёт s5stub (`:49-50`); FV3-5; AR-23, FR-23 |
+| `findings/20261117-p1b-s5-kritik-ne-pishet-okno-i-daidzhest.md` | находка, id — | после N2h-а проход встаёт на S5: заглушка критика не пишет запись окна и дайджест; `runtime_provenance` у критика без производителя (кандидат `product gap`) | `scripts/tests/dry_stub.py`, `scripts/tests/fixtures/stories/dry-1/story.json` | пачка 3, FV3-20 | нет | строки `main` r2 (`:23-24`, `:44-45`); FV3-5, FV3-19; F10 t-1029; AR-29, AR-22, FR-5 |
 
 ## Входящие
 
