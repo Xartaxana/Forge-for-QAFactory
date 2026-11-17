@@ -15,6 +15,7 @@ import io
 import json
 import os
 import re
+import shlex
 import sys
 import types
 from pathlib import Path
@@ -30,6 +31,7 @@ import detector_verdict  # noqa: E402
 import manual_evidence  # noqa: E402
 import story_progress  # noqa: E402
 import story_step  # noqa: E402
+import waiver  # noqa: E402
 from controller import (MANUAL_BLOCK_CASES, SCOPE_SHOWN, manual_block_problems, manual_blocks,  # noqa: E402
                         manual_done_cases, validate_manual_runner_block)
 from event_store import StateConflict  # noqa: E402
@@ -746,7 +748,101 @@ def f5_arm_b_fixture_end_to_end():
         S.cleanup(t)
 
 
+def fv3_21b_the_stand_word_on_the_skill_road():
+    """FV3-21b rows S1-S7: a live no-stand word refuses the manual block before anything is written and every case gets a refused
+    record (the driver's reason and door, the person's words whole); no word, a confirmed stand or a revoked word -> today's start.
+    KILLS: the `return` of the `if words:` branch; a literal reason/door in place of `no_stand_refusal`; a skipped record."""
+    word = "go on"
+    reason = lambda said: f"not checked by an agent: no stand is confirmed for this story; the person said: \"{said}\""  # noqa: E731
+    door_text = "record a stand for this project with the onboarding; the next run checks it by hand"  # card K1 literal, not the code's constant
+
+    def put(root, stage="S6", decision=word, pending=True, environment=None, revoked=False, overrides=True, match="stand not confirmed"):
+        data = json.loads((root / "pipeline.json").read_text(encoding="utf-8-sig"))
+        data["environment_pending"] = pending
+        if environment:
+            data["environment"] = environment
+        if overrides:
+            data["stage_overrides"] = [dict({"stage": stage, "match": match, "decision": decision,
+                                             "at": "2026-11-17T10:00:00+00:00"}, **({"revoked_at": "2026-11-17T11:00:00+00:00"} if revoked else {}))]
+        (root / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+
+    def request(root, case):
+        return json.loads(manual_evidence.request_path(root, case).read_text(encoding="utf-8"))
+
+    rows = [("S1", {}, "TC-2,TC-3", None), ("S2", {"stage": "S5"}, "TC-2,TC-3", None),
+            ("S3", {"decision": "go on\n " + chr(0xE9)}, "TC-2,TC-3", None),
+            ("S4", {}, "TC-2,TC-3", "TC-3"), ("S11", {"match": "*"}, "TC-2,TC-3", None)]
+    for name, world, scope, prepare_refuses in rows:
+        with temp_dir() as root:
+            ctl = real_story(root, MIXED_7)
+            put(root, **world)
+            before = ctl.state()["revision"]
+
+            def prepare(case, root=root, refuses=prepare_refuses):
+                if case == refuses:
+                    path = manual_evidence.request_path(root, case)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(json.dumps({"refused": {"reason": "its own reason", "door": "its own door"}}), encoding="utf-8")
+                    return [], "its own reason", ""
+                return [f"OB-{case}"], "", ""
+            code, text, seen = start(root, ctl, scope, prepare=prepare)
+            said = " ".join(world.get("decision", word).split())
+            check_eq(f"{name}: exit 2", code, 2)
+            check_in(f"{name}: the head", "no case is checked by an agent by hand", text)
+            # F1 (FR-2, AR-13): the printed revoke door is accepted by waiver's own parser as printed, with the passing override's
+            # own stage and match (an S5 word names S5, a star word its star match)
+            stage, match = world.get("stage", "S6"), world.get("match", "stand not confirmed")
+            door_line = [ln for ln in text.splitlines() if "waiver.py" in ln][0].split("waiver.py", 1)[1]
+            asked = []
+            words_path = Path(root) / "revoke-words.txt"      # the door's `<file>` placeholder is the person's file: put it there
+            words_path.write_text(said, encoding="utf-8")
+            door_args = [str(words_path) if arg == "<file>" else arg for arg in shlex.split(door_line)]
+            with mock.patch.object(sys, "argv", ["waiver.py", *door_args]),                     mock.patch.object(waiver, "run_revoke", lambda *a, **k: asked.append(a) or 0),                     mock.patch.object(waiver, "_noted", lambda rc, classed: rc), contextlib.suppress(SystemExit):
+                waiver.main()
+            check_eq(f"{name}: the revoke door goes through waiver's parser with the override's stage and match",
+                     [a[1:4] for a in asked], [(stage, match, " ".join(world.get("decision", word).split()))])
+            check_in(f"{name}: the door line holds the driver's door", f"door: {door_text}", text)
+            check_eq(f"{name}: nothing dispatched", (ctl.state()["revision"], seen["scope"]), (before, []))
+            if name == "S3":
+                check_in(f"{name}: the words whole, on one line", reason("go on " + chr(0xE9)), text)
+            if name == "S4":
+                check_in(f"{name}: TC-3 keeps prepare's reason", "TC-3: not checked by hand - its own reason", text)
+                check_eq(f"{name}: TC-3's request is prepare's (no `by`)", "by" in request(root, "TC-3")["refused"], False)
+            else:
+                check_in(f"{name}: TC-3's line", "TC-3: not checked by hand - " + reason(said), text)
+                check_eq(f"{name}: TC-3's record", request(root, "TC-3"),
+                         {"refused": {"reason": reason(said), "door": door_text, "by": "left_unchecked"}})
+            check_in(f"{name}: TC-2's line", "TC-2: not checked by hand - " + reason(said), text)
+            check_eq(f"{name}: TC-2's record", request(root, "TC-2"),
+                     {"refused": {"reason": reason(said), "door": door_text, "by": "left_unchecked"}})
+    controls = [("S5", {"environment": "Local", "pending": False}), ("S6", {"overrides": False}), ("S7", {"revoked": True})]
+    for name, world in controls:
+        with temp_dir() as root:
+            ctl = real_story(root, MIXED_7)
+            put(root, **world)
+            code, text, seen = start(root, ctl, "TC-2,TC-3")
+            check_eq(f"{name}: today's start (exit 0, block registered)", (code, seen["scope"]), (0, ["TC-2,TC-3"]))
+            check_not_in(f"{name}: no no-stand reason anywhere", "no stand is confirmed", text)
+
+    # F2 (E6, E15): a done case is skipped (its request untouched); a live S6 dispatch takes today's road; an empty state reads as nothing
+    done = {"dispatches": {"a": {"stage": "S6", "status": "accepted", "execution_kind": "manual", "manual_case_ids": ["TC-2"]}}}
+    live = {"dispatches": {"b": {"stage": "S6", "status": "running", "scope": ["TC-9"]}}}
+    for name, state, lines_has, wrote in (("S8 done", done, "TC-2: checked already by an accepted block", {"TC-2": False, "TC-3": True}),
+                                          ("S9 live", live, None, None), ("S12 all done", done, None, None), ("S10 empty", {}, "TC-2: not checked by hand", {"TC-2": True, "TC-3": True})):
+        with temp_dir() as root:
+            ctl = real_story(root, MIXED_7)
+            put(root)
+            with mock.patch.object(story_step, "_task_root", lambda task, root=root: root):
+                got = story_step._no_stand_refusal("QA-9", state, ["TC-2"] if name == "S12 all done" else ["TC-2", "TC-3"])
+            if lines_has is None:
+                check_eq(f"{name}: today's road (nothing owed or a dispatch is live: no refusal lines)", got, [])
+                continue
+            check_in(f"{name}: the case line", lines_has, " ".join(got))
+            for case, written in wrote.items():
+                check_eq(f"{name}: {case} request written", manual_evidence.request_path(root, case).exists(), written)
+
 def main():
+    fv3_21b_the_stand_word_on_the_skill_road()
     f5_unprepared_case_stays_in_block()
     f5_arm_b_fixture_end_to_end()
     the_collector_lists_every_problem()

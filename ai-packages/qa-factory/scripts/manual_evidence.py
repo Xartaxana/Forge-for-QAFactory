@@ -1279,6 +1279,30 @@ def _write_refused(task_root, case, reason, door) -> None:
         pass
 
 
+NO_STAND_DOOR = "record a stand for this project with the onboarding; the next run checks it by hand"
+
+
+def no_stand_refusal(words) -> tuple:
+    """`(reason, door)` of a manual-agent case left unchecked by the person's no-stand word, for BOTH roads (the driver's
+    `manual_no_stand`, `story_step start`): the words on one line, whitespace squashed, every character kept, never cut (AR-24)."""
+    said = " ".join(str(words or "").split())
+    return f"not checked by an agent: no stand is confirmed for this story; the person said: \"{said}\"", NO_STAND_DOOR
+
+
+def write_case_refusal(task_root, case, reason, door, by, by_first=False) -> bool:
+    """THE writer of `{"refused": {reason, door, by}}` in a case's request.json (AR-14), for both roads; `Driver.refuse_case`
+    delegates its file write here. `by_first` keeps the key order of the one driver caller that wrote `by` before `door`.
+    True when written; False when the write failed (OSError), nothing raised."""
+    record = {"reason": reason, "by": by, "door": door} if by_first else {"reason": reason, "door": door, "by": by}
+    try:
+        path = request_path(task_root, case)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_json(path, {"refused": record})
+    except OSError:
+        return False
+    return True
+
+
 def prepare_for_block(task_root, case) -> tuple:
     """([obligation ids], "", "") for a case the agent may check by hand, ([], the refusal in words, "") for a case the story
     refuses, (ids, "", <reason>) for a case the FACTORY failed to prepare (F5(c), the owner's word 05.11: the factory never

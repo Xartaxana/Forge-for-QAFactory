@@ -7,11 +7,12 @@ import time
 from pathlib import Path
 import hooklib
 from driver_chains import ChainKind
-from controller import MANUAL_WINDOW_CASES, lane_keys, manual_blocks, manual_done_cases, walk_lanes
+from controller import MANUAL_WINDOW_CASES, lane_keys, live_s6_scopes, manual_blocks, manual_done_cases, walk_lanes
 import project_decisions
 import waiver
 from driver_core import BY_PERSON, CODE_CLOSE_SITES, GAP_PREFIX, InfraStop, OpenWork, Person, Refusal, ReworkRefused, _read_json, open_work_reason, seam_rank
 from driver_dispatch import WALK_ACCOUNT_TRIGGERS
+
 
 
 class DriverStageS6:
@@ -143,12 +144,16 @@ class DriverStageS6:
 
     # --- X7-6 / X7-6b / X7-6c: a stage accepted by its CONSUMER role - S6 by the failure analyst (who works in S7), S7 by the doc scribe (who works
     # in S8). ONE table and ONE helper set (t-1860 Q8): the two stages differ only in the data below, so every fix is made once. ------------
+    # `await_at`: the close sites where a missing record means AWAIT the consumer, not refuse (B1, t-1128): nothing is left to dispatch
+    # there, so no other road would ever ask the consumer (S7 keeps its own road `s7_await_scribe`).
     CONSUMER_ROUTES = {
         "S6": {"consumer_stage": "S7", "author": "qa-runner", "who": "failure analyst", "what": "the runner's handoff",
+               "await_at": ("manual_close",),
                "closes_when": lambda closes: closes is True,
                "awaits": "the runner stopped; S6 awaits the acceptance of {consumer}, which judges the run report and the case records from its own form",
                "rework_complete": lambda driver: driver.consumer_awaits("S6", True)},
         "S7": {"consumer_stage": "S8", "author": "qa-failure-analyst", "who": "doc scribe", "what": "the analyst's handoff",
+               "await_at": (),
                "closes_when": lambda closes: closes is None,
                "awaits": "the failure analyst stopped; S7 awaits the acceptance of {consumer}, which judges the triage and the bug drafts from its own form",
                # read AFTER the role wrote: repairs still owed keep S7 open
@@ -306,24 +311,50 @@ class DriverStageS6:
         print(f"{stage}: a person's word passes the acceptance of {author}; recorded as a driver accept (by: person)")
         return {"decision": words, "at": heard.get("at") or ""}
 
-    def consumer_need_record(self, stage: str, site: str) -> None:
+    def consumer_need_record(self, stage: str, site: str) -> bool:
         """The close sites of a stage with a consumer (S6: `s6_reentry`, `s6_reprobed_close`, `manual_close`; S7: `s7_close`): with an author that
         ran, a close needs the `accept` record of the author's LAST dispatch - or a person's pass (`consumer_person_pass`, M3). A Refusal names
-        the missing record and the door (FR-1, FR-2); with no consumer, no author dispatch, or the stage completed already, nothing."""
+        the missing record and the door (FR-1, FR-2); with no consumer, no author dispatch, or the stage completed already, nothing (False).
+        At a site the route's `await_at` lists (S6 `manual_close`), a missing record makes the stage AWAIT the consumer instead of refusing (B1):
+        the marker `pipeline.acceptance_awaits[stage] = author` is written only when `awaits_acceptance` (the one reader) would then name exactly
+        `author`, and only over a readable pipeline; otherwise today's Refusal. True = the stage awaits; nothing is closed. POSITION: after
+        the record and the person's pass (they always win), before the raise: a stage with a consumer is never closed without either."""
         import acceptance
         consumer = acceptance.consumer_of(stage)
         if not consumer:
-            return
+            return False
         state = self.controller_state()
         if ((state.get("stages") or {}).get(stage) or {}).get("status") == "completed":
-            return
+            return False
         author = acceptance.stage_author_dispatch(state, acceptance.stage_def_of(stage))
         if not author or self.consumer_pending(stage) or self.consumer_person_pass(stage, author):
-            return
+            return False
+        route = self.CONSUMER_ROUTES.get(stage) or {}
+        if site in route.get("await_at", ()) and self.consumer_await(stage, author, state, route):
+            return True
         raise Refusal(f"{stage} cannot be closed at {site}: no accept record of {consumer} stands for {author}. The consumer judges "
                       f"{(self.CONSUMER_ROUTES.get(stage) or {}).get('what', 'the handoff')} from its own form (`stage_done.py --task {self.task} "
                       f"--stage {stage} --acceptance work/handoffs/<{consumer} dispatch>.yaml`), or a person's word passes it (`waiver.py "
                       f"--task {self.task} --stage {stage} --block \"{acceptance.STAGE_ACCEPTANCE_PHRASE}\"`).")
+
+    def consumer_await(self, stage: str, author: str, state: dict, route: dict) -> bool:
+        """B1: the stage AWAITS the consumer - the marker `pipeline.acceptance_awaits[stage] = author` is written (once) only when
+        `awaits_acceptance` (the one reader) would then name exactly `author`, and only over a readable pipeline. False on an unreadable
+        pipeline or when the wait would not hold (the caller's Refusal stays the only raise)."""
+        import acceptance
+        pipeline = self.pipeline()
+        if not (isinstance(pipeline, dict) and pipeline):
+            return False
+        marks = pipeline.get("acceptance_awaits") if isinstance(pipeline.get("acceptance_awaits"), dict) else {}
+        marked = dict(pipeline, acceptance_awaits=dict(marks, **{stage: author}))
+        if acceptance.awaits_acceptance(state, stage, marked) != author:
+            return False
+        if acceptance.awaits_acceptance(state, stage, pipeline) != author:
+            from event_store import atomic_json
+            atomic_json(self.task_root / "pipeline.json", marked)
+        print(f"{stage}: nothing is left to dispatch; {stage} awaits the acceptance of {acceptance.consumer_of(stage)} for {author} "
+              f"(the {route.get('who', 'consumer')} is let in; its record closes {stage})")
+        return True
 
     def consumer_counts(self, stage: str, reviewed: str) -> tuple:
         """`(counted, cap)` of the author's repair rounds on the dispatch the consumer REVIEWED, as the controller counts them (`prepare` carries
@@ -672,13 +703,12 @@ class DriverStageS6:
     def s6_no_stand(self) -> bool:
         """The stage goes on WITHOUT a confirmed stand, on a person's word: no stand is confirmed and the word
         `stand not confirmed` is recorded for S5 or S6 - the carrier is the recorded word (`waiver.split_overridden`,
-        the reader `stand_check` itself uses), not the answer that was given. A confirmed stand is never "no stand"."""
-        pipeline = self.pipeline()
-        environment = str(pipeline.get("environment") or "")
-        if environment and not pipeline.get("environment_pending"):
-            return False
-        block = waiver.stand_block(environment)
-        return any(waiver.split_overridden([block], pipeline, owner)[1] for owner in self.STAND_STAGES)
+        the reader `stand_check` itself uses), not the answer that was given. A confirmed stand is never "no stand". The words: `s6_stand_word`."""
+        return bool(self.s6_stand_word())
+
+    def s6_stand_word(self) -> str:
+        """The words of the person's live no-stand word for this story ("" = none, or a stand is confirmed): `waiver.stand_passing_word`."""
+        return waiver.stand_passing_word(self.pipeline())
 
     def s6_changed(self, cases, ids=None, *, strict: bool = False) -> dict:
         """`proof_level.staleness` over `ids` (default: the instances of the automation manifest that prove `cases`):
@@ -923,6 +953,14 @@ class DriverStageS6:
         import manual_evidence as ME
         return ME.prepare_for_block(self.task_root, case)
 
+    def manual_todo(self, cases: list, skip=()) -> list:
+        """The cases still to walk: plan-row order, without the done ones (a case whose walk record the build refused once stands again) and
+        without `skip`. ONE predicate for `manual_plan` and `manual_no_stand` (AR-15)."""
+        again = {case for case, entry in ((getattr(self, "state", None) or {}).get("walk_retry") or {}).items()
+                 if isinstance(entry, dict) and entry.get("open")}
+        gone = (self.manual_done() - again) | {str(c) for c in skip}
+        return [c for c in self.manual_order(cases) if c not in gone]
+
     def manual_plan(self, cases: list, skip=()) -> dict:
         """{"blocks": [[case, ...], ...], "refused": [(case, words), ...], "unprepared": [(case, reason), ...]} for the cases not
         yet done (and not in `skip`). Prepares each of them (see `manual_prepare`); the blocks are the prepared ones AND the
@@ -931,11 +969,8 @@ class DriverStageS6:
         a case whose request cannot be read is a lane of one). Four guest cases -> [3, 1]; with a size of 5: 6 -> [5, 1]; none
         prepared -> no block."""
         # t-1957 N5s: a case whose walk record the build refused once stands in an accepted lane and is walked once more (`walk_after`)
-        again = {case for case, entry in ((getattr(self, "state", None) or {}).get("walk_retry") or {}).items()
-                 if isinstance(entry, dict) and entry.get("open")}
-        gone = (self.manual_done() - again) | {str(c) for c in skip}
         ready, refused, unprepared = [], [], []
-        for case in [c for c in self.manual_order(cases) if c not in gone]:
+        for case in self.manual_todo(cases, skip):
             got = self.manual_prepare(case)
             why, walk = got[1], got[2]
             if why:
@@ -1026,8 +1061,10 @@ class DriverStageS6:
         """No block is left to dispatch (every case is done, or none could be prepared): the manual half closes with
         no runner - the receipt is `code_only`, written over a `run-report.json` the reducer has just written (the same
         order as the freshness branch of `stage_S6`), then `stage_done`. The words say how many were checked and which
-        were not. A reducer that fails is a refusal: nothing is closed over a report nobody could build."""
-        self.consumer_need_record("S6", "manual_close")             # X7-6: the manual half closes by the consumer's record (a no-op with no consumer)
+        were not. A reducer that fails is a refusal: nothing is closed over a report nobody could build.
+        ORDER (FV3-21 K6.c, the S7 twin's order): the deferred-waiting refusals, the reducer, the consumer step, the close. The consumer step
+        (X7-6) closes by the consumer's record, or - at this site, B1 - writes the awaiting marker and returns with nothing closed; the marker
+        is written only over a run report the reducer has just written (AR-21), and a reducer failure writes none."""
         gone = self.manual_done()
         done = [case for case in cases if case in gone]
         # RN1-24: the cases a deferred question holds are closed over as NOT checked, in the safe default `left_unchecked` (no new value of
@@ -1042,6 +1079,8 @@ class DriverStageS6:
         code, out = self.py("finalize_task.py", str(self.task_root))
         if code:
             raise Refusal(f"S6 manual half: finalize_task.py exit {code}: " + (out.splitlines()[-1] if out else ""))
+        if self.consumer_need_record("S6", "manual_close"):         # X7-6 / B1: the consumer's record closes S6; with none, S6 awaits it
+            return
         self.close_by_code("S6", reason, ["work/run-report.json"] + self.manual_request_paths([case for case, _ in refused]),
                            finalize=False, site="s6.manual_close")
 
@@ -1309,6 +1348,19 @@ class DriverStageS6:
         # RN1-24: the cases a deferred question holds are not prepared, not asked about again and not dispatched; the dry-gate note
         # is not raised a second time while ITS question waits (E11: one open question per case; `deferrable` read the same record).
         waiting = self.deferred_waiting(cases)
+        # FV3-21: the person's no-stand word reaches the manual half. POSITION: before the gate-A-dry note; INVARIANT: under a live word with no
+        # live S6 dispatch nothing here raises a `Person`, the plan has no block (nothing is registered or launched), and a case a deferred
+        # question holds is never refused by the branch (AR-28: a live or unreadable dispatch state = today's road, said in one line)
+        words = self.s6_stand_word()
+        if words:
+            try:
+                live = bool(self.s6_live_scopes())
+            except Exception:       # noqa: BLE001 - an unreadable dispatch state is an unknown: today's road this entry (AR-28)
+                live = True
+            if not live:
+                return self.manual_no_stand(cases, waiting, words), waiting
+            print("S6: no stand is confirmed and the person said to go on, but an S6 walk is under way or stopped; the manual half "
+                  "goes on as before this entry, and the person's word is applied at the next entry")
         if not any(item.get("kind") == "gate_a_dry" for item in self.deferred_items()):
             self.manual_gate_note()
         plan = self.manual_plan(cases, skip=[case for case, _n in waiting])
@@ -1334,6 +1386,26 @@ class DriverStageS6:
         else:
             self.walk_assign_clear()
         return plan, waiting
+
+    def manual_no_stand(self, cases: list, waiting: list, words: str) -> dict:
+        """The manual half under the person's no-stand word (FV3-21, I-1): no block, no question, no dispatch. Each case still to walk is
+        prepared: one `prepare` refuses for its OWN reason keeps that record and its door (AR-27, F2); every other case (prepared, or
+        unprepared by the factory) is `left_unchecked` in the person's words, the reason and the door of `manual_evidence.no_stand_refusal`
+        (the skill road's builder too). Always returns the plan; `run_manual_block` then goes to `manual_close`."""
+        import manual_evidence as ME
+        reason, door = ME.no_stand_refusal(words)
+        plan = {"blocks": [], "refused": [], "unprepared": []}
+        for case in self.manual_todo(cases, skip=[c for c, _n in waiting]):
+            why = self.manual_prepare(case)[1]
+            if why:
+                plan["refused"].append((case, why))
+                print(f"S6: {case}: not checked by hand — {why}")
+            else:
+                self.refuse_case(plan, case, reason, door, "left_unchecked")
+                print(f"S6: {case}: not checked by hand — not checked by an agent: no stand is confirmed for this story; the person said: "
+                      f"\"{self.s0_quote(words)}\"")
+        self.walk_assign_clear()
+        return plan
 
     def walk_assign_clear(self) -> None:
         """TR3-10d L4 (AR-25): the assignment of an EARLIER entry goes before a new one is made, or when this entry makes none. A reserved walk
@@ -1638,15 +1710,15 @@ class DriverStageS6:
             return "the state or the plan of the lanes cannot be read"
         return ""
 
+    def s6_live_scopes(self) -> list:
+        """The scopes of the live S6 dispatches over the driver's state: `live_s6_scopes`, the one predicate (AR-15). Raises with its readers."""
+        return live_s6_scopes(self.controller_state())
+
     def s6_settling_lanes(self, lanes: list) -> list:
         """The lanes among `lanes` that run FIRST at one at a time (t-2147 C1 items 2b and 6): those whose cases meet a running, blocked or
         paused S6 dispatch at entry, then those whose account cannot be read from the request. Empty when a dispatch names no case (nothing
         is then known to settle). Raises with the readers (the caller treats that as nothing to settle)."""
-        import dispatch_identity
-        ctl = self.controller_state()
-        rows = dispatch_identity.records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
-        scopes = [{str(c) for c in r.get("scope") or [] if c} for r in rows
-                  if r.get("stage") == "S6" and r.get("status") in ("running", "blocked", "paused")]
+        scopes = self.s6_live_scopes()
         if any(not s for s in scopes):
             return []
         named = [lane for lane in lanes if any({str(c) for c in lane} & s for s in scopes)]
