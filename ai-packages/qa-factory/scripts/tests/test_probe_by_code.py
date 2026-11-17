@@ -3244,13 +3244,7 @@ def k10p_pbc_told_is_printed() -> None:
         cleanup_beside(root)
 
 
-def main() -> None:
-    k10p_pbc_told_is_printed()
-    of4_6_profiles_owning_and_in_test_root_agree()
-    b355_i_in_test_root_reads_the_one_reader()
-    second_hop_name_in_two_files_is_refused()
-    n2_k7_the_red_probe_reads_the_stand_as_the_run_does()
-    the_author_binding_is_the_latest_block_by_the_clock()
+def mutations_flow() -> None:
     stub_dir = temp_dir("qa-probe-stub-")
     stub = stub_dir / "fake_run_suite.py"
     stub.write_text(FAKE_RUN_SUITE, encoding="utf-8")
@@ -3279,7 +3273,9 @@ def main() -> None:
         cleanup(root)
         cleanup_beside(root)
         cleanup(stub_dir)
-    the_receipt_flow()
+
+
+def records_flow() -> None:
     stub_dir = temp_dir("qa-probe-stub-")
     stub = stub_dir / "fake_run_suite.py"
     stub.write_text(FAKE_RUN_SUITE, encoding="utf-8")
@@ -3290,6 +3286,9 @@ def main() -> None:
         rh1_8_dispatch_asked_first(stub)
     finally:
         cleanup(stub_dir)
+
+
+def two_profiles_flow() -> None:
     stub_dir = temp_dir("qa-probe-stub-")
     stub = stub_dir / "fake_run_suite.py"
     stub.write_text(FAKE_RUN_SUITE, encoding="utf-8")
@@ -3297,6 +3296,19 @@ def main() -> None:
         two_profiles_over_one_root(stub)
     finally:
         cleanup(stub_dir)
+
+
+def main() -> None:
+    k10p_pbc_told_is_printed()
+    of4_6_profiles_owning_and_in_test_root_agree()
+    b355_i_in_test_root_reads_the_one_reader()
+    second_hop_name_in_two_files_is_refused()
+    n2_k7_the_red_probe_reads_the_stand_as_the_run_does()
+    the_author_binding_is_the_latest_block_by_the_clock()
+    mutations_flow()
+    the_receipt_flow()
+    records_flow()
+    two_profiles_flow()
     main_exit_order_is_pinned()
     missing_facts_and_a_refused_publish_do_not_change_the_exit()
     raw_bytes_through_manifest_from_tests()
