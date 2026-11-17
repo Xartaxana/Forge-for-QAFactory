@@ -672,6 +672,36 @@ def test_layers(path: Path | None = None) -> dict:
             "canon_only": list(raw["canon_only"]) if "canon_only" in raw else None}
 
 
+def canon_class(package: Path | None = None, layers: dict | None = None) -> dict:
+    """The canon-only class of test files (FG7-63), read from the working tree of `package` (default: this one): the `files`
+    keys of slow_tests.json and the `canon_only` globs of test-layers.json. ONE definition for its two consumers, the
+    witness command and the dispatch gate. {"slow": [names] | None, "globs": [globs] | None, "no_list": bool, "why": [str]}:
+    None = could not be read (`why` says why, the caller notes it and never refuses); `no_list` = the key is absent (a tree
+    older than the key), globs [] then. `layers` = test_layers() already read by the caller."""
+    package = Path(package) if package else PLUGIN_ROOT
+    out = {"slow": None, "globs": None, "no_list": False, "why": []}
+    try:
+        out["slow"] = list(slow_tests(package / "scripts" / "slow_tests.json")["files"])
+    except Exception as exc:  # noqa: BLE001 - a reader failure of any kind is "could not be read", said by the caller
+        out["why"].append("slow_tests.json: " + (" ".join(str(exc).split())[:120] or type(exc).__name__))
+    try:
+        layers = layers if layers is not None else test_layers(package / "scripts" / "tests" / "test-layers.json")
+        if layers.get("absent"):
+            out["why"].append("test-layers.json is absent")
+        else:
+            out["globs"] = list(layers.get("canon_only") or [])
+            out["no_list"] = layers.get("canon_only") is None
+    except Exception as exc:  # noqa: BLE001
+        out["why"].append("test-layers.json: " + (" ".join(str(exc).split())[:120] or type(exc).__name__))
+    return out
+
+
+def is_canon(name: str, cls: dict) -> bool:
+    """Whether the test file `name` is canon-only in `cls` (canon_class): a slow key or a canon_only glob."""
+    import fnmatch
+    return name in (cls.get("slow") or ()) or any(fnmatch.fnmatchcase(name, g) for g in (cls.get("globs") or ()))
+
+
 _PROOF_IN_BACKTICKS = re.compile(r"`(test_[a-z0-9_]+\.py)`")
 # Carriers read as PROSE (a name anywhere in the text counts); the structured ones are read by their field below.
 _PROSE_CARRIERS = ("scripts/install_smoke.py", "design/architecture.md", "design/factory-rules.md")

@@ -18,7 +18,6 @@ import ast
 import atexit
 import base64
 import contextlib
-import fnmatch
 import hashlib
 import io
 import json
@@ -889,18 +888,6 @@ def _scenarios(tests: Path, scripts: Path, door_modules: dict) -> dict:
 CANON_HEADER = "canon judges, do not run locally:"
 
 
-def _canon_class(package: Path, layers: dict) -> dict:
-    """The canon-only class as data {"slow": [names] | None, "slow_why": str, "globs": [globs] | None}: the `files` of
-    slow_tests.json (selftest.slow_tests, its one reader) and the `canon_only` globs of test-layers.json (the layers dict the
-    caller read through selftest.test_layers). None = could not be read; witness_for says so, never refuses (FG7-63)."""
-    import selftest
-    try:
-        slow, why = list(selftest.slow_tests(package / "scripts" / "slow_tests.json")["files"]), ""
-    except Exception as exc:  # noqa: BLE001 - a reader failure of any kind is "could not be read", said in the output
-        slow, why = None, str(exc).splitlines()[0] if str(exc) else type(exc).__name__
-    return {"slow": slow, "slow_why": why, "globs": layers.get("canon_only")}
-
-
 def witness_for(paths, package: Path | None = None, layers: dict | None = None, door_modules: dict | None = None,
                 canon: dict | None = None) -> list:
     """One or more lines per changed path: the scenario tests whose doors reach it, the keep rows whose `covers` name it, or
@@ -914,18 +901,18 @@ def witness_for(paths, package: Path | None = None, layers: dict | None = None, 
     if layers is None:
         import selftest
         layers = selftest.test_layers()
-    canon = canon if canon is not None else _canon_class(package, layers)
-    slow, globs = set(canon.get("slow") or ()), canon.get("globs") or ()
+    import selftest
+    canon = canon if canon is not None else selftest.canon_class(package, layers)
 
     def is_canon(test: str) -> bool:
-        return test in slow or any(fnmatch.fnmatchcase(test, g) for g in globs)
+        return selftest.is_canon(test, canon)
 
     scenarios = _scenarios(tests, scripts, door_modules)
     lines = []
-    if canon.get("slow") is None:
-        lines.append(f"slow_tests.json could not be read ({canon.get('slow_why') or 'no reason given'}): "
-                     "only the canon_only globs were applied")
-    if canon.get("globs") is None:
+    if canon.get("slow") is None or canon.get("globs") is None:
+        lines.append(f"canon class could not be read ({'; '.join(canon.get('why') or ['no reason given'])}): "
+                     "only what was read was applied")
+    if canon.get("no_list"):
         lines.append("test-layers.json names no canon_only list: only the slow list was applied")
     if layers.get("absent"):
         lines.append("test-layers.json is absent: no keep row is consulted, only the imports of the scenario doors")

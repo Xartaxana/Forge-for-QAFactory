@@ -60,7 +60,7 @@ def package_tree() -> Path:
 
 def witness(paths, absent=False, **canon) -> str:
     keep = {"test_gate.py": {"layer": "gate_named", "covers": ["z.py", "references/r.json", "scripts/tests/fixtures/x"]}}
-    cls = {"slow": [], "slow_why": "", "globs": []} | canon
+    cls = {"slow": [], "globs": [], "no_list": False, "why": []} | canon
     return "\n".join(W.witness_for(paths, package_tree(), {"absent": absent, "keep": {} if absent else keep}, {"exit_gate": ["a"]}, cls))
 
 
@@ -478,9 +478,9 @@ def main() -> None:
          "run locally: 1 file(s); canon judges: 1 file(s)"),
         ("witness_for: a canon_only glob moves a keep row too", witness(["scripts/z.py"], globs=["test_gate*.py"]),
          "canon judges, do not run locally:\nscripts/z.py: keep test_gate.py"),
-        ("witness_for: a slow list that could not be read is said", witness(["scripts/z.py"], slow=None, slow_why="not found"),
-         "slow_tests.json could not be read (not found): only the canon_only globs were applied"),
-        ("witness_for: an absent canon_only list is said", witness(["scripts/z.py"], globs=None),
+        ("witness_for: a slow list that could not be read is said", witness(["scripts/z.py"], slow=None, why=["slow_tests.json: not found"]),
+         "canon class could not be read (slow_tests.json: not found): only what was read was applied"),
+        ("witness_for: an absent canon_only list is said", witness(["scripts/z.py"], no_list=True),
          "test-layers.json names no canon_only list: only the slow list was applied"),
         ("witness_for: a deleted path counts as changed", witness(["scripts/gone.py"]), "deleted or absent on disk"),
         ("witness_for: no test-layers.json is stated", witness(["scripts/c.py"], absent=True), "test-layers.json is absent"),
