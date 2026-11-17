@@ -1,0 +1,1 @@
+- walk session server (`walk_session.py`): the server is started with a hidden console (CREATE_NO_WINDOW) instead of DETACHED_PROCESS on Windows; the console children it runs no longer each open an empty terminal window

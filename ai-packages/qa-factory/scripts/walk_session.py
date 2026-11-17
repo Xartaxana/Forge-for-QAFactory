@@ -2036,7 +2036,9 @@ def open_walk(args, wait_s=None) -> int:
 
 
 def _spawn(argv, log):
-    flags = 0x00000008 | 0x00000200 if os.name == "nt" else 0       # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP, never DETACHED_PROCESS: a console-less server gives every console child its own
+    # visible terminal window; a hidden console is inherited by the children (CREATE_NO_WINDOW is ignored under DETACHED_PROCESS)
+    flags = 0x08000000 | 0x00000200 if os.name == "nt" else 0
     out = open(log, "ab")
     return subprocess.Popen([*argv, "--own-process"], stdin=subprocess.DEVNULL, stdout=out, stderr=out, creationflags=flags,
                             start_new_session=(os.name != "nt"), close_fds=True)

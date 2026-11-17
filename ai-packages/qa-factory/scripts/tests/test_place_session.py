@@ -17,6 +17,7 @@ import json
 import re
 import sys
 import traceback
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -540,6 +541,21 @@ def test_the_two_reopens_share_one_body():
         assert "_walk_reopen_open(" in source and '"open"' not in source and "WS.alive" not in source, fn.__name__
     body = inspect.getsource(story_run.Driver._walk_reopen_open)
     assert body.count('"open"') == 1 and "WS.alive" in body
+
+
+def test_spawn_hides_its_console_instead_of_detaching():
+    seen, log = [], Path(tempfile.mkdtemp()) / "log.txt"
+    real_os_name, real_popen = WS.os.name, WS.subprocess.Popen
+    try:
+        WS.subprocess.Popen = lambda argv, **kw: seen.append(kw) or type("P", (), {"pid": 1})()
+        for name in ("nt", "posix"):
+            WS.os.name = name
+            WS._spawn(["x"], log)
+    finally:
+        WS.os.name, WS.subprocess.Popen = real_os_name, real_popen
+    nt, posix = seen
+    assert nt["creationflags"] & 0x08000000 and nt["creationflags"] & 0x200 and not nt["creationflags"] & 0x8 and nt["start_new_session"] is False
+    assert posix["creationflags"] == 0 and posix["start_new_session"] is True
 
 
 def main() -> int:
