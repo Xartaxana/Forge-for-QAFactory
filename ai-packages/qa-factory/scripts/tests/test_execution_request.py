@@ -2187,7 +2187,7 @@ def t1rs_sites_after_the_probe() -> None:
         # window_first: two tests of one case in one file, one `--node-id`, no run of the other in this window
         put("work/automation-manifest.json", {"tests": [
             {"case": "TC-001", "file": "tests/test_a.py", "instance_id": "test_one", "selector": "test_one"},
-            {"case": "TC-002", "file": "tests/test_a.py", "instance_id": "test_two", "selector": "test_two"}]})
+            {"case": "TC-001", "file": "tests/test_a.py", "instance_id": "test_two", "selector": "test_two"}]})
         cfg = {"profiles": [{**profile(["pytest", "<test-file>"]), "reporter": {"kind": "junit-xml"}}],
                "execution": {"runtime_probes": {"web": spec}}}
         try:

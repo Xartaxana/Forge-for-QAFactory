@@ -991,7 +991,8 @@ def rs_told_passes_through() -> None:
                                                          "before_sha256": RS.digest(root / "tests" / "test_calc.py"),
                                                          "replacement_utf8": variant}})
             with refusing_run_mine(given):
-                got = RS.diagnostic(root, root / "diag.json", task_of(root), timeout=300)
+                got = RS.diagnostic(root, root / "diag.json", task_of(root),
+                            dispatch="S7-qa-failure-analyst-1", timeout=300)
             check_eq(f"K10p/rs-told-passes-through/diagnostic/{case}: not executed, every distinct check, in order",
                      (got.get("status"), [e.get("check") for e in got.get("told", [])]),
                      ("not_executed", [_told_entry(n)["check"] for n in wanted]))
