@@ -24,13 +24,20 @@ def next_copy_map(environ, tools_dir):
     `.py.next` (FG7-58, spec F5-r): a builder delivers a hook file as a copy beside its live file, and a test run that sets
     `<NAME>_PATH=tools/<name>.py.next` judges the copy. `<name>` is NAME lower-cased. A value that ends in `.py.next` and names
     no existing file, or whose `tools/<name>.py` does not exist, raises RuntimeError naming the variable (a typo must not
-    silently test the live file). Every other value -- a `.py` file (the HYGIENE_GATE_PATH loaders of test_hygiene_gate.py and
+    silently test the live file), and so raises a value whose file name starts with `<name>.py` and is neither `<name>.py` nor
+    `<name>.py.next` (a `.py.nxt` typo; values such as ORIGINAL_PATH are untouched). Every other value -- a `.py` file (the HYGIENE_GATE_PATH loaders of test_hygiene_gate.py and
     test_permission_audit.py), an empty one, a directory -- is ignored."""
     mapping = {}
     for var, value in environ.items():
-        if not var.endswith("_PATH") or len(var) == len("_PATH") or not value.endswith(NEXT_SUFFIX):
+        if not var.endswith("_PATH") or len(var) == len("_PATH"):
             continue
         name = var[:-len("_PATH")].lower()
+        shown = pathlib.PureWindowsPath(value).name
+        if shown.startswith(name + ".py") and shown not in (name + ".py", name + NEXT_SUFFIX):
+            raise RuntimeError("%s=%s: a copy is `%s.py.next` (or the live `%s.py`); this looks like a typo of it"
+                               % (var, value, name, name))
+        if not value.endswith(NEXT_SUFFIX):
+            continue
         path = pathlib.Path(value).resolve()
         if not path.is_file():
             raise RuntimeError("%s=%s names no existing file: a `.py.next` value must name the copy to test" % (var, value))

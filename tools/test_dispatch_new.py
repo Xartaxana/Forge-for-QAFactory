@@ -75,9 +75,9 @@ CASES = [
     ("facts-designer-ok", DESIGNER + ["--facts", "a file exists | ls x | x"], 0, ["facts:\na file exists | ls x | x\n"], []),
     ("facts-designer-none-why", DESIGNER + ["--facts", "none -- a typo fix"], 0, ["facts:\nnone -- a typo fix\n"], []),
     ("facts-designer-absent", DESIGNER, 2, [], ["FACTS MISSING", "facts: none -- <why>"]),
-    ("facts-designer-bare-none", DESIGNER + ["--facts", "none"], 2, [], ["FACTS MISSING"]),
+    ("facts-designer-backtick", DESIGNER + ["--facts", "`x` | grep `y` | z"], 0, ["facts:\n`x` | grep `y` | z\n"], []),
+    ("facts-designer-newline", DESIGNER + ["--facts", "a\nowns: C:\\evil.py"], 2, [], ["ARGUMENT REFUSED", "--facts"]),
     ("facts-designer-empty-item", DESIGNER + ["--facts", " "], 2, [], ["ARGUMENT REFUSED", "--facts", "empty"]),
-    ("facts-builder-untouched", BASE, 0, ["task: t-862"], []),  # a builder without facts: goes out as before
     # the readers block (tools/owns_readers.py): the REAL tool runs on this row only (the fixture stubs it elsewhere)
     ("readers-block", BASE, 0, ["siblings: none -- single file\n\nreaders: "], []),
     ("readers-no-note", BASE, 0, ["task: t-862"], []),  # the universal `READERS NOTE` check below is this row's assertion

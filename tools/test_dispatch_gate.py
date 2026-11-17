@@ -156,7 +156,12 @@ _FACTS_ROWS = [
     ("ok-line", "designer", _FH + "\nfacts: a file exists | ls x | x", 0, [], ""),
     ("ok-block", "designer", _FH + "\nfacts:\n- a file exists | ls x | x", 0, [], ""),
     ("ok-none-why", "designer", _FH + "\nfacts: none -- a typo fix", 0, [], ""),
-    ("no-line", "designer", _FH, 2, [_FACTS_REFUSED, "facts: none -- <why>"], ""),
+    ("block-two-facts", "designer", _FH + "\nfacts:\n- a | ls x | x\n- b | ls y | y", 0, [], ""),
+    ("none-why-below", "designer", _FH + "\nfacts:\nnone -- a typo fix", 0, [], ""),
+    ("none-then-a-fact", "designer", _FH + "\nfacts:\nnone\n- a | b | c", 0, [], ""),
+    ("empty-then-blank", "designer", _FH + "\nfacts:\n\n- a | b | c", 2, [_FACTS_REFUSED], ""),  # the extent ends at the first blank line
+    ("bare-none-synonym", "designer", _FH + "\nfacts: n/a", 2, [_FACTS_REFUSED], ""),
+    ("no-line", "designer", _FH, 2, [_FACTS_REFUSED, "facts: none -- <why>", "manifest-skip: facts -- <reason>"], ""),
     ("empty", "designer", _FH + "\nfacts:", 2, [_FACTS_REFUSED], ""),
     ("bare-none", "designer", _FH + "\nfacts: none", 2, [_FACTS_REFUSED], ""),
     ("none-empty-why", "designer", _FH + "\nfacts: none -- -", 2, [_FACTS_REFUSED], ""),
@@ -186,7 +191,8 @@ def test_facts_check_unknowns_are_a_note_and_a_pass():
     assert code == 0 and "not checked" in note
     class OldManifest:  # a manifest without FACTS_KINDS: the check is not there, nothing refuses
         dispatch_kind = staticmethod(dm.dispatch_kind)
-    assert dispatch_gate.facts_check(payload, dm.section_cut(_FH), OldManifest) == (0, "", "")
+    assert dispatch_gate.facts_check(payload, dm.section_cut(_FH), OldManifest)[:2] == (0, "")
+    assert "dispatch_manifest has no FACTS_KINDS" in dispatch_gate.facts_check(payload, dm.section_cut(_FH), OldManifest)[2]
 
 
 def test_handoff_folder_check_e19_shows_five_paths_only():

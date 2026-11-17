@@ -1265,30 +1265,6 @@ def test_the_siblings_door_names_the_none_with_reason_form():
     assert "siblings (bare none)" in msg and "'siblings: none -- <why>'" in msg
 
 
-# F13 (FG7-58): the `facts:` reader of the one cut. (text, state): None = passes
-_FACTS_STATE_ROWS = [
-    ("no line", "handoff: x", "no line"),
-    ("tail", "facts: a | ls x | x", None),
-    ("empty", "facts:", "empty"),
-    ("empty-then-blank", "facts:\n\n- a | b | c", "empty"),  # the extent ends at the first blank line
-    ("block", "facts:\n- a | ls x | x\n- b | ls y | y", None),
-    ("bare-none", "facts: none", "bare none"),
-    ("bare-none-synonym", "facts: n/a", "bare none"),
-    ("none-no-reason", "facts: none -- -", "bare none"),
-    ("none-why", "facts: none -- a typo fix", None),
-    ("none-why-below", "facts:\nnone -- a typo fix", None),
-    ("none-in-a-block-then-a-fact", "facts:\nnone\n- a | b | c", None),
-    ("quoted", "```\nfacts: a | b | c\n```", "no line"),
-    ("prose", "Facts about the repo: a | b | c", "no line"),
-]
-
-
-@pytest.mark.parametrize("name,text,state", _FACTS_STATE_ROWS, ids=[r[0] for r in _FACTS_STATE_ROWS])
-def test_facts_state(name, text, state):
-    assert dm.facts_state(dm.section_cut(text)) == state
-    assert dm.FACTS_KINDS == ("designer",)
-
-
 # F5-r (FG7-58): the `<NAME>_PATH` copy loader of tools/conftest.py, loaded by its path (a conftest is not importable by name)
 def _conftest_module():
     import importlib.util
@@ -1298,7 +1274,8 @@ def _conftest_module():
     return mod
 
 
-@pytest.mark.parametrize("case", ["next-maps", "py-ignored", "missing-file-loud", "no-live-module-loud"])
+@pytest.mark.parametrize("case", ["next-maps", "py-ignored", "missing-file-loud", "no-live-module-loud", "typo-loud",
+                                  "other-values-ignored"])
 def test_next_copy_loader(case, tmp_path):
     cf = _conftest_module()
     (tmp_path / "zz_live.py").write_text("X = 'live'\n")
@@ -1312,6 +1289,12 @@ def test_next_copy_loader(case, tmp_path):
     elif case == "missing-file-loud":
         with pytest.raises(RuntimeError, match="ZZ_LIVE_PATH"):
             cf.next_copy_map({"ZZ_LIVE_PATH": str(tmp_path / "gone.py.next")}, tmp_path)
+    elif case == "typo-loud":  # t-1202 fix 4's own example: `.py.nxt` must not silently test the live file
+        with pytest.raises(RuntimeError, match="ZZ_LIVE_PATH"):
+            cf.next_copy_map({"ZZ_LIVE_PATH": str(tmp_path / "zz_live.py.nxt")}, tmp_path)
+    elif case == "other-values-ignored":  # a PATH-like variable of the shell must never break the session
+        env = {"ORIGINAL_PATH": "/usr/bin:/c/x.py.bak", "ZZ_LIVE_PATH": "", "ZZ_OTHER_PATH": str(tmp_path / "other.py.nxt")}
+        assert cf.next_copy_map(env, tmp_path) == {}
     else:
         with pytest.raises(RuntimeError, match="ZZ_ORPHAN_PATH"):
             cf.next_copy_map({"ZZ_ORPHAN_PATH": str(tmp_path / "zz_orphan.py.next")}, tmp_path)

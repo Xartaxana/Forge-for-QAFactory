@@ -64,3 +64,21 @@ Note: journal_write 422 and journal_validator 679 are runtime message strings, n
 - `search_control_gate.py` header line 17 "(3) the CLAUDE.md rule reference below points at this template's own command hygiene point 6": a hygiene citation, valid under (d), left.
 - Analogs noticed, not changed: `claim_control_gate.py` lines 32, 210, 268 and `search_control_gate.py` lines 2, 74 cite CLAUDE.md for command hygiene / Windows guidance (valid under (d)). `test_journal_validator.py` has a `rule 12)` string (grep hit) that did not fail on live.
 - Needed beyond the manifest: `tools/dispatch_manifest.py` / `dispatch_gate.py` live files (read), spec sections 5.3/6/7/8, `tools/test_dispatch_gate.py` helpers (`_reading_dispatch`).
+
+## Fix round (attempt 2, one fresh worker for t-1233 and t-1234; critic verdict t-1239 F1-F13)
+
+Nothing committed, no `.py.next` placed. Tree wb-int at 26aa2064.
+
+- F1 DONE: COORDINATOR.md:313-326. The three patterns (line-start, anywhere, write list) are each one unbroken line in a fenced block (COORDINATOR.md:322-324). Probe: the rendered write pattern matches `out.mkdir(parents=True)`, `fh = open(p,"w")` and `p.touch()`, and not `x = 1`.
+- F2 DONE: COORDINATOR.md:3-9 intro rewritten to the verdict's wording (worker block named as CLAUDE.md, auto-loaded; "Without this policy in context (the `COORDINATOR RULES:` line)").
+- F3 DONE: COORDINATOR.md:11 and :15 end with a period.
+- F4 DONE: COORDINATOR.md:335 "The Lead compacts" capitalised, block left in place.
+- F5 DONE: SIBLING_MAP.md:28/37/40/97/99/105/548/550/668, PROJECT.md:28/79, delegation.config.yaml:4/7/70, TWO_VOCABULARIES.md:4/11/18 retargeted (CLAUDE.md -> COORDINATOR.md, or both where the worker block also applies; row 97 "imported by CLAUDE.md" -> "read with COORDINATOR.md (the `COORDINATOR RULES:` line)"; PROJECT.md:28 names the shell bullet as living in CLAUDE.md; SIBLING_MAP:105 gains COORDINATOR.md in the AGENTS.md regeneration list).
+- F6 DONE: dispatch_gate.py.next:777-780 FACTS_MISSING ends with the manifest-skip door sentence; test_dispatch_gate.py "no-line" row asserts it.
+- F7 DONE: dispatch_gate.py.next:796-797 returns FACTS_NOTE_UNCHECKED "dispatch_manifest has no FACTS_KINDS"; OldManifest assertion updated (test_dispatch_gate.py, test_facts_check_unknowns_are_a_note_and_a_pass).
+- F8 DONE (docstring): tools/under_test.py docstring names the split. The convergence node is for the Lead to file (forge/7, owner Lead): not filed by me.
+- F9 DONE: tools/conftest.py:33-40 raises on a file name starting with `<name>.py` that is neither `<name>.py` nor `<name>.py.next`; ORIGINAL_PATH-like values untouched. Rows "typo-loud" and "other-values-ignored" in test_dispatch_manifest.py::test_next_copy_loader.
+- F10 DONE: test_facts_state, _FACTS_STATE_ROWS and the FACTS_KINDS pin deleted from test_dispatch_manifest.py. Moved into the gate `_FACTS_ROWS`: empty-then-blank, bare-none-synonym (n/a), none-why-below, none-then-a-fact, block-two-facts (the one-fact `block` was the same as `ok-block`). test_dispatch_new.py: rows facts-builder-untouched and facts-designer-bare-none deleted.
+- F11 DONE: tools/dispatch_new.py:62-69 `--facts` is exempt from the backtick ban (newline and CR stay banned); rows facts-designer-backtick and facts-designer-newline. Residual: a fact holding a triple backtick opens a fence in the cut, so a header written after it reads as quoted.
+- F12 DONE: docs/tasks/handoffs/t-1233-card-a.md: byte 51537 repaired (the cut `\xe2\x80` completed to an em dash), all CRLF turned to LF; valid UTF-8, 0 CR.
+- F13 DONE: CLAUDE.md:83 R11-h gains "a designer dispatch also carries `facts:` (COORDINATOR.md rule 2)".

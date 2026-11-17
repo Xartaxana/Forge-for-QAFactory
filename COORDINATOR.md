@@ -2,17 +2,17 @@
 
 Read by the coordinator at start and after compaction (SessionStart line `COORDINATOR RULES:`); workers do not read it at boot — a role reads only the section its role file names
 
-Auto-loaded into every session: the routing policy of this repository and its command hygiene, and nothing that not
-every session needs. History of its clauses: `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`. Full state restoration goes
-through BOOT.md ("Restore context from BOOT.md"), not here: boot context is expensive (boot-context-is-expensive
-rule). Without an auto-loaded policy, Lead ends up doing delegable work itself on a tier above the work's
-(cheapest-tier-default rule).
+The coordinator's routing policy of this repository (the worker block — the dispatch form, command hygiene, worker
+duties, Язык — is `CLAUDE.md`, auto-loaded), and nothing that not every session needs. History of its clauses:
+`docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`. Full state restoration goes through BOOT.md ("Restore context from BOOT.md"), not
+here: boot context is expensive (boot-context-is-expensive rule). Without this policy in context (the `COORDINATOR RULES:`
+line), Lead ends up doing delegable work itself on a tier above the work's (cheapest-tier-default rule).
 
-The project's own rules, principles and layout live in PROJECT.md, read with this file (the `COORDINATOR RULES:` line):
+The project's own rules, principles and layout live in PROJECT.md, read with this file (the `COORDINATOR RULES:` line).
 
 The factory building rules, one line each (generated from `ai-packages/qa-factory/design/factory-rules.md`; the full
 text is read before changing the package), and the factory architecture invariants AR-n, one line each (generated from
-`ai-packages/qa-factory/design/architecture.md`; a package change names the AR-n it touches, rule 10):
+`ai-packages/qa-factory/design/architecture.md`; a package change names the AR-n it touches, rule 10).
 
 ## Contents — topic → where to read
 
@@ -312,13 +312,19 @@ a rule.
    characters), written by the Lead from `git -C <tree> rev-parse HEAD` after COMMITTING the reviewed state — the Lead
    commits the reviewed state before each critic dispatch, otherwise the fix round is `nobase`. Measured on `git -C
    <tree> diff -U0 <sha> -- '*.py'` (added lines only; a line whose first non-blank character is `#` is not counted):
-   zero lines matching `^\+\s*(def |class |async def |if |elif |else\b|try:|except\b|finally:|for |while |match |case
-   |return\b|raise\b|break\b|continue\b|yield\b|with\b|assert\b|del\b)`, zero lines containing `\bif\b`, `\bfor\b`,
-   `\blambda\b`, `\band\b` or `\bor\b`, zero new files (`git diff --name-only --diff-filter=A <sha>` and `git ls-files
-   --others --exclude-standard`), zero added `add_argument(`, zero added write calls (`write_text|write_bytes|open\(.*
-   ['"][wax]|append_jsonl|\.write\(|json\.dump|\.unlink\(|os\.(remove|replace|rename|makedirs)|shutil\.|subprocess\.|\
-   .mkdir\(|\.touch\(`), no changed file other than `.py` and `.md`, and no line outside the owns the verdict
-   reviewed. Inside the border the Lead walks the fix diff by the critic's standing questions —
+   zero lines matching the line-start pattern, zero lines matching the anywhere pattern, zero added lines matching the
+   write-call pattern (the three patterns, each on one unbroken line so no wrap changes them, are in the block below),
+   zero new files (`git diff --name-only --diff-filter=A <sha>` and `git ls-files --others --exclude-standard`), zero
+   added `add_argument(`, no changed file other than `.py` and `.md`, and no line outside the owns the verdict
+   reviewed:
+
+```
+^\+\s*(def |class |async def |if |elif |else\b|try:|except\b|finally:|for |while |match |case |return\b|raise\b|break\b|continue\b|yield\b|with\b|assert\b|del\b)
+\bif\b|\bfor\b|\blambda\b|\band\b|\bor\b
+write_text|write_bytes|open\(.*['"][wax]|append_jsonl|\.write\(|json\.dump|\.unlink\(|os\.(remove|replace|rename|makedirs)|shutil\.|subprocess\.|\.mkdir\(|\.touch\(
+```
+
+   Inside the border the Lead walks the fix diff by the critic's standing questions —
    `.claude/agents/critic.md` rule 22, Q1-Q12 — one line per question, plus one line per fix (`fixed: <where>` / `not
    fixed` → another fix round); a new dict entry used as a dispatch table is caught only by this walk (Q1, Q3). The
    `accepted` notes carry `fixes checked by Lead: <verdict path>, border 0`. Outside the border (any count above
@@ -326,7 +332,7 @@ a rule.
    `blocker`, when a fix cannot be matched to its verdict line, or when the acceptor is not strictly above the
    builder's tier (Role ≠ tier), a critic re-review carries only the fix diff and the verdict, and its dispatch names
    its case: `re-review: logic|nobase|blocker|unmatched|tier`. Plans keep PROJECT.md new idea, step 6.
-   the Lead compacts by PROJECT.md § Сессия форджа, a stage
+   The Lead compacts by PROJECT.md § Сессия форджа, a stage
    commit per 2–3 merges, journal notes ≤ 300 chars, CI through `tools/ci_read.py`; a push before a worktree launch
    (`tools/dispatch_gate.py`). The writers, the FULL queue, the per-topic critic and merge waves: PROJECT.md
    «Командная работа» п. 12. Detector: check 17.

@@ -60,10 +60,12 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _forbidden(args) -> str:
-    """The name of the first argument holding a newline / carriage return / backtick, or ''."""
+    """The name of the first argument holding a newline / carriage return / backtick, or ''. `--facts` may hold backticks:
+    a measured result grepped from this repo's markdown usually does, and the generator wraps nothing in them for facts:."""
     for name, value in vars(args).items():
+        banned = FORBIDDEN_CHARS[:2] if name == "facts" else FORBIDDEN_CHARS
         for item in (value if isinstance(value, list) else [value]):
-            if isinstance(item, str) and any(c in item for c in FORBIDDEN_CHARS):
+            if isinstance(item, str) and any(c in item for c in banned):
                 return name
     return ""
 

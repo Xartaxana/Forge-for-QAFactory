@@ -25,7 +25,7 @@ diff and the map, not against the whole codebase.
 
 | Component | Path |
 |---|---|
-| Routing policy | CLAUDE.md |
+| Routing policy | COORDINATOR.md (the worker block: CLAUDE.md) |
 | Role profiles | .claude/agents/{scout,builder,critic,designer}.md |
 | Model binding | delegation.config.yaml |
 | Ladder home (function ranks, bindings; one parser) | `tools/tier_ladder.py` (`FUNCTION_RANKS`); no architect role FILE — the Architect is a function of the session, not of `.claude/agents/` |
@@ -34,10 +34,10 @@ diff and the map, not against the whole codebase.
 | The owner's word on what a builder runs <-> every text a builder is dispatched with (retro 16.11.2026: PROJECT.md п. 13 forbade waiting for CI while hand-typed dispatches still asked for it — nine corrections in one night) | the rule text: PROJECT.md «Командная работа» п. 13 and `docs/TESTING.md` «Что запускать по своей правке»; the role: `.claude/agents/builder.md`; the dispatch: header lines from `tools/dispatch_new.py`, the DoD written by the coordinator — a dispatch POINTS at that section and never restates what to run beyond its own narrow witness; DoD skeletons inside a spec (`docs/tasks/specs/*` §"DoD skeletons") are copies: a changed word is checked against the specs still being dispatched from, in the same move |
 | Digest form v1 — three carriers (forge/5 F5-2 N1, t-804/t-810, 15.10) | `.claude/agents/scout.md` rules 10-11 (the form and the flag table) <-> `tools/fixtures/digest_form/t-794.md` (the example) <-> `tools/digest_form.py` (reads it back; a leaf on `tools/md_table.py` — since N3 also `piles.py`'s table reader: one copy, the same objects; `md_table.fence_walk` is the one fence reader of both; the flag `fence_unclosed:<line>`); a change to one is a change to all three; detectors: `tools/test_handoff_rule_anchors.py` (the key line), `tools/test_digest_form.py` (reads the fixture's example; every flag name in scout.md rule 11 and in the reader) |
 
-A rule change in CLAUDE.md that touches a role's duties (what it must
+A rule change in CLAUDE.md or COORDINATOR.md that touches a role's duties (what it must
 report, verify, or must not do) is checked against that role's profile
 in the same commit. A binding change in delegation.config.yaml never
-changes rule text — CLAUDE.md and the profiles speak in function names
+changes rule text — CLAUDE.md, COORDINATOR.md and the profiles speak in function names
 only (scout/builder/critic/designer/lead), never in model names. A new
 reader of the journal keys a task by its task key, never by the bare id.
 Which carrier OWNS each aspect of a role and which only points to it is axis 31.
@@ -94,15 +94,15 @@ A forge live hook imports the package (coordinator offload, 16.11.2026): `dod_ga
 | The owner's principles | docs/OWNER_PRINCIPLES.md (P1…P31; PROJECT.md § Принципы владельца points there), mirrored as FR-47…FR-57 |
 | Builder rules | .claude/agents/builder.md; docs/TESTING.md «Что запускать по своей правке» |
 | One-line index (generated, loaded every session) | docs/FACTORY_RULES_INDEX.md ← tools/factory_rules_index.py; pre-commit `--check` |
-| Principles index (generated, loaded every session) | docs/OWNER_PRINCIPLES_INDEX.md ← tools/factory_rules_index.py (row P); imported by CLAUDE.md; pre-commit `--check` |
+| Principles index (generated, loaded every session) | docs/OWNER_PRINCIPLES_INDEX.md ← tools/factory_rules_index.py (row P); read with COORDINATOR.md (the `COORDINATOR RULES:` line); pre-commit `--check` |
 | Architecture index (generated, loaded every session) | docs/ARCHITECTURE_INDEX.md ← tools/architecture_index.py; pre-commit + CI `forge-check` `--check`; ids read by tools/architecture_gate.py (commit-msg) |
-| Codex copy of CLAUDE.md + imports + hooks + roles (generated) | AGENTS.md ← tools/agents_md.py; pre-commit `--check` |
+| Codex copy of CLAUDE.md + COORDINATOR.md + imports + hooks + roles (generated) | AGENTS.md ← tools/agents_md.py; pre-commit `--check` |
 
 A new rule or principle lands in the rules file and, where the package
 violates it today, in the debt file in the same commit; a debt entry
 names its backlog item; a closed backlog item removes its debt entry.
 A rules change regenerates the index in the same commit (enforced by
-pre-commit). A change to docs/OWNER_PRINCIPLES.md regenerates docs/OWNER_PRINCIPLES_INDEX.md, and with it AGENTS.md, in the same commit (both enforced by pre-commit). A change to CLAUDE.md, PROJECT.md, the index, .claude/settings.json,
+pre-commit). A change to docs/OWNER_PRINCIPLES.md regenerates docs/OWNER_PRINCIPLES_INDEX.md, and with it AGENTS.md, in the same commit (both enforced by pre-commit). A change to CLAUDE.md, COORDINATOR.md, PROJECT.md, the index, .claude/settings.json,
 an agent file or the journal tier words regenerates AGENTS.md in the same commit
 (enforced by pre-commit). Every byte-compared generated file is pinned
 `text eol=lf` in .gitattributes, or a Windows clone reports it stale (t-063).
@@ -545,9 +545,9 @@ hygiene, worker duties), `delegation.config.yaml` (the model binding), the exam 
 | `gateway/shadow_eval.py` (`JUDGE_SYSTEM_PROMPT`) | judge | credential prompt | owner; judge.md copies it verbatim |
 | `tools/judge_client.py` (`JUDGE_INSTRUCTION`) | judge | acceptance prompt | owner; judge.md copies it verbatim |
 | `tools/escape_check.py` | judge | the prompt pin | detector |
-| `tools/install_parity_anchors.json` | all role files, CLAUDE.md, PROCESS | presence of rule text | detector (presence) |
+| `tools/install_parity_anchors.json` | all role files, CLAUDE.md, COORDINATOR.md, PROCESS | presence of rule text | detector (presence) |
 | `tools/test_handoff_rule_anchors.py` | builder, critic, designer, scout, judge | hand-back keys, pointer form | detector |
-| `tools/tests/test_role_carriers_one_owner.py` | all | one owner per key, pointers resolve, every cell of CLAUDE.md § Contents and PROJECT.md § Оглавление resolves (TOC_POINTERS) | detector |
+| `tools/tests/test_role_carriers_one_owner.py` | all | one owner per key, pointers resolve, every cell of COORDINATOR.md § Contents and PROJECT.md § Оглавление resolves (TOC_POINTERS) | detector |
 | `~/.claude/projects/<slug>/memory/` (MEMORY.md and its role-habit files) | Lead | coordinator habits | outside the repo: a line there points to its owner; the Lead fixes a restatement there |
 
 Closing rule: a change to an aspect edits its OWNER and, in the same commit, walks every row of this table that points to
@@ -665,7 +665,7 @@ here as a queued axis, not left to be rediscovered later. An axis
 whose symmetry has disappeared (a paired file deleted, a mechanism
 retired) is removed in the same commit that removes the symmetry.
 
-Drafting is not writing (Role ≠ tier, CLAUDE.md): a coordinator below
+Drafting is not writing (Role ≠ tier, COORDINATOR.md): a coordinator below
 the lead binding may survey, draft and argue candidate axes — but the
 write into this file is Lead-tier judgment (each axis taxes every
 future mechanism commit with an enumeration line). Below-lead
