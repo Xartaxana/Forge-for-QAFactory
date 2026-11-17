@@ -14,8 +14,11 @@ import sys
 import time
 from pathlib import Path
 
-import compact_snapshot as cs
 import gitcmd
+from under_test import load_under_test
+
+
+cs = load_under_test("COMPACT_SNAPSHOT_PATH", "compact_snapshot")
 import session_context as sc
 
 NOW = datetime.datetime(2026, 10, 2, 13, 31, 5)
@@ -660,6 +663,80 @@ def test_snapshot_identity_round_trip_and_narratives(tmp_path):
     (tmp_path / "d.md").write_bytes(b"")
     assert cs.snapshot_identity(tmp_path / "d.md") is None
     assert cs.header_line("a;b --> c", "x", when).count("\n") == 0 and "-->" not in cs.header_line("a;b --> c", "x", when)[:-3]
+
+
+_PROC = {"pid": 4321, "created": 1763380000.25}
+_WHEN = datetime.datetime(2026, 11, 17, 9, 30, 0)
+_HEAD = "<!-- compact-snapshot: narrative; session-proc: 4321-1763380000.250; written: 2026-11-17T09:30:00 -->"
+
+
+def test_narrative_header_round_trip_and_odd_fields(tmp_path):
+    assert cs.narrative_header_line(_PROC, _WHEN) == _HEAD
+    f = tmp_path / "n.md"
+    f.write_text(_HEAD + "\n# body\n", encoding="utf-8")
+    assert cs.narrative_identity(f) == {"session_proc": "4321-1763380000.250", "written": "2026-11-17T09:30:00"}
+    assert cs.snapshot_identity(f) is None                                   # a stamped narrative is no hook snapshot
+    odd = {"a": cs.NARRATIVE_HEADER_PREFIX + " -->\n", "b": cs.NARRATIVE_HEADER_PREFIX + "; session-proc: x; written: soon -->\n",
+           "c": cs.NARRATIVE_HEADER_PREFIX + "; session-proc: 12-; written: 2026-11-17T09:30:00 -->\n"}
+    for name, text in odd.items():
+        (tmp_path / (name + ".md")).write_text(text, encoding="utf-8")
+    assert cs.narrative_identity(tmp_path / "a.md") == {"session_proc": "unknown", "written": "unknown"}
+    assert cs.narrative_identity(tmp_path / "b.md") == {"session_proc": "unknown", "written": "unknown"}
+    assert cs.narrative_identity(tmp_path / "c.md") == {"session_proc": "unknown", "written": "2026-11-17T09:30:00"}
+    (tmp_path / "d.md").write_text("# plain\n", encoding="utf-8")
+    (tmp_path / "e.md").write_text(cs.header_line("s", "auto", _WHEN) + "\n", encoding="utf-8")
+    (tmp_path / "g.md").write_bytes(b"")
+    assert [cs.narrative_identity(tmp_path / n) for n in ("d.md", "e.md", "g.md")] == [None, None, None]
+    for bad in (None, {}, {"pid": "x", "created": 1}):
+        try:
+            cs.narrative_header_line(bad, _WHEN)
+        except ValueError:
+            continue
+        raise AssertionError("a stamp was written for %r" % (bad,))
+
+
+def test_stamp_narrative_inserts_once_keeps_the_body_and_refuses_with_the_door(tmp_path, capsys):
+    ok = lambda: (_PROC, "")
+    body = "# narrative\r\nline two\r\n".encode("utf-8")
+    cases = {"plain": (body, _HEAD.encode() + b"\r\n" + body),
+             "lf": (b"# n\nx\n", _HEAD.encode() + b"\n# n\nx\n"),
+             "bom": (b"\xef\xbb\xbf# n\r\nx\r\n", _HEAD.encode() + b"\r\n\xef\xbb\xbf# n\r\nx\r\n")}
+    for name, (before, after) in cases.items():
+        f = tmp_path / (name + ".md")
+        f.write_bytes(before)
+        assert cs.stamp_narrative(f, _WHEN, walk=ok)[0] == 0
+        assert f.read_bytes() == after, name
+        assert cs.narrative_identity(f)["session_proc"] == "4321-1763380000.250"
+        assert cs.stamp_narrative(f, _WHEN + datetime.timedelta(hours=1), walk=ok)[0] == 0   # idempotent
+        assert f.read_bytes() == after, name
+    hook = tmp_path / "hook.md"
+    hook.write_text(cs.header_line("s", "auto", _WHEN) + "\n# x\n", encoding="utf-8")
+    refused = [(hook, ok), (tmp_path / "missing.md", ok)]
+    for reason in ("no claude.exe ancestor", "orphan at bash.exe", "hops over 32", "api error 5", "posix session name not measured"):
+        f = tmp_path / "r.md"
+        f.write_text("# n\n", encoding="utf-8")
+        refused.append((f, lambda reason=reason: (None, reason)))
+        code, msg = cs.stamp_narrative(f, _WHEN, walk=refused[-1][1])
+        assert code == 2 and reason in msg and "--stamp-narrative" in msg and f.read_text(encoding="utf-8") == "# n\n", msg
+    for f, walk in refused[:2]:
+        before = f.read_bytes() if f.exists() else None
+        code, msg = cs.stamp_narrative(f, _WHEN, walk=walk)
+        assert code == 2 and "--stamp-narrative" in msg, msg
+        assert (f.read_bytes() if f.exists() else None) == before
+    assert not list(tmp_path.glob("*.stamp-tmp"))
+
+
+def test_stamp_narrative_door_exits_2_without_a_session(tmp_path, monkeypatch, capsys):
+    import session_proc
+    monkeypatch.setattr(session_proc, "session_process", lambda *a, **k: (None, "no claude.exe ancestor"))
+    f = tmp_path / "n.md"
+    f.write_text("# n\n", encoding="utf-8")
+    assert cs.main(["--stamp-narrative", str(f)]) == 2
+    assert "no claude.exe ancestor" in capsys.readouterr().out and f.read_text(encoding="utf-8") == "# n\n"
+    monkeypatch.setattr(session_proc, "session_process", lambda *a, **k: (_PROC, ""))
+    assert cs.main(["--stamp-narrative", str(f)]) == 0
+    assert cs.narrative_identity(f)["session_proc"] == "4321-1763380000.250"
+    assert not (tmp_path / "docs").exists()                                    # the door writes no snapshot
 
 
 def test_reminder_names_only_what_exists():

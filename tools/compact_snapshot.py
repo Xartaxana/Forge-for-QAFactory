@@ -125,6 +125,84 @@ def snapshot_identity(path):
     }
 
 
+# The identity of a hand-written NARRATIVE (bounded-waits spec r2, fork FN a): a stamped first line naming the session
+# PROCESS (pid and creation time, from tools/session_proc.py) that wrote it. One writer (narrative_header_line), one
+# reader (narrative_identity); tools/session_context.py compares the stamp with its own walk. Never a hook header.
+NARRATIVE_HEADER_PREFIX = "<!-- compact-snapshot: narrative"
+_NARRATIVE_FIELD_RE = re.compile(r"(?:^|;)\s*(session-proc|written):\s*([^;>]*?)\s*(?=;|-->|$)")
+_PROC_VALUE_RE = re.compile(r"^\d+-\d+(?:\.\d+)?$")
+_WRITTEN_VALUE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
+STAMP_DOOR = "python -B tools/compact_snapshot.py --stamp-narrative <file>"
+
+
+def session_proc_stamp(proc) -> str:
+    """The ONE encoder of the stamp value, `<pid>-<created %.3f>`: the writer below and the reader in session_context both call
+    it. `proc` = {"pid", "created"} of session_proc.session_process(); anything else raises ValueError (never a guessed stamp)."""
+    try:
+        pid, created = int(proc["pid"]), float(proc["created"])
+    except (TypeError, KeyError, ValueError):
+        raise ValueError("no session process to stamp")
+    return f"{pid}-{created:.3f}"
+
+
+def narrative_header_line(proc, written: datetime.datetime) -> str:
+    """The first line of a stamped narrative (the one writer of the form); a `proc` that is no session process raises ValueError."""
+    return (f"{NARRATIVE_HEADER_PREFIX}; session-proc: {session_proc_stamp(proc)}; "
+            f"written: {written.strftime('%Y-%m-%dT%H:%M:%S')} -->")
+
+
+def narrative_identity(path):
+    """{"session_proc", "written"} of a stamped narrative, or None when the first line is no narrative header.
+    A header whose prefix is present but whose fields are missing or odd still reads as stamped: the odd field is
+    "unknown" (never a value that could match a session). Reads at most HEADER_READ_BYTES bytes; OSError raises."""
+    with open(path, "rb") as f:
+        raw = f.read(HEADER_READ_BYTES)
+    first = raw.decode("utf-8", "replace").lstrip("﻿").split("\n", 1)[0].strip()
+    if not first.startswith(NARRATIVE_HEADER_PREFIX):
+        return None
+    fields = {k: v for k, v in _NARRATIVE_FIELD_RE.findall(first[len(NARRATIVE_HEADER_PREFIX):])}
+    proc, written = fields.get("session-proc", ""), fields.get("written", "")
+    return {
+        "session_proc": proc if _PROC_VALUE_RE.match(proc) else SESSION_UNKNOWN,
+        "written": written if _WRITTEN_VALUE_RE.match(written) else SESSION_UNKNOWN,
+    }
+
+
+def stamp_narrative(path, now: datetime.datetime = None, walk=None):
+    """The door `--stamp-narrative <path>`: puts the narrative header on line 1 of a hand-written narrative.
+    Returns (exit code, message): 0 stamped or already stamped (the file is left byte-identical), 2 refused with the
+    door named. Refuses: a missing file, a hook snapshot (not a narrative), no session process (any none-reason of
+    session_proc, named). `walk` = session_proc.session_process (tests pass a fake)."""
+    p = Path(path)
+    if not p.is_file():
+        return 2, f"stamp refused: {p} is not a file -- give the path of the narrative: {STAMP_DOOR}"
+    try:
+        if snapshot_identity(p) is not None:
+            return 2, (f"stamp refused: {p.name} starts with a hook header, it is a hook snapshot, not a narrative -- "
+                       f"stamp the hand-written narrative: {STAMP_DOOR}")
+        if narrative_identity(p) is not None:
+            return 0, f"stamp: {p.name} is already stamped -- unchanged"
+        if walk is None:
+            import session_proc
+            walk = session_proc.session_process
+        proc, reason = walk()
+        if not proc:
+            return 2, (f"stamp refused: no session process ({reason or 'unknown'}) -- run it from inside the session "
+                       f"that wrote the narrative: {STAMP_DOOR}")
+        data = p.read_bytes()
+        bom = b"\xef\xbb\xbf" if data.startswith(b"\xef\xbb\xbf") else b""
+        body = data[len(bom):]
+        first_end = body.find(b"\n")
+        eol = b"\r\n" if first_end > 0 and body[first_end - 1:first_end] == b"\r" else b"\n"
+        head = narrative_header_line(proc, now or datetime.datetime.now()).encode("utf-8")
+        tmp = p.with_name(p.name + ".stamp-tmp")
+        tmp.write_bytes(head + eol + bom + body)
+        os.replace(tmp, p)
+        return 0, f"stamp: {p.name} stamped for session process {proc['pid']}"
+    except Exception as exc:                                  # a refusal with the door, never a traceback
+        return 2, f"stamp refused: {type(exc).__name__}: {one_line(exc, 160)} -- {STAMP_DOOR}"
+
+
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
@@ -713,7 +791,13 @@ def main(argv=None, root: Path = None) -> int:
         ap.add_argument("--root", default=None, help="repo root (default: this file's parent's parent)")
         ap.add_argument("--session", default=None,
                         help="session id for the header (overrides the payload's; the door of a MISSING snapshot)")
+        ap.add_argument("--stamp-narrative", default=None, metavar="FILE",
+                        help="stamp a hand-written narrative with this session's process (no snapshot is written)")
         args, _unknown = ap.parse_known_args(argv)
+        if args.stamp_narrative:
+            code, message = stamp_narrative(args.stamp_narrative)
+            emit(message)
+            return code
         payload_trigger, payload_session = _read_trigger_from_stdin()
         source = args.source or payload_trigger or "unknown"
         session = clean_session_id(args.session) or payload_session

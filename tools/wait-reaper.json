@@ -1,0 +1,26 @@
+{
+  "limit_seconds": 7200,
+  "session_process_names": {
+    "nt": ["claude.exe"],
+    "posix": []
+  },
+  "tool_call_roots": ["bash.exe", "cmd.exe"],
+  "wrapper_forms": [
+    {
+      "id": "bash-eval",
+      "name": "bash.exe",
+      "contains": ["snapshot-bash-", "eval '"],
+      "decode": "bash-eval"
+    },
+    {
+      "id": "powershell-cmd",
+      "name": "cmd.exe",
+      "contains": ["chcp.com", "65001", "powershell.exe", "CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT"],
+      "decode": null
+    }
+  ],
+  "never_reap": {
+    "names": ["gh.exe", "gh", "docker.exe", "docker"],
+    "cmd_substrings": ["story_run.py", "run_headless.py", "story_step.py", "worktree_sweep.py", "wait_reaper.py", "-NoExit"]
+  }
+}

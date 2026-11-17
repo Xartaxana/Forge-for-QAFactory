@@ -865,6 +865,13 @@ the source's own number.
     machine one; do not present one as the other. An empty window (the
     combination never occurred) is noted explicitly — "no truncated
     status claims".
+    (e) UNBOUNDED WAITS: the `unbounded wait` count from `permission_audit --summary`; from `<git common
+    dir>/wait-reaper/run.log` every `stopped`, `reported`, `unknown-root` line of the window (and every `kept root=<pid>` line:
+    a never_reap-kept tree older than the limit, still wanted?; and every `fails=` field: a process that could not be stopped)
+    and the `no-session`/`orphans` counters. Each stop is a leak past the gate: read `cmd` and `kids`, name the form (script
+    file, `bash -c`, dynamic cap, unknown hang), add a grammar row or record a named residual; each `unknown-root` is a harness
+    wrapper change: add a `wrapper_forms` row. Unstamped/foreign `COMPACT NARRATIVE` lines seen in the window are counted.
+    None: "no reaped waits".
 
 28. **Completeness of hand-backs: the report file and the short digest.** Mechanism: the rule
     "the report is a FILE at the dispatch's `handoff:` path and the
