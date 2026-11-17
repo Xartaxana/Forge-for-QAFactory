@@ -60,7 +60,9 @@ from hooklib import artifacts_dir, require_project  # noqa: E402
 import contract as C  # noqa: E402
 from hooklib import sorted_paths  # noqa: E402
 
-MAX_LINES = 40
+# Raised 40 -> 41, a named raise (AR-20): FV1-9 added the card and help lines (merge ec7b8380, 14.11.2026), and the
+# largest brief the selftest renders measures 41 lines; raised by the Lead 17.11.2026 on the owner's word about size limits.
+MAX_LINES = 41
 # Gate B's list is three lines per bug by construction, so its cap is a count of BUGS, not of
 # lines: a delivery with fourteen bugs is a real delivery, and folding its list would put the
 # person back to opening files to answer.
@@ -5262,6 +5264,9 @@ def selftest() -> int:
              len(data["gate_waivers"]) + len(data["stage_overrides"]), 2)
         text = render(data)
         case("the brief fits the cap", len(text.splitlines()) <= MAX_LINES, True)
+        # the limit stays a tested limit: the largest brief sits AT the cap, and one line less of cap is BEYOND it
+        case("the largest brief sits exactly at the cap", len(text.splitlines()), MAX_LINES)
+        case("one line under the cap the same brief is over", len(text.splitlines()) <= MAX_LINES - 1, False)
         case("it shows the pyramid", "e2e-ui/automate 2" in text, True)
         case("it repeats what the person already decided",
              "Already decided by you" in text, True)
