@@ -60,6 +60,9 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import contract as C  # noqa: E402
+# The ONE predicate a gate word is accepted through: every reuse of an old result, probe or receipt reads the
+# `test_identity` row of the gate registry (AR-13); an unreadable registry refuses the reuse (AR-28).
+from gate_template import acceptable, registry_problem  # noqa: E402
 
 # The block name of a repeated probe: the words of a refusal carry it, and a person's recorded word
 # (`waiver.py --block`) matches it. One constant, so the refusal and the door cannot drift apart.
@@ -939,6 +942,10 @@ WHY_RUN_CHANGED = "the test, or a fixture or helper it uses, changed since {run}
 WHY_RUN_UNMEASURABLE = "the test or a file it depends on cannot be measured now"
 WHY_RUN_NOT_COMPARED = ("the test has no per-test identity to compare: no run of the story selected it, "
                         "or no story folder was given")
+# An unreadable gate registry refuses every reuse, and says so: it is a defect of the install, not a change of the
+# test (FR-41: an unknown is never reported as a fact).
+WHY_RUN_REGISTRY = "the gate registry cannot be read ({reason}): a factory defect, not a change of the test"
+WHY_RECEIPT_REGISTRY = "the gate registry cannot be read ({reason}): a factory defect, the receipt was not judged"
 WHY_NO_RUN = "no run of this instance reached a result"
 RUN_SHA_KEYS = ("instance_content_sha", "instance_code_sha")
 
@@ -971,8 +978,11 @@ def _run_freshness(entry, run_row, task_root, now) -> tuple:
             # the test depends on, not an absence of news: `function_sha` gives "" for it, and "" never reads fresh
             return "stale", WHY_RUN_UNMEASURABLE
         return "unknown", why or WHY_RUN_NOT_COMPARED
-    if same_test(now, {"instance_identity": dict(shas, job_id="")}) in ("instance", "instance_code"):
+    if acceptable(same_test(now, {"instance_identity": dict(shas, job_id="")}), "test_identity.run_fresh"):
         return "fresh", ""
+    problem = registry_problem()
+    if problem:
+        return "stale", WHY_RUN_REGISTRY.format(reason=problem)
     attempt = shas.get("attempt_id")
     return "stale", WHY_RUN_CHANGED.format(run=f"run {attempt}" if attempt else "its run")
 
@@ -1411,7 +1421,8 @@ def _product_receipt_repeat(entry, ids, now, task_root, project, check_key, note
     for one in ids:
         record = _read_record(probe_record_path(task_root, one, "product"), notes)
         if not (record is not None and record.get("verdict") == "intended_failure"
-                and same_test(now, proof_identity(record)) and _mutated_files_hold(record, entry, project)):
+                and acceptable(same_test(now, proof_identity(record)), "test_identity.probe_repeat")
+                and _mutated_files_hold(record, entry, project)):
             continue
         try:
             stem = C.instance_file_stem(one)
@@ -1524,7 +1535,8 @@ def already_probed(entry, manifest, task_root, *, now=None, project=None, stage:
                     notes.append(f"the check record {path.name} was made for another model entry; this probe runs")
                     continue
                 if (record is not None and record.get("verdict") in ("no_failure", "wrong_location")
-                        and same_test(now, proof_identity(record)) and _mutated_files_hold(record, entry, project)):
+                        and acceptable(same_test(now, proof_identity(record)), "test_identity.probe_repeat")
+                        and _mutated_files_hold(record, entry, project)):
                     if not _same_target(record, target):
                         notes.append(_earlier_line_note(record, target))
                         continue
@@ -1539,7 +1551,8 @@ def already_probed(entry, manifest, task_root, *, now=None, project=None, stage:
         for one in ids:
             record = _read_record(probe_record_path(task_root, one, "product"), notes)
             if (record is not None and record.get("verdict") == "survived"
-                    and same_test(now, proof_identity(record)) and _mutated_files_hold(record, entry, project)):
+                    and acceptable(same_test(now, proof_identity(record)), "test_identity.probe_repeat")
+                    and _mutated_files_hold(record, entry, project)):
                 hit = {"by": "product_record", "level": None, "receipt_ref": {},
                        "record": probe_record_path(task_root, one, "product").relative_to(task_root).as_posix(),
                        "prior_verdict": "survived", "recorded_at": str(record.get("recorded_at") or ""),
@@ -1637,8 +1650,10 @@ def _evaluate(variant: dict, task_root, instance_id: str, now=None, scope_ok: bo
     claims = proof_identity(receipt)
     if not issues and (claims["input_hash"] or claims["instance_identity"]):
         how = same_test(now, claims)
-        if not how:
-            said = (f"its receipt is for other bytes (test_content_hash {receipt.get('test_content_hash')}, "
+        if not acceptable(how, "test_identity.receipt_holds"):
+            problem = registry_problem()
+            said = (WHY_RECEIPT_REGISTRY.format(reason=problem) if problem else
+                    f"its receipt is for other bytes (test_content_hash {receipt.get('test_content_hash')}, "
                     f"the test file now hashes {now['input_hash']}) and other code"
                     if claims["input_hash"] != now["input_hash"] else
                     "its receipt was measured on this very file, and something the test depends on (its "
