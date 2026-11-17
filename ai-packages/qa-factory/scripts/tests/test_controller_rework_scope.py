@@ -355,6 +355,23 @@ def gate_a_cannot_approve_nothing():
         check_in("gate A refuses an empty scope under a plan with rows", "empty scope", refused)
         check_in("naming the rows it read", "TS-1", refused)
         check_in("and the operation that records the reviewed scope", "revise_plan", refused)
+        # RD1-31 (F, `_decision_problems`, the empty scope): the person's word at S4 passes it. A decision refused LATER (stale source
+        # revision) leaves no row; the one that COMMITS leaves exactly one, stage S4
+        pipeline_path = root / "pipeline.json"
+        pipeline = json.loads(pipeline_path.read_text(encoding="utf-8")) if pipeline_path.is_file() else {}
+        pipeline = waiver.apply_stage_override(pipeline, "S4", "empty scope", "the person decided this story approves nothing", waiver.now_iso())
+        pipeline_path.write_text(json.dumps(pipeline), encoding="utf-8")
+        c.open_gate_items = lambda *a, **k: ([], [])    # the open-items rehearsal is not what this row is about
+        rows_file = root / "state" / "passed-by-person.jsonl"
+        try:
+            c.apply("decision", dict(decision, source_revision="src-stale", idempotency_key="gate-a-stale"))
+        except StateConflict:
+            pass
+        check("RD1-31 empty scope: a word present and a LATER refusal leave no row", not rows_file.exists())
+        c.apply("decision", dict(decision, idempotency_key="gate-a-ok"))
+        rows = [json.loads(line) for line in rows_file.read_text(encoding="utf-8").splitlines()]
+        check_eq("RD1-31 empty scope: the committed decision leaves one row, stage S4, the block of the empty scope",
+                 [(r["stage"], r["block"].startswith("Gate A cannot approve an empty scope")) for r in rows], [("S4", True)])
     finally:
         cleanup(root)
 

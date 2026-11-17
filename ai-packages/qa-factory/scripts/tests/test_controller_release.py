@@ -517,13 +517,26 @@ def a_persons_word_passes_the_review_rule():
                                     "accept it, the findings are in the chat and I read them",
                                     waiver.now_iso())
         (root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
-        controller.apply("accept", {"id": "S5-qa-code-critic-1", "status": "accepted",
-                                    "stage_complete": False, "unresolved": True,
-                                    "reason": "the window's second half is not reviewed yet",
-                                    "evidence_refs": [BASE.evidence_ref(root, "digest.txt")],
-                                    "idempotency_key": "a-critic"})
+        request = {"id": "S5-qa-code-critic-1", "status": "accepted", "stage_complete": False, "unresolved": True,
+                   "reason": "the window's second half is not reviewed yet",
+                   "evidence_refs": [BASE.evidence_ref(root, "digest.txt")], "idempotency_key": "a-critic"}
+        try:                      # the word passes the receipts, then ANOTHER block refuses (a window that does not exist): no row
+            controller.apply("accept", dict(request, unresolved=False, reason="", open_windows=["S5-no-such-window"],
+                                        idempotency_key="a-critic-refused"))
+            refused_later = False
+        except (StateConflict, ValueError):
+            refused_later = True
+        check("RD1-31: a word present and a LATER refusal of the same accept leave no row",
+              refused_later and not (root / "state" / "passed-by-person.jsonl").exists())
+        controller.apply("accept", request)
         check_eq("a person's recorded word passes it, like every other block here",
                  controller.state()["dispatches"]["S5-qa-code-critic-1"]["status"], "accepted")
+        # RD1-31 (F, `_code_review_refusal`): the committed accept leaves one row per block the word passed (the receipt problems are
+        # separate blocks), all stage S5, each a different block, none twice
+        rows = [json.loads(line) for line in (root / "state" / "passed-by-person.jsonl").read_text(encoding="utf-8").splitlines()]
+        check("the pass of the receipts is on record: stage S5, the dispatch, a different block per row",
+              rows and all((r["stage"], r["dispatch"]) == ("S5", "S5-qa-code-critic-1") for r in rows)
+              and len({r["block"] for r in rows}) == len(rows) and any("not receipted" in r["block"] for r in rows), rows)
     finally:
         cleanup(root)
 

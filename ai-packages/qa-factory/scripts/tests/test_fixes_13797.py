@@ -291,6 +291,10 @@ def f5_a_person_may_close_s6_without_the_manual_half():
         check_eq("F5: the recorded word passes the block",
                  runner(c, root, "S6-auto", "automation", ["TC-1"], True), "")
         check_eq("F5: S6 completed on it", c.state()["stages"]["S6"]["status"], "completed")
+        # RD1-31 (F, S6 completion): the committed accept leaves exactly one row, stage S6, for the block the word passed
+        rows = [json.loads(line) for line in (root / "state" / "passed-by-person.jsonl").read_text(encoding="utf-8").splitlines()]
+        check_eq("F5: the pass of the derived scope is on record once, stage S6, naming the dispatch",
+                 [(r["stage"], r["dispatch"]) for r in rows if "derived scope" in r["block"] or "S6" in r["block"]], [("S6", "S6-auto")])
     finally:
         cleanup(root)
 

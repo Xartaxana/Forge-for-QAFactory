@@ -2467,6 +2467,7 @@ class Controller:
              "check": row.get("check"), "case": row.get("case"), "tag": row.get("tag"), "subjects": row.get("subjects")}
             for row in rows])
 
+    _s5_round_passed = None   # the `mechanical round` passes of one S5 completion while `validate` collects it, else None
     _passes = None   # [(stage, item)] the person's passes `validate` met, while `apply` holds one commit open; else None
 
     def _note_pass(self, stage, passed):
@@ -5226,7 +5227,7 @@ class Controller:
         # the plan baseline, which the dashboard should already see), then the derived-view
         # refresh when the block ends. A refresh failure therefore never skips `_after_commit`
         # and never undoes the commit.
-        self._passes = [] if operation == "dispatch" else None
+        self._passes = [] if operation in ("dispatch", "decision") else None
         try:
             with self.store.deferred_after_commit():
                 receipt = self.store.commit(EVENT_KIND.get(operation, operation), request, key, revision,
@@ -5931,7 +5932,7 @@ class Controller:
                 # grow, a plan record and a story on the earlier form are accepted exactly as before; S5 does not close while a
                 # grown window's author or critic has not covered it.
                 self._raise_all(self._grown_close_problems(d, p, state))
-                review = [] if s5_part_of(d) == "plan" else self._code_review_refusal(d, p)
+                review, review_passed = ([], []) if s5_part_of(d) == "plan" else self._code_review_refusal(d, p)
                 s5_window = d.get("stage") == "S5" and bool(p.get("stage_complete"))
                 if review and not s5_window:
                     # Outside the S5 completion branch the receipts are the only check that runs,
@@ -6001,20 +6002,28 @@ class Controller:
                     # ONE list (K1): every independent gap of the window at once, in tiers; the
                     # tiers and what each one stops are in `_s5_completion_problems`.
                     # t-1937 TR3-4 (item 5): the backstop first in the list, the rest of the tiers as they were.
-                    self._raise_all(self._s5_running_beside_problems(d, state)
-                                    + self._s5_completion_problems(d, p, state, review))
+                    self._s5_round_passed = []
+                    try:
+                        self._raise_all(self._s5_running_beside_problems(d, state)
+                                        + self._s5_completion_problems(d, p, state, review))
+                        round_passed = self._s5_round_passed
+                    finally:
+                        self._s5_round_passed = None
                     # POSITION (FV1-30a): only here, after the line above did not raise, i.e. when this S5 completion is ACCEPTED.
                     # INVARIANT: a refused completion writes nothing.
                     self._record_s5_word_passes(d, state)
+                    # RD1-31: `s5_precheck.word_passes` judges the manifest's findings and never names `mechanical round`, so that
+                    # block's pass is kept here, at the same position, by the same writer
+                    self._record_person_pass("S5", d.get("id"), round_passed)
                 if d["stage"] == "S6" and p.get("stage_complete"):
                     # t-2147 TR3-9d (the S6 twin of the S5 backstop above): the code gate UNDER the driver's close predicate.
                     # INVARIANT: S6 never closes over a manual lane still at work; a story with no running manual sibling is
                     # refused nothing new.
                     # ONE list (K1, as the S5 branch above): the backstop first, then the derived-scope gap.
                     s6_gaps = self._s6_running_beside_problems(d, state)
-                    blocking = []
+                    blocking, s6_passed = [], []
                     if state.get("plan_contract_mode") == "new":
-                        blocking, _ = self._passed_by_person("S6", self._s6_completion_problems(d, state))
+                        blocking, s6_passed = self._passed_by_person("S6", self._s6_completion_problems(d, state))
                     if blocking:
                         s6_gaps.append((StateConflict,
                             "; ".join(blocking) + ". Accept this dispatch with `stage_complete: "
@@ -6028,6 +6037,12 @@ class Controller:
                             + person_words.door(f"waiver.py --task {self._ticket()} --stage S6 "
                                                 "--block \"derived scope\"") + "`."))
                     self._raise_all(s6_gaps)
+                    # RD1-31, the S6 twin of the S5 record above. POSITION: after the line above did not raise. INVARIANT: a
+                    # refused S6 completion writes nothing; a person's word that passed `derived scope` leaves one row, stage S6.
+                    self._record_person_pass("S6", d.get("id"), s6_passed)
+                # RD1-31. POSITION: the end of the accept branch, after every refusal of it. INVARIANT: the receipts a person's word
+                # passed (`not receipted`) are on record only for an accept that stands.
+                self._record_person_pass(d.get("stage") or "S5", d.get("id"), review_passed)
             elif p["status"] == "accepted":
                 raise ValueError("checkpoint is not acceptance; use accept with validated evidence")
             elif not p.get("checkpoint") or not p.get("reason"):
@@ -6568,13 +6583,14 @@ class Controller:
         return request
 
     def _code_review_refusal(self, d, p):
-        """The code critic's unreceipted window as a one-item problem list, or [] (not a critic,
-        or nothing blocks). A person's recorded word passes a receipt, as at every other check."""
+        """`(problems, passed)`: the code critic's unreceipted window as a one-item problem list, or [] (not a critic,
+        or nothing blocks), and the receipts a person's recorded word passed - the caller records them once the accept stands
+        (RD1-31). A person's recorded word passes a receipt, as at every other check."""
         if d.get("role") != "qa-code-critic":
-            return []
-        blocking, _ = self._passed_by_person(d.get("stage") or "S5", self._code_review_problems(p))
+            return [], []
+        blocking, passed = self._passed_by_person(d.get("stage") or "S5", self._code_review_problems(p))
         if not blocking:
-            return []
+            return [], passed
         # The marker is what a driver routes on: TP1-13797, 26.09 — this
         # refusal says in words that it is not the person's, and still reached
         # the conductor and then the person, because the table knew no such
@@ -6587,7 +6603,7 @@ class Controller:
                  "without them: `"
                  + person_words.door(f"waiver.py --task {self._ticket()} --stage "
                                      f"{d.get('stage') or 'S5'} --block \"not receipted\"")
-                 + "`.")]
+                 + "`.")], passed
 
     # --- SC1-14 B1b: the plan before the windows ---------------------------------------------------------------------------
     # The refusals below are collected (`_raise_all`) so a request meets every gap at once. A refusal a person's word can pass
@@ -7414,7 +7430,9 @@ class Controller:
             # the proof (`acceptance.green_on_current_bytes`). No second critic.
             round_problems = self._tier3_call(self._mechanical_completion_problems,
                                               d, window, reviewer, reviewer_id)
-            blocking, _ = self._passed_by_person("S5", round_problems)
+            blocking, passed = self._passed_by_person("S5", round_problems)
+            if self._s5_round_passed is not None:
+                self._s5_round_passed.extend(passed)     # recorded by `validate` once this S5 completion did not raise (RD1-31)
             if blocking:
                 problems.append((
                     StateConflict,
