@@ -52,6 +52,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import session_context as sc  # noqa: E402
+from no_reaper_wrap import isolated_hook_argv  # noqa: E402
 
 SCRIPT = Path(__file__).resolve().parent / "session_context.py"
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -265,7 +266,7 @@ def test_session_context_subprocess_survives_stdin_that_is_never_closed(tmp_path
     (tmp_path / "logs" / "routing-log.jsonl").write_text("", encoding="utf-8")
     env = dict(os.environ, OSLLM_STDIN_TIMEOUT="0.3")
     proc = subprocess.Popen(
-        [sys.executable, str(SCRIPT)],
+        isolated_hook_argv(SCRIPT, tmp_path),  # copy of the file under test in tmp_path/tools; no real reaper
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

@@ -650,3 +650,18 @@ origin/main (after bounded-waits) into the integration branch, overlaps journal_
 test_compact_snapshot.py resolved as the verdict says; (7) F1' — the Lead replaces «owner word pending» with the owner's
 word and date in commit #2 before `wave.py merge`; on a refusal the topic stops before the merge and B2's F13 and the §5
 texts need a new home; (8) BOOT after the split ≈ 117.1 KB, headroom ≈ 2.9 KB.
+
+## Lead decisions on critic topic 1 (t-1239: NEEDS WORK, 0 blocking, 13 fixes; Lead, 17.11.2026, Opus; «решила сама»)
+
+All 13 fixes F1-F13 are taken, in ONE fix round (fresh builder, the wb-int tree, nothing committed by the builder), as the verdict
+`docs/tasks/specs/reviews/t-1239-worker-boot-a-b2-code.md` words them. Spec amendments the verdict leaves to the Lead:
+- C1 / F2: the COORDINATOR.md intro is rewritten to the verdict's wording (the worker block named as `CLAUDE.md`, auto-loaded; the
+  policy reaches context by the `COORDINATOR RULES:` line); boot-diet SKILL.md:103 keeps its pointer.
+- §5.1 / F4: "The Lead compacts" is capitalised; the block stays where it is.
+- §5.3 / F6: FACTS MISSING ends with "To send it on purpose without measured facts, add: manifest-skip: facts -- <reason>."
+- R11-h / F13: CLAUDE.md R11-h gains "a designer dispatch also carries `facts:` (COORDINATOR.md rule 2)".
+- F5: Card A's owns widen to `docs/TWO_VOCABULARIES.md`; every listed line (SIBLING_MAP 28/37/40/97/99/105/548/550/668,
+  PROJECT.md 28/79, delegation.config.yaml 4/7/70, TWO_VOCABULARIES 4/11/18) is retargeted; §4.1's census gains the section-name
+  form (Tiers, Contents, Role ≠ tier).
+- F8: the under_test.py docstring names the split now; the convergence (one loader for both forms) is a forge/7 node, owner Lead.
+critic topic 1 re-review: the fix diff and this verdict only (one pass per topic, Cost gates).

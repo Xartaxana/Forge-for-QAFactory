@@ -8,9 +8,25 @@
   }
  },
  "joints": {
+  "artifact_producer:validate": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
+  },
   "check_coverage:*": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group"
+  },
+  "estimate_record:facts_problems": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
+  },
+  "exit_gate:witness_errors.failure-analyst": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
+  },
+  "exit_gate:witness_errors.runner": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
   },
   "first_look:put.input": {
    "reach": "unwalked",
@@ -355,7 +371,11 @@
    "unwalked | joints/validate_artifacts:check_run_report_head | L1c census catch-up, 2026-11-17",
    "unwalked | joints/validate_artifacts:check_run_report_v0 | L1c census catch-up, 2026-11-17",
    "unwalked | joints/validate_artifacts:check_test_report | L1c census catch-up, 2026-11-17",
-   "unwalked | joints/validate_artifacts:check_triage_v0 | L1c census catch-up, 2026-11-17"
+   "unwalked | joints/validate_artifacts:check_triage_v0 | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/exit_gate:witness_errors.runner | T1r-cards-a, 2026-11-17",
+   "unwalked | joints/exit_gate:witness_errors.failure-analyst | T1r-cards-a, 2026-11-17",
+   "unwalked | joints/artifact_producer:validate | T1r-cards-a, 2026-11-17",
+   "unwalked | joints/estimate_record:facts_problems | T1r-cards-a, 2026-11-17"
   ]
  }
 }

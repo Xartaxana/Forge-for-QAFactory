@@ -59,6 +59,7 @@ The case critic reads your register at S4, each item against its witness; what y
 - **Work an example by hand.** Invent one concrete input for each rule and compute the answer; where two readers would get two answers, the text has two readings. Apply it to rules with numbers, dates or sets.
 - **Before and now.** For a claim from the diff, find the behaviour before the change; the person decides whether the change is intended - never the as-built value as the intended reading.
 - **Code arrived late.** On a rework of cause `source_arrived`, read the new diff only against the register and the approved cases: per affected row write `code_says` (`meets`, `contradicts`, `unknown`) and name in your handoff `affected`, each row or case with why. A diff that contradicts an approved case is raised, never settled by editing the case; none affected, say so.
+- Read every hunk of the diff, limits, rejected inputs and guards included.
 
 <!-- kind: process -->
 ## Tools

@@ -189,7 +189,7 @@ Your job is to find what's wrong and prove it.
      selftest) is legitimate; `test_story_step.py`, `test_story_run_*.py`, full `selftest.py`, docker,
      ratchets and quarantined files are not — they are the batch canon's (D-0056); a mutation suite is
      nobody's (retired 10.11.2026); re-deriving the mechanics by reading everything is not.
-22. The standing questions — on every diff gate, each with its own verdict line (Q4, Q6 and Q12 also on a plan gate, rule 24):
+22. The standing questions — on every diff gate, each with its own verdict line (Q4, Q6, Q12 and Q10's VARIETY sentence also on a plan gate, rule 24):
    Q1. **Fit to the spec**: every requirement, edge and key the dispatch names — implemented as written,
       with the error direction the spec states (FR-41/FR-59: no unknown becomes a pass).
    Q2. **The builder's own decisions** on points the spec left silent: each in the safe direction, each
@@ -248,7 +248,7 @@ Your job is to find what's wrong and prove it.
       line of `tools/lint_ratchet.py` (`HandReaderInput`). A diff that adds a row to `known_red` or
       `not_in_world`, or raises its pin, names each raise and its existing pile node; a raise the verdict
       does not name is a blocker. A diff that DOORS a site (`# remains: <reason>`) gets its reason read.
-   Q10. **ARCHITECTURE** (D-0055; `design/architecture.md`): which AR-n invariants does the diff touch by its files and functions (grep the map), and does the commit/report name them? For each named one: is its change check done (the producer–reader walk BOTH ways with a positive control; the twins; the one-way rule — no second reader, writer, form or seam)? An AR-n touched but not named, a producer removed while a reader stays, or a second way of an existing thing is a finding with a severity (blocks when a reader is starved).
+   Q10. **ARCHITECTURE** (D-0055; `design/architecture.md`): which AR-n invariants does the diff touch by its files and functions (grep the map), and does the commit/report name them? For each named one: is its change check done (the producer–reader walk BOTH ways with a positive control; the twins; the one-way rule — no second reader, writer, form or seam)? An AR-n touched but not named, a producer removed while a reader stays, or a second way of an existing thing is a finding with a severity (blocks when a reader is starved). VARIETY (§ A of the same file: its variety map and AR-2's passage clause), on its own verdict line `VARIETY:`: on a project of what shape does the diff break, and does the factory there still pass the stage no worse than a free agent on the same model, with no block, no silent default and no hand-off to a person past the role on a value it does not know? An exclusion from a shared mechanism stays Q12; VARIETY asks the unknown-value behaviour. A package spec whose §1 lacks the variety walk is a finding; a diff that blocks, defaults silently or hands the role's work to a person on an unknown value is a finding that blocks when it stops a stage. A spec whose primary draft started before the map landed owes no walk; the critic answers the question itself.
    Q11. **JUDGMENT** (P27, AR-29): does the diff move judgment into code — a check that classifies a role's judgment, closes a role's
       obligation by a closed-list reason, or refuses a role's output on its content? Does it add text a role must read that is not
       testing craft (a procedure of keys, scripts and refusals)? Read every census row the diff adds or reclassifies (a class lowered —
@@ -278,7 +278,7 @@ Your job is to find what's wrong and prove it.
    commands with verbatim output) — under about 1800 words, trail last. The review is a FILE at the dispatch's `handoff:`
    path; its form, the closing json block and the fallback with no path are rules 16-17; acceptance runs
    `python tools/critic_verdict_check.py <file>`, exit 0 required.
-24. The plan gate (critic on a plan or on a dispatch draft; CLAUDE.md rule 3): answer Q13 below and Q4, Q6 and Q12 of
+24. The plan gate (critic on a plan or on a dispatch draft; CLAUDE.md rule 3): answer Q13 below and Q4, Q6, Q12 and Q10's VARIETY sentence of
    rule 22 (read "the diff" as "the plan"), each sub-question with its own verdict line.
    Q13. **FACTS AND EDGES** (evidence: t-896, 65 `failure_class: spec` rejects of 11-16.11.2026 -- 42 found by the code
        critic, 4 by the plan critic). Each sub-question gets its own verdict line.

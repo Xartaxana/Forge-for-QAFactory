@@ -180,10 +180,116 @@
       "joint": null
     },
     {
+      "check": "exit_gate:witness_errors.requirements-tester",
+      "stages": [
+        "S2"
+      ],
+      "requirement": "In work/requirements-readiness.json a register of AC alone while a parent feature exists must be `confidence: low`. work/requirements-readiness.json: `verdict` ready|blocked agreeing with the facts, `goal_summary` >= 30 characters in your own words, `aspects` non-empty with status ready|blocked|n/a and a reason on every n/a, `open_questions[]` each with question, severity blocker|major|minor and owner_role po_ba|dev_arch|qa.",
+      "door": "edit the field the refusal names in work/requirements-readiness.json",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-requirements-tester"
+          ],
+          "field": "work/requirements-readiness.json",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "exit_gate:witness_errors.runner",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "`witness` in work/run-report.json is at least 30 characters, and a run_suite summary it names (evidence/<label>-<ts>.json) EXISTS on disk - a retelling is not a witness. `env_preflight` is pass or blocked, and `totals` is an object. `manual_checks[].result` is pass|fail|inconclusive.",
+      "door": "edit the field the refusal names in work/run-report.json",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "work/run-report.json",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "exit_gate:witness_errors.failure-analyst",
+      "stages": [
+        "S7"
+      ],
+      "requirement": "Every triage row's `evidence` is non-empty whatever the verdict.",
+      "door": "edit the row the refusal names in work/triage.json",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst"
+          ],
+          "field": "work/triage.json",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "artifact_producer:validate",
+      "stages": [
+        "S7"
+      ],
+      "requirement": "Every row also names its `instance_id` and `attempt_id`.",
+      "door": "add the two ids to the row the refusal names in work/triage.json",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst"
+          ],
+          "field": "work/triage.json",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
       "check": "exit_gate:grounding",
       "stages": [
         "S2"
       ],
+      "requirement": "Every production module work/impl-diff*.txt CREATES has to be cited by a `derived` row - the exit gate compares them.",
+      "door": "add a `derived` row to work/requirements-register.md for each module the refusal names, with its `derived_from` and an observable `diff:<file>:<line>`",
       "producers": [
         {
           "roles": [
@@ -192,8 +298,7 @@
           "field": "a derived requirement for each production module the diff creates",
           "told": [
             {
-              "path": "references/slices/<role>/handoff-keys.md",
-              "anchor": "## Outputs"
+              "page": true
             }
           ],
           "demands": [
@@ -208,6 +313,9 @@
       "stages": [
         "S4"
       ],
+      "requirement": "A case file's `id` IS its file name, both in the form named on this brief's `Case id form:` line: `<case id>.md` declares `id: <case id>`. That is the factory's contract over any project note (a note naming another form is not read by code), and the exit gate refuses the handoff otherwise.",
+      "door": "write each case again under the name the refusal shows for it, with `id:` equal to that name",
+      "role_rule": "case-id-in-briefs-form",
       "producers": [
         {
           "roles": [
@@ -216,13 +324,10 @@
           "field": "a case file whose id is its file name",
           "told": [
             {
-              "path": "references/slices/<role>/handoff-keys.md",
-              "anchor": "## Outputs"
+              "page": true
             }
           ],
-          "demands": [
-            "= the file name"
-          ]
+          "demands": []
         }
       ],
       "joint": null
@@ -495,6 +600,9 @@
       "stages": [
         "S4"
       ],
+      "requirement": "critic_rollcall.py computes your verdict from your own findings file at the exit gate. A `## Roll-call` table with one row per case in scope, and give it a column headed `reviewed` holding yes or no. A `Verdict:` line from approve|approve_with_fixes|approve_with_concerns|partial|reject. If any row is not reviewed, an approving verdict is refused: the verdict that roll-call computes is `partial`, your digest must say '<n> of <m> reviewed', and an `Unreviewed for Gate A:` line must name every unreviewed case. A concern of the last round that comes with an exact replacement is applied by code: put those in a fenced JSON array under `## Fixes without a new round`, each object carrying case_id, locator, find, replace and reviewed_version. `approve_with_fixes` without that block is refused, and so is that block beside any other verdict. Cases sharing an R-n: a row per pair under `## Merge candidates` (cases | verdict merge|keep | reason; keep starts P16 or P19); merge: each case `approve_with_concerns`, note `parametrise into one test: <ids>`. e2e-ui/manual row notes: `lower level: <level|impossible> - <why>`. Over the plan case budget: an `Over the plan case budget:` line.",
+      "door": "edit your findings file where the refusal names it",
+      "role_rule": "merge-keep-only-for-p16-p19",
       "producers": [
         {
           "roles": [
@@ -503,8 +611,7 @@
           "field": "the work the detector re-runs over",
           "told": [
             {
-              "path": "references/slices/<role>/handoff-keys.md",
-              "anchor": "## Outputs"
+              "page": true
             }
           ],
           "demands": [],
@@ -541,6 +648,12 @@
       "stages": [
         "S8"
       ],
+      "requirement": "check_coverage.py re-runs at the exit gate: regenerate the coverage map first.",
+      "door": "regenerate the coverage map with `check_coverage.py`, then fix what it names",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
       "producers": [
         {
           "roles": [
@@ -549,8 +662,7 @@
           "field": "the work the detector re-runs over",
           "told": [
             {
-              "path": "references/slices/<role>/handoff-keys.md",
-              "anchor": "## Outputs"
+              "page": true
             }
           ],
           "demands": [],
@@ -2943,7 +3055,7 @@
       "stages": [
         "S5"
       ],
-      "requirement": "The manifest of this dispatch's cases keeps the invariants `manifest_put.py` owns (one instance per id, a covering row per scoped case), as a hand edit would break them.",
+      "requirement": "The manifest of this dispatch's cases keeps the invariants `manifest_put.py` owns (one instance per id, a covering row per scoped case), as a hand edit would break them. One `tests[]` entry per INSTANCE (`func[param]`); `covers` lists cases.",
       "door": "each finding's `fix`",
       "when": [
         "always"
@@ -2995,7 +3107,7 @@
       "stages": [
         "S5"
       ],
-      "requirement": "Every Then clause of every case in scope is bound to a test and an assertion (`then_bindings`), or is a remainder the person took (`then handed:`), named.",
+      "requirement": "Every Then clause of every case in scope is bound to a test and an assertion (`then_bindings`), or is a remainder the person took (`then handed:`), named. Every Then is bound in `then_bindings[]` {case, then, instance_id, assertion_ref \"file:line\"}, and the names it demands appear in that assertion.",
       "door": "bind the clause, or name the remainder",
       "when": [
         "always"
@@ -3021,7 +3133,7 @@
       "stages": [
         "S5"
       ],
-      "requirement": "A test never asserts an expected value the case left `open` or `invalid`; a test that went red and later passed on changed code has an `expectation_changes[]` record whose `then_refs` resolve; an unresolved row never disputes the approved case.",
+      "requirement": "A test never asserts an expected value the case left `open` or `invalid`; a test that went red and later passed on changed code has an `expectation_changes[]` record whose `then_refs` resolve; an unresolved row never disputes the approved case. A status code or literal a Then fixes is asserted as written and NEVER changed after a red run: that test is handed over RED, `unresolved[] reason: contradicts_requirement`. A test that went red and was then deleted or renamed owes an `expectation_changes[]` row too. A `deferred_by_decision:*` row carries `disputes` nothing|derivation|case_expectation; `derivation` = not derivable; `case_expectation` = you disagree with the approved case; no route out after gate A.",
       "door": "each finding's `fix`",
       "when": [
         "always"
@@ -3074,7 +3186,7 @@
       "stages": [
         "S5"
       ],
-      "requirement": "A `blocked_by_env` row of this dispatch carries the fix it found (`remedy`), names no credential value, blames the stand for no fixture the approved case never asked for, and stands on a run that shows the stand.",
+      "requirement": "A `blocked_by_env` row of this dispatch carries the fix it found (`remedy`), names no credential value, blames the stand for no fixture the approved case never asked for, and stands on a run that shows the stand. A `blocked_by_env` row has `remedy` {kind, where, change, restart}, names only; it stands only on a run showing the stand (`env_blocked`, a STAND SIGNAL on a run no timeout killed, a connection refusal); a test the project's timeout killed is yours.",
       "door": "each finding's `fix`",
       "when": [
         "always"
@@ -3926,7 +4038,7 @@
       "stages": [
         "S5"
       ],
-      "requirement": "An expectation change names its function(s), red_attempt, green_attempt (or null), then_refs as `[{case, then: int}]`, what_changed, and a reason for a new row; the patch verdict joins; critic_verdict is a list, critic_note a string, and a note stands for each NOTE_REQUIRED_VERDICTS verdict.",
+      "requirement": "An expectation change names its function(s), red_attempt, green_attempt (or null), then_refs as `[{case, then: int}]`, what_changed, and a reason for a new row; the patch verdict joins; critic_verdict is one word of `expectation_change_verdicts`, critic_note a string, and a note stands for each NOTE_REQUIRED_VERDICTS verdict. A value you invented may change after a red run only with an `expectation_changes[]` row through manifest_put.py: `then_refs` [{case, then}] it still proves, `what_changed`, `reason`. Give each row ONE verdict through manifest_put.py, a patch with its function, `red_attempt` and `green_attempt` plus `critic_verdict` legitimate_correction|fitted_to_code|could_not_judge and `critic_note` (owed with `could_not_judge`).",
       "door": "fix the entry the refusal names",
       "door_needs": "shell",
       "when": [
@@ -3937,6 +4049,18 @@
         {
           "roles": [
             "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
+            "qa-code-critic"
           ],
           "field": "the manifest fragment sent to manifest_put.py",
           "told": [
@@ -4032,15 +4156,72 @@
       "joint": null
     },
     {
+      "check": "s5_precheck:sides.provisional",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Every live `provisional[]` row of this window has a `kind` from `references/provisional-kinds.json`, a `settles_on` that is a side of this story, a `home.file` whose placeholder line carries the comment `qa-provisional: <id>`, and `dependents` as a list of `{case, then}` that are bound in `then_bindings`; every `qa-provisional: <id>` marker in a test file of the window has its `provisional[]` row.",
+      "door": "send the row or the field through `manifest_put.py --fragment`, or take the marker out of the test file",
+      "door_needs": "shell",
+      "when": [
+        "window",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the provisional rows and the tests that name them",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:sides.pending",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "On a story with sides, a `pending_implementation` row of a case in scope stands only while a side its test declares is `absent`: an instance that can run owes its run, and a row whose every instance has run stamped real on every side its test names is retracted.",
+      "door": "run it (`run_suite.py --mine <case>`) and retract the row through `manifest_put.py --fragment`, or declare the absent side in the test's `sides` when one really is",
+      "door_needs": "shell",
+      "when": [
+        "window",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the `pending_implementation` rows and the tests they name",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
       "check": "validate_artifacts:check_case",
       "stages": [
         "S4"
       ],
-      "requirement": "A case file opens with YAML front matter that carries every required field, takes `status`, `priority`, `channel` and `reuse_decision` from their closed lists, carries `automated_by` (file::test) when `Automated`, a `red_lock` that names a BUG-NNN, passes the form checks, and covers register requirements (or legacy `covers_ac`).",
+      "requirement": "A case file opens with YAML front matter that carries every required field, takes `status`, `priority`, `channel` and `reuse_decision` from their closed lists, carries `automated_by` (file::test) when `Automated`, a `red_lock` that names a BUG-NNN, passes the form checks, and covers register requirements (or legacy `covers_ac`). Frontmatter every case owes: id, title, area, priority P0|P1|P2|P3, status, channel auto|manual-agent|manual-human, reuse_decision new|updated|extend:<case id>|dedupe:<case id>, updated, task, covers: [R-n] that exist in that task's register (an R the register does not carry reads as invented), defect_class from the project's list (or smoke, or regression:BUG-NNN), and basis.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
       ],
+      "role_rule": "designer-card-reuse-decision-vocabulary",
       "producers": [
         {
           "roles": [
@@ -4062,7 +4243,7 @@
       "stages": [
         "S4"
       ],
-      "requirement": "`covers` names only register `R-n` ids of the task's register (or `legacy:<import reason>`), and the case inherits `defect_class` and `basis` from its plan row.",
+      "requirement": "A case dated on or after the form cutoff carries `task`, `covers`, `defect_class` and `basis`; `covers` names only `R-n` ids the task's register holds (or `legacy:<import reason>`); `basis` follows the oracle grammar.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4088,17 +4269,45 @@
       "stages": [
         "S4"
       ],
-      "requirement": "A case written on or after the oracle cutoff gives every Then an entry in `then_oracles` with a basis per the oracle grammar.",
+      "requirement": "A case written on or after the oracle cutoff gives every Then an entry in `then_oracles` with a basis per the oracle grammar. A Then that waits on a question (`then_oracles` source `unknown`) goes in `question_thens` under that question's id as requirements-readiness.json has it. The question being raised (`raise`) is always a before/now question, and a case keys its texts `now` / `before`, never by letter.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
       ],
+      "role_rule": "designer-now-before-keys",
       "producers": [
         {
           "roles": [
             "qa-case-designer"
           ],
           "field": "the artifact the check judges (check_then_oracles)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "gate_preflight:question_branches",
+      "stages": [
+        "S4"
+      ],
+      "requirement": "A case is owed for an `unverifiable` row too (and a `skip` one) when an answer to the question it rests on would make the row tested: write it before gate A with `question_thens` on that question. Every `question_thens` is one line of JSON, a list of {question, then, readings}: `then` the number of an item under `## Then`, and a text for every reading of the question.",
+      "door": "write the case or the `question_thens` entry the line names",
+      "when": [
+        "always"
+      ],
+      "role_rule": "designer-one-case-per-plan-row",
+      "producers": [
+        {
+          "roles": [
+            "qa-case-designer"
+          ],
+          "field": "the `question_thens` of the cases",
           "told": [
             {
               "page": true
@@ -4142,7 +4351,7 @@
       "stages": [
         "S8"
       ],
-      "requirement": "A bug file opens with front matter that carries every required field, with `status` from its list and `severity` from the allowed set.",
+      "requirement": "A bug file opens with front matter that carries every required field, with `status` from its list and `severity` from the allowed set. Frontmatter is checked: id, title, severity, status, area, found_by, created.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4168,7 +4377,7 @@
       "stages": [
         "S8"
       ],
-      "requirement": "A bug filed from a draft of this run carries non-empty `cases` (from the draft's `case`/`cases`) and `requirements` (the R-n its `violates` names).",
+      "requirement": "A bug filed from a draft of this run carries `requirements` (the R-n its `violates` names) and names `cases` (from the draft's `case`/`cases`), or `cases: []` with `no_case_reason`.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4194,7 +4403,7 @@
       "stages": [
         "S8"
       ],
-      "requirement": "A bug carries an impact from the scale and the sections that make it reproducible; when its source draft has several manifestations of one cause, the source draft is readable, `cases` lists every manifestation's case and a `## Manifestations` section has one complete line per case.",
+      "requirement": "A bug carries an impact from the scale and the sections that make it reproducible; when its source draft has several manifestations of one cause, the source draft is readable, `cases` lists every manifestation's case and a `## Manifestations` section has one complete line per case. `violates` follows the oracle grammar (requirement:R-n | invariant:<id> | consistency:<where> | history:<baseline> | impact:<harm> | external:<norm>) - with no oracle from that list this is an observation, not a bug. `impact` from config.json impact_scale. `confirmation` unconfirmed|reproduced_by_factory|confirmed_by_person|confirmed_by_rerun. Two sections are mandatory: `## User impact` and `## Initial state`.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4220,7 +4429,7 @@
       "stages": [
         "S2"
       ],
-      "requirement": "The register's front matter carries the required fields, non-empty `ids` of the form R-n, sources from the source list and `confidence` high or low; every declared id has a full-width row under the register heading with a listed source (or a derivation), matrix cells per the grammar and an impact from the project's scale.",
+      "requirement": "The register's front matter carries the required fields, non-empty `ids` of the form R-n, sources from the source list and `confidence` high or low; every declared id has a full-width row under the register heading with a listed source (or a derivation), matrix cells per the grammar and an impact from the project's scale. work/requirements-register.md: `ids` non-empty and all R-n, `by_source` within ac|story|feature|discussion|assumption|derived, `confidence` high|low. Every row's observable prefixed diff:|current-code:|expected-contract: or the word `none`; every `derived` row naming what it was derived from; `impact` from config.json impact_scale.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4272,11 +4481,12 @@
       "stages": [
         "S2"
       ],
-      "requirement": "Every requirement seen only in the implementation has exactly one entry under the behaviour-claims heading, with an `origin` from its list and the fields of a claim.",
+      "requirement": "Every requirement seen only in the implementation has exactly one entry under the behaviour-claims heading, with an `origin` from its list and the fields of a claim. A `derived` row only the diff speaks to also gets its `## Behaviour claims` row.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
       ],
+      "role_rule": "tester-card-derived-row-also-gets-a-behaviour-claims-row",
       "producers": [
         {
           "roles": [
@@ -4350,7 +4560,7 @@
       "stages": [
         "S2"
       ],
-      "requirement": "The understanding file stays within `UNDERSTANDING_MAX_LINES`, has every section of `UNDERSTANDING_SECTIONS`, and names every requirement id in a \"What we verify\" or \"What we do not verify\" line.",
+      "requirement": "The understanding file stays within `UNDERSTANDING_MAX_LINES`, has every section of `UNDERSTANDING_SECTIONS`, and names every requirement id in a \"What we verify\" or \"What we do not verify\" line. understanding.md: at most 40 lines, its five sections, and every register R named in a 'What we verify' or 'What we do not verify' line.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4561,7 +4771,7 @@
       "stages": [
         "S1"
       ],
-      "requirement": "Every `related[]` entry is an object with a `kind` from `RELATED_KINDS` and a `source`; every `implementations[]` entry is an object naming a `repo` once with a listed `source`; the list keys are arrays or absent.",
+      "requirement": "Every `related[]` entry is an object with a `kind` from `RELATED_KINDS` and a `source`; every `implementations[]` entry is an object naming a `repo` once with a listed `source`; the list keys are arrays or absent. Every `related[]` row is {key, kind, source}, kind one of implementation|blocker|bug|mention, `source` saying WHERE in this ticket the key was read; one `implementations[]` row per repository. `coverage_search[]` rows: repo, revision, changed_area, searched_paths, status complete|partial|unavailable, reason; nothing found is top-level `coverage_status: not_found`. `existing_test_candidates[]` rows: candidate_id, repo, revision, path, selector, parameter_ids, level, assertion_refs, candidate_requirement_refs, origin existing|added_in_change|unknown, result_candidate_refs.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4583,12 +4793,38 @@
       "joint": null
     },
     {
+      "check": "source_preflight:check_source_inventory",
+      "stages": [
+        "S1"
+      ],
+      "requirement": "When work/source-inventory.json exists, or the pipeline requires it, S1 closes on it: it lists at least one required source, none is `pending`, and no source material lacks its retrieval or inspection receipt.",
+      "door": "A source you could not get: name it in your digest with its id and what is missing - recording a person's words is the orchestrator's door; you are resumed with their answer",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-scout"
+          ],
+          "field": "work/source-inventory.json",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
       "check": "validate_artifacts:check_run_report_empty",
       "stages": [
         "S6"
       ],
-      "requirement": "A run with zero tests carries `env_preflight: blocked`, or names its environment-blocked, manual-check or manual-skipped rows.",
-      "door": "edit the file and the field the refusal line names",
+      "requirement": "A run with zero tests carries `env_preflight: blocked`, or names its environment-blocked, manual-check or manual-skipped rows. Empty is not clean: a zero run with env_preflight pass and no env_blocked, manual_checks or manual_skipped is refused.",
+      "door": "return `env_preflight: blocked` with a reason, or say where the cases went",
       "when": [
         "always"
       ],
@@ -4613,7 +4849,7 @@
       "stages": [
         "S6"
       ],
-      "requirement": "The run report carries a non-empty `head`.",
+      "requirement": "The run report carries a non-empty `head`. `head` non-empty: evidence not bound to a sha goes stale.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4639,7 +4875,7 @@
       "stages": [
         "S6"
       ],
-      "requirement": "The run report carries an `execution_status` from its list, computed from the run's own evidence, and `blocked` when `env_preflight` is blocked.",
+      "requirement": "The run report carries an `execution_status` from its list, computed from the run's own evidence. A blocked `env_preflight` means `execution_status` is env_blocked - one field, one source. `execution_status` from passed|failed|env_blocked|not_executed|broken_run|timeout.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4665,7 +4901,7 @@
       "stages": [
         "S6"
       ],
-      "requirement": "Every `results[]` row is an object naming one case or a test id, with a status from its list, a reason when skipped, and totals that agree with the rows.",
+      "requirement": "Every `results[]` row is an object with a status from passed|failed|error|skipped|not_run, a reason when skipped, and totals that agree with the rows. A row names ONE case, even when one test covers several, or carries only a `test_id`.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4691,7 +4927,7 @@
       "stages": [
         "S6"
       ],
-      "requirement": "Every case S5 automated and every manual-agent plan row is accounted for in the run report.",
+      "requirement": "Every case S5 automated and every manual-agent plan row is accounted for in the run report. And every case S5 automated, plus every manual-agent row of the plan, has to appear in some lane of this report: results, manual_checks, skipped, impossible, env_blocked, manual_skipped or manual_human. Where a case went is your call; saying nothing about it is not.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4717,7 +4953,7 @@
       "stages": [
         "S7"
       ],
-      "requirement": "One triage row per observation, a verdict from its list, and a FLAKY verdict only with enough reruns, a listed mechanism and a `fix_result`.",
+      "requirement": "One triage row per observation, a verdict from its list, and a FLAKY verdict only with enough reruns, a listed mechanism and a `fix_result`. work/triage.json is read row by row: every row's `verdict` comes from APP_BUG|TEST_BUG|TEST_BUG:collection|ENV_ISSUE|FLAKY|APP_CHANGED|CASE_DEFECT|ASSERT_STRICTER|NOT_EXECUTED|RUNNER_MISREAD_EVIDENCE|NO_DEFECT. NO_DEFECT is for an observation `<case>#obs<n>` or a recorder's surprise `<case>#sur-<id>` only, with a `reason` quoting its recorded evidence in double quotes. ASSERT_STRICTER costs a `control` block: `result` effect_without_change, `action`, `without`, `observed`, an existing `evidence` file under `evidence/`; `impossible` needs `why`, no ASSERT_STRICTER. RUNNER_MISREAD_EVIDENCE costs a `contradiction` block: `then`, `runner_said`, `evidence` (a text capture of the attempt) and a `quote` from it (300 characters at most). FLAKY costs three more fields, and all three are checked: `reruns` >= 3 isolated executions of that test, counted across every role; `mechanism` from isolation|race|timing|shared_state|teardown|environment|unknown; and `fix_result` non-empty (record fixed or not_fixed).",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4743,7 +4979,7 @@
       "stages": [
         "S8"
       ],
-      "requirement": "Every template section stands, in the template's order, with the verdict and its `delivery_ready:` line above the rest.",
+      "requirement": "Every template section stands, in the template's order, with the verdict and its `delivery_ready:` line above the rest. Eleven sections in this order: Proven, Product bugs, Left with you, Open questions, Not proven, Decided at gate A, Decided at gate B, Factory defects, Size, Where to look, Appendix - the verdict above the first. `Decided at gate B` is owed only after the gate.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4769,7 +5005,7 @@
       "stages": [
         "S8"
       ],
-      "requirement": "Every register requirement and every plan case stands in a row of the traceability appendix.",
+      "requirement": "Every register requirement and every plan case stands in a row of the traceability appendix. The Appendix is `traceability.py --render` pasted, a row for every R and every case.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4795,7 +5031,7 @@
       "stages": [
         "S8"
       ],
-      "requirement": "Every `Left with you` item names its requirement and case, what a person would observe, and how.",
+      "requirement": "Every `Left with you` item names its requirement and case, what a person would observe, and how. Each `Left with you` item carries its R-n, case id, `To check:` and `Needed:` or `How:`.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4925,7 +5161,7 @@
       "stages": [
         "S8"
       ],
-      "requirement": "Every code-owned block stands with its markers, opens with its own heading and holds no section heading; \"Decided at gate B\" stands only when gate B has recorded words, and never quotes gate A's.",
+      "requirement": "Every code-owned block stands with its markers, opens with its own heading and holds no section heading; \"Decided at gate B\" stands only when gate B has recorded words, and never quotes gate A's. `report_facts.py --task <T> --write` renders every code-owned block the report owes (the verdict, Proven, Product bugs, Open questions, Skipped by the plan, Not proven, Decided at gate A, Size, Where to look, and the others it names; Decided at gate B after the gate).",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -5029,11 +5265,12 @@
       "stages": [
         "S8"
       ],
-      "requirement": "Hand text outside the generated tables stays within `TEST_REPORT_MAX_BYTES`, section 1 is the table `ledger.py` generated, and a `delivery_ready: yes|after_checks|no` line agrees with `ledger.json`.",
+      "requirement": "Hand text outside the generated tables stays within `TEST_REPORT_MAX_BYTES`, section 1 is the table `ledger.py` generated, and a `delivery_ready: yes|after_checks|no` line agrees with `ledger.json`. The `delivery_ready:` line is the block's (check_delivery.py feeds it): yes, after_checks or no. Your prose outside the blocks stays under 6,144 bytes.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
       ],
+      "role_rule": "scribe-card-delivery-ready-line-is-the-blocks",
       "producers": [
         {
           "roles": [
@@ -5755,6 +5992,41 @@
       "joint": null
     },
     {
+      "check": "handoff_check:cli.values_rename",
+      "stages": [
+        "*"
+      ],
+      "requirement": "The waiting values file `<dispatch>.values.yaml` can be renamed `<dispatch>.values.applied.yaml` once the form is written.",
+      "door": "delete the values file the refusal names, then run the check again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
       "check": "handoff_check:binding",
       "stages": [
         "S7"
@@ -5811,7 +6083,7 @@
       "stages": [
         "S3"
       ],
-      "requirement": "The plan validates: every obligation of the registry has its row, coverage revisions and revision marks are consistent (validate_plan + coverage_revision_errors + unmarked_revision_errors).",
+      "requirement": "The plan validates: every obligation of the registry has its row, coverage revisions and revision marks are consistent (validate_plan + coverage_revision_errors + unmarked_revision_errors). Under the starter risk policy (`risk_policy_revision: factory-starter-v1`), `verification_depth: low` is accepted ONLY together with `impact: low`, `likelihood: low`, `confidence: high` and `bounded_reversible: true`, and `impact: severe` demands `critical`. `impact: unknown` can never be low. Every row needs `risk_source_refs` and `required_scenarios` non-empty.",
       "door": "fix the plan row the block names, then end the step again",
       "when": [
         "always"
@@ -5837,7 +6109,7 @@
       "stages": [
         "S3"
       ],
-      "requirement": "No two plan rows contradict each other on the same requirement.",
+      "requirement": "Every requirement the register's matrix records as contradicted is covered by a plan row, and at least one of those rows carries `source_conflict: true` or `oracle_unknown: true`.",
       "door": "resolve the contradiction in the plan",
       "when": [
         "always"
@@ -5863,11 +6135,12 @@
       "stages": [
         "S3"
       ],
-      "requirement": "Every question branch kind of S3_EXIT_KINDS is accounted for (the messages name what each kind expects).",
+      "requirement": "Every question branch kind of S3_EXIT_KINDS is accounted for (the messages name what each kind expects). A letter branch whose answer settles the oracle sets `oracle_unknown: false`: a row that is `oracle_unknown` and rests on one open question says so in every reading's branch.",
       "door": "write the branch the block names",
       "when": [
         "always"
       ],
+      "role_rule": "letter-branch-settles-oracle",
       "producers": [
         {
           "roles": [
@@ -6123,11 +6396,12 @@
       "stages": [
         "S3"
       ],
-      "requirement": "Each obligation in the plan names its requirement, its coverage and a known state, per the messages of validate_obligations.",
+      "requirement": "Each obligation in the plan names its requirement, its coverage and a known state, per the messages of validate_obligations. A coverage-schema-2 row lists its `coverage_obligations`, each with `sufficiency_review {author_dispatch_id, input_hash, rationale}` all non-empty, and `oracle_status` resolved (naming an independent `oracle_source_ref`) or unresolved; an unresolved oracle does not authorize execution: its `decision` is `unresolved`.",
       "door": "fix the obligation entry",
       "when": [
         "always"
       ],
+      "role_rule": "designer-card-observation-sufficiency-review",
       "producers": [
         {
           "roles": [
@@ -6375,6 +6649,69 @@
           "roles": [
             "qa-automator",
             "qa-code-critic"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:profile.none",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "When no manifest row names a profile and the earlier runs of this story do not all name one, `qa-factory/config.json` holds at least one execution profile (a `profiles[]` entry with a `profile_id`); with none, `--mine` cannot build the run.",
+      "door": "report it in your digest: the gate-A rehearsal asks the person about the onboarding gap",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner",
+            "qa-automator",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:fingerprint.build",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "The inputs of a `--mine` run can be fingerprinted when it is built: every test, helper, config and dependency file it reads exists, and the stand's runtime provenance is `matched`, confirmed by the person, `not_applicable`, or a probe that compared nothing.",
+      "door": "report it in your digest, and write this one run with `run_suite.py --template request`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner",
+            "qa-automator",
+            "qa-code-critic",
+            "qa-failure-analyst"
           ],
           "field": "the `--mine` call and its manifest rows",
           "told": [
@@ -8263,6 +8600,33 @@
             "conductor"
           ],
           "field": "the `args` of the `rework` option",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "estimate_record:facts_problems",
+      "stages": [
+        "S9"
+      ],
+      "requirement": "The precedent line is written by `estimate_record.py --task <T> --facts <file>`: the file holds `forecast` and `actual` objects and an optional `drivers` array, and every key of the wrong shape is listed in one refusal.",
+      "door": "fix every key the refusal lists in the facts file and run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-retro-analyst"
+          ],
+          "field": "the facts file of estimate_record.py",
           "told": [
             {
               "page": true

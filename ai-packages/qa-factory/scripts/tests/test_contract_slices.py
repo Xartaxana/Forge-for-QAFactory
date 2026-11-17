@@ -469,7 +469,9 @@ def test_handoff_keys_pages() -> None:
             check_in(f"X1-7: {role}'s key page carries tried_note as optional", "`tried_note` (optional)", page)
     scout = (PLUGIN_ROOT / "references" / "slices" / "qa-scout" / CS.KEYS_NAME).read_text(encoding="utf-8")
     check_in("X1-7: the scout's page names the validator's keys (PHASE_JSON_KEYS)", "`acceptance_criteria`", scout)
-    check_in("X1-7: the designer's page carries the token the case identity gate demands", "= the file name",
+    # TBW-T1rc-int (t-1236): the case identity row's demands are [] after the Lead decision F1, so the old token `= the file name` judges nothing;
+    # the page now carries the row text of `exit_gate:case_identity` (the cd-1 sentence), and that is what this line judges.
+    check_in("X1-7: the designer's page carries the case identity row (the file name is the id) that the case identity gate states", "id` IS its file name",
              (PLUGIN_ROOT / "references" / "slices" / "qa-case-designer" / CS.KEYS_NAME).read_text(encoding="utf-8"))
     check_in("X1-7: the tester's page carries the token the grounding gate demands", "derived",
              (PLUGIN_ROOT / "references" / "slices" / "qa-requirements-tester" / CS.KEYS_NAME).read_text(encoding="utf-8"))
@@ -980,6 +982,10 @@ def test_t1rs() -> None:
     # launch-path `store.begin` printer of `run_suite:begin` (FV2-86). `selector_args` and `window_first` left this set when
     # `test_execution_request.py` (`t1rs_sites_after_the_probe`) was file-level green in canon run 44068480897 (K1b)
     unproved_site = {er + "stand", rs + "begin"}
+    # TBW-T1rc-int (t-1236): ids of rows T1r-cards-a landed whose sites do not exist yet. SHRINK-ONLY: node TBW1-17 (told-before-work/1,
+    # TBW-T1rc-site) sites them and empties this set; they count as unproved (never call-told) until then. A third id is NOT excepted.
+    NOT_YET_SITED = {er + "fingerprint.build", er + "profile.none"}
+    unproved_site |= NOT_YET_SITED
     request = {er + k for k in ("purpose", "selection", "budget", "freshness", "runtime", "stand.reference", "fingerprint", "command",
                                 "execution", "selector", "instance_contracts")}                 # the ids `validate_request` raises
     manifest = {er + k for k in ("no_test", "selector_args", "place_rows", "profile", "case_entries")}      # judge the automator's own rows
@@ -1045,7 +1051,10 @@ def test_t1rs() -> None:
     sited = set(SJ.check_ids())
     for fam in ("execution_request", "run_suite"):
         check_eq(f"T1rs/sited/{fam}: every row id is the literal key of a site (not only a sub-id of one)",
-                 sorted(r["check"] for r in rows if r["check"].startswith(fam + ":") and r["check"] not in sited), [])
+                 sorted(r["check"] for r in rows if r["check"].startswith(fam + ":") and r["check"] not in sited | NOT_YET_SITED), [])
+    check_eq("T1rs/sited/not-yet-sited: the exception set is exactly the two named ids, and a third unsited id is still refused",
+             (sorted(NOT_YET_SITED), sorted(c for c in {er + "fingerprint.build", er + "zz_third"} if c not in sited | NOT_YET_SITED)),
+             ([er + "fingerprint.build", er + "profile.none"], [er + "zz_third"]))
     # one reading of the marker: per (row, role), `call_told` equals the proof; the other eight roles hold none of these rows
     wrong = []
     for row in rows:

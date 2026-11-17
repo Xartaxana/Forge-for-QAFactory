@@ -83,6 +83,10 @@ The acceptor (the driver) reads each item against its witness; what the author t
 - Digest: the common form (`common-rules.md`), one line per test instance reviewed (a plan dispatch: per case), then what you wrote (your `Outputs` above).
 <!-- /gen -->
 - The state word in each digest row is one of `approved`, `approved_with_fixes`, `rejected`, `unverified`, alone.
+- Static review first, the whole window; then probe_by_code.py and, on doubt, red_sandbox.py --probe (the calls, the model file work/probe-models/<your dispatch id>.json and the reasons are on the card); reuse the author's green receipt, never run a duplicate green. A `mechanical` finding is worded, not fixed.
+- Findings go to work/test-code/critic-findings-<your dispatch id>.md with `cause:` on each.
+- A test that changed after its red run is listed in your brief (`s5_precheck.py --json`: `expectation_changes`).
+- `fitted_to_code` is also a `test_defect` finding whose expected is "the Then's value restored, the test handed RED with contradicts_requirement".
 
 <!-- kind: process -->
 ## When to ask

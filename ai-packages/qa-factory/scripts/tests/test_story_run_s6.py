@@ -565,6 +565,28 @@ def t261_the_real_controller_refuses_a_completion_over_an_undispatched_case_and_
                  (c.state()["stages"]["S6"]["status"], c.state()["stages"]["S6"].get("code_only")), ("completed", True))
     finally:
         harness.cleanup(root)
+    # FV3-21 K6 (T-RC): the awaiting marker `consumer_need_record` writes at `manual_close` holds against the REAL controller: an accepted
+    # not-complete automation author with no record awaits nothing until the marker stands; then `next` names S7 and the analyst is let in
+    import acceptance
+    root2 = harness.temp_dir("qa-t261-await-")
+    try:
+        c2 = F.s6_story(root2)
+        eq("T-RC the runner is accepted not-complete", F.runner(c2, root2, "S6-auto", "automation", ["TC-1"], False), "")
+        path = root2 / "pipeline.json"
+        pipeline = json.loads(path.read_text(encoding="utf-8-sig")) if path.is_file() else {}
+        eq("T-RC control: with no marker nothing awaits (today the story stops)", acceptance.awaits_acceptance(c2.state(), "S6", pipeline), "")
+        path.write_text(json.dumps(dict(pipeline, acceptance_awaits={"S6": "S6-auto"})), encoding="utf-8")
+        pipeline = json.loads(path.read_text(encoding="utf-8-sig"))
+        eq("T-RC the marker makes S6 await the consumer", acceptance.awaits_acceptance(c2.state(), "S6", pipeline), "S6-auto")
+        eq("T-RC `next` names S7", c2.next_action().get("stage"), "S7")
+        analyst = {"id": "S7-qa-failure-analyst-1", "stage": "S7", "role": "qa-failure-analyst", "scope": ["TC-1"], "input_hash": "s7",
+                   "budget": {}, "known_paths": {}, "idempotency_key": "d-an1"}
+        eq("T-RC control: the doc scribe is NOT let in while S6 awaits the analyst",
+           "required prior logical stage incomplete" in F.refused(c2.apply, "dispatch", dict(analyst, id="S7-qa-doc-scribe-1", role="qa-doc-scribe",
+                                                                                              idempotency_key="d-sc1")), True)
+        eq("T-RC the failure analyst's dispatch is admitted", F.refused(c2.apply, "dispatch", analyst), "")
+    finally:
+        harness.cleanup(root2)
 
 
 def t261_prepare_by_code_on_the_cmp2_shape_and_the_temporal_door() -> None:
@@ -1831,6 +1853,39 @@ def c16b_stand_confirm_is_priced_and_its_answers_have_executors() -> None:
         check("C16b stand_confirm: stand_check raises a Person", person is not None)
         eq("C16b stand_confirm: a seam question - kind `environment`, `offered`, the block",
            (person.kind, person.offered, person.block, person.stand_stage), ("environment", ("retry", "go on"), "stand not confirmed", "S6"))
+        # FV3-21 K2: the `go on` option says what it does to the manual cases (T1-T7); every text obeys human-questions.md, the price lines unchanged
+        clause, today = "an agent checks no case by hand", "go on without a stand, and the story carries a line saying it was your decision"
+        n_of = lambda t: sum(1 for line in t.splitlines() if line.startswith(PRICE_LABELS[0]))
+        t1 = driver.stand_question_text("S6", "Local", ["Local"], "manual", manual=True)
+        t2 = driver.stand_question_text("S6", "Local", ["Local"], "manual", manual=False)
+        t3 = driver.stand_question_text("S5", "", [], manual=True)
+        check_in("K2 T1: S6 manual says it", "go on without a stand; " + clause + ", and the story", t1)
+        check_in("K2 T2: manual=False is today's text", today, t2)
+        eq("K2 T2: ...and equals the call without the keyword", str(t2), str(driver.stand_question_text("S6", "Local", ["Local"], "manual")))
+        check_in("K2 T3: S5 keeps its own clause and adds this one", "none is run on a stand; " + clause + ", and the story", t3)
+        eq("K2 T1-T3: human-questions.md, price lines", [human_broken(t) for t in (t1, t2, t3)] + [n_of(t) for t in (t1, t2, t3)],
+           [[], [], [], 2, 2, 2])
+        base_n = n_of(str(person.text))
+
+        def asked(scope_fn):
+            driver.stage_scope = scope_fn
+            try:
+                driver.stand_check("S6", "automation")
+            except story_run.Person as raised:
+                return str(raised.text)
+            finally:
+                del driver.stage_scope
+            return ""
+
+        def broken_scope(stage, kind=""):
+            raise story_run.Refusal("the controller cannot say")
+        for label, scope_fn, said in (("T4 a manual case", lambda s, k="": {"scope": ["TC-2"]}, True),
+                                      ("T5 an empty manual scope", lambda s, k="": {"scope": []}, False),
+                                      ("T6 a scope that cannot be read", broken_scope, True),
+                                      ("T7 an answer with no `scope` key", lambda s, k="": {"stage": "S6"}, True)):
+            text = asked(scope_fn)
+            eq(f"K2 {label}: the clause is said = {said}; human-questions.md; price lines unchanged",
+               (clause in text, human_broken(text), n_of(text)), (said, [], base_n))
         driver.ask(person)
         driver.take_answer(Path(d2_answer(root, "go on")))
         got = [(o["stage"], o["match"], o["decision"]) for o in (s0_pipeline(task_root).get("stage_overrides") or [])]
@@ -2494,6 +2549,189 @@ def hf2_11b_without_a_stand_nothing_is_run_or_proved() -> None:
         harness.cleanup(root)
 
 
+def fv3_21_the_stand_word_reaches_the_manual_half() -> None:
+    """FV3-21 K1 + K6 (card r2 section 2): the person's no-stand word reaches the manual half of S6 - no walk is dispatched, no question
+    asked, each case is `left_unchecked` in the person's words (W1-W6), a case prepare refused keeps its own record (W14), an accepted record
+    is never overwritten (W7), a case a deferred question holds is refused once with its own reason (W8), a live S6 dispatch or an unreadable
+    state is today's road (W12*), no word / a confirmed stand / a dead word is today's road (C1-C6); and a close with nothing left to dispatch
+    awaits the analyst instead of a Refusal (W13*), never closing without a record or a pass. Expected texts are literals.
+    MUTATIONS: the `return self.manual_no_stand(...)` line deleted -> W1; `skip=()` in `manual_no_stand` -> W8; the `await_at` test False -> W13."""
+    import contextlib
+    import hashlib
+    import io
+    import manual_evidence as ME
+    import story_run
+    from controller import stamp_utc
+    task = "QA-9"
+    reason_of = lambda said: f'not checked by an agent: no stand is confirmed for this story; the person said: "{said}"'
+    REASON = reason_of("go on")
+    DOOR = "record a stand for this project with the onboarding; the next run checks it by hand"
+    WORD = {"stage": "S6", "match": "stand not confirmed", "decision": "go on", "at": "2026-11-17T10:00:00+00:00", "by": "human"}
+    ACCEPT_WORD = {"stage": "S6", "match": "stage acceptance", "decision": "accept the run", "at": "2026-11-17T10:00:00+00:00", "by": "human"}
+    CASES = ["TC_001", "TC_002"]
+    AUTHOR = {"stage": "S6", "role": "qa-runner", "status": "accepted", "execution_kind": "automation", "scope": ["TC_900"]}
+    roots = []
+
+    def rig(cases=CASES, environment=None, pending=True, overrides=(WORD,), refused=(), dispatches=None):
+        root, task_root, env = d2_seed(task, environment=environment, pending=pending)
+        roots.append(root)
+        d2_pipeline(task_root, stage_overrides=list(overrides) if isinstance(overrides, (list, tuple)) else overrides)
+        world = ManualWorld()
+        world.dispatches.update({k: dict(v, id=k) for k, v in (dispatches or {}).items()})     # a controller row carries its own id
+        driver, world, launched, moves = manual_rig(root, env, task, cases, refused=refused, world=world)
+        sites, prepared = [], []
+        real_close, real_prepare, inner_py = driver.close_by_code, driver.manual_prepare, driver.py
+        driver.close_by_code = lambda *a, **k: (sites.append(k.get("site")) or real_close(*a, **k))
+        driver.manual_prepare = lambda case: (prepared.append(case) or real_prepare(case))
+        driver.py = lambda script, *a, **k: (0, "") if script == "project_decisions.py" else inner_py(script, *a, **k)
+        driver.accepted_at = lambda author: stamp_utc(1794906000)       # the runner was accepted at 2026-11-17T09:00:00Z, before the pass `at`
+        return driver, world, launched, moves, sites, prepared, task_root
+
+    def request(task_root, case):
+        path = task_root / "work" / "evidence" / "manual" / case / "request.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+    def refusals(task_root, cases=CASES):
+        return {case: (request(task_root, case) or {}).get("refused") for case in cases}
+
+    def pipeline_of(task_root):
+        return json.loads((task_root / "pipeline.json").read_text(encoding="utf-8"))
+
+    try:
+        # --- the branch is taken: no walk, no question, every case left unchecked in the person's words (W1-W6)
+        long_words = "x" * 2000
+        edge = "y" * story_run.Driver.QUOTE_LIMIT
+        for label, kwargs, said, console_cut in (
+                ("W1 no stand, word on S6", {}, "go on", False),
+                ("W2 word on S5", {"overrides": [dict(WORD, stage="S5")]}, "go on", False),
+                ("W3 named stand, pending", {"environment": "Local"}, "go on", False),
+                ("W4 multi-line, non-ASCII words", {"overrides": [dict(WORD, decision="go on\n  " + chr(0xE9) + " later")]},
+                 "go on " + chr(0xE9) + " later", False),
+                ("W5 2000 characters", {"overrides": [dict(WORD, decision=long_words)]}, long_words, True),
+                ("W5a exactly QUOTE_LIMIT characters", {"overrides": [dict(WORD, decision=edge)]}, edge, False),
+                ("W6 `*` pass on S6", {"overrides": [dict(WORD, match="*")]}, "go on", False)):
+            driver, world, launched, moves, sites, prepared, task_root = rig(**kwargs)
+            text, new = enter_manual(driver, world, CASES, accept=False)
+            eq(f"{label}: nothing launched (checked first), no dispatch registered", (launched, new, sorted(world.dispatches)), ([], "", []))
+            eq(f"{label}: each case prepared once, no question", prepared, CASES)
+            want = {"reason": reason_of(said), "door": DOOR, "by": "left_unchecked"}
+            eq(f"{label}: both requests hold the person's words whole, the door and `left_unchecked`", refusals(task_root), {c: want for c in CASES})
+            eq(f"{label}: reduced, then closed by code at the manual close", ([m[0] for m in moves], sites),
+               (["finalize", "code_only", "stage_done"], ["s6.manual_close"]))
+            line = "S6: TC_001: not checked by hand — not checked by an agent: no stand is confirmed for this story; the person said: \""
+            check_in(f"{label}: the console says it", line, text)
+            if console_cut:
+                check("W5 the console quote is cut at the limit and says so", ("x" * story_run.Driver.QUOTE_LIMIT + driver.CUT + '"') in text)
+            elif said == edge:
+                check_in("W5a the console quote at the limit is whole, not cut", edge + '"', text)
+        # --- case-level rows
+        done = {"S6-qa-runner-1": {"stage": "S6", "role": "qa-runner", "status": "accepted", "execution_kind": "manual",
+                                   "manual_case_ids": ["TC_003"], "scope": ["TC_003"]}}
+        driver, world, launched, moves, sites, prepared, task_root = rig(cases=CASES + ["TC_003"], dispatches=done)
+        record_failure_analyst_accept(driver, "S6-qa-runner-1")
+        enter_manual(driver, world, CASES + ["TC_003"], accept=False)
+        eq("W7 an accepted manual record is never overwritten; the close counts it", (request(task_root, "TC_003"), "1 case(s) checked by an agent by hand, 2 not checked" in moves[1][2]),
+           (None, True))
+        driver, world, launched, moves, sites, prepared, task_root = rig()
+        driver.state["deferred"] = [{"n": 1, "kind": "walk_account", "holds": ["TC_002"]}]
+        enter_manual(driver, world, CASES, accept=False)
+        eq("W8 a case a deferred question holds is refused ONCE with its own reason and never prepared",
+           (refusals(task_root, ["TC_002"])["TC_002"]["reason"], prepared),
+           ("not checked yet: it waits for your answer to question 1, asked before gate B", ["TC_001"]))
+        eq("W8 ...and the other case holds the no-stand reason", refusals(task_root, ["TC_001"])["TC_001"]["reason"], REASON)
+
+        # W14: prepare refuses TC_002 for its OWN reason (the rig's stub writes the record the real prepare writes)
+        driver, world, launched, moves, sites, prepared, task_root = rig(refused=["TC_002"])
+        own = {"reason": "the check could not be taken: TC_002 stands as not checked by hand", "door": "its own door"}
+        ME.atomic_json(ME.request_path(task_root, "TC_002"), {"refused": own})
+        text, new = enter_manual(driver, world, CASES, accept=False)
+        eq("W14 prepare's own refusal keeps its record (no second write); the other case holds the no-stand reason",
+           refusals(task_root), {"TC_001": {"reason": REASON, "door": DOOR, "by": "left_unchecked"}, "TC_002": own})
+        check_in("W14 ...and is printed with its reason", "S6: TC_002: not checked by hand — the check could not be taken", text)
+        driver, world, launched, moves, sites, prepared, task_root = rig()
+        driver.manual_prepare = lambda case: (["OB-x"], "", "factory failed") if case == "TC_002" else ([f"OB-{case}"], "", "")
+        text, new = enter_manual(driver, world, CASES, accept=False)
+        eq("W14b a case the factory failed to prepare is refused with the no-stand reason; nothing is walked",
+           (launched, refusals(task_root)["TC_002"]["reason"]), ([], REASON))
+
+        # --- W12: a live S6 dispatch (any scope) or an unreadable dispatch state at entry = today's road, one line
+        running = {"stage": "S6", "role": "qa-runner", "status": "running", "execution_kind": "manual", "scope": ["TC_002"]}
+        for label, dispatches, patch in (("W12 a live S6 dispatch", {"S6-qa-runner-5": running}, None),
+                                         ("W12b ...with an empty scope", {"S6-qa-runner-5": dict(running, scope=[])}, None),
+                                         ("W12c an unreadable dispatch state", None, lambda d: setattr(
+                                             d, "s6_live_scopes", lambda: (_ for _ in ()).throw(RuntimeError("state down"))))):
+            driver, world, launched, moves, sites, prepared, task_root = rig(dispatches=dispatches)
+            if patch:
+                patch(driver)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                driver.manual_lane_plan(CASES)
+            check_in(f"{label}: the one line says why the word waits", "an S6 walk is under way or stopped", out.getvalue())
+            eq(f"{label}: today's road ran (prepare called), no request holds the no-stand reason",
+               (prepared, [r for r in refusals(task_root).values() if r and r.get("reason") == REASON]), (CASES, []))
+
+        # --- W13: an accepted not-complete author, nothing left to dispatch -> the stage awaits the consumer (B1), never a Refusal
+        driver, world, launched, moves, sites, prepared, task_root = rig(dispatches={"S6-qa-runner-1": dict(AUTHOR)})
+        text, new = enter_manual(driver, world, CASES, accept=False)
+        eq("W13 first entry: reduced, NOT closed; the marker stands; both cases refused in the person's words",
+           ([m[0] for m in moves], pipeline_of(task_root).get("acceptance_awaits"), [r["reason"] for r in refusals(task_root).values()]),
+           (["finalize"], {"S6": "S6-qa-runner-1"}, [REASON, REASON]))
+        check_in("W13 ...and says what it waits for", "S6: nothing is left to dispatch; S6 awaits the acceptance of qa-failure-analyst for S6-qa-runner-1", text)
+        record_failure_analyst_accept(driver, "S6-qa-runner-1")
+        enter_manual(driver, world, CASES, accept=False)
+        eq("W13 after the analyst's record S6 closes at the manual close with the full receipt",
+           ([m[0] for m in moves][1:], sites, "0 case(s) checked by an agent by hand, 2 not checked" in moves[-2][2]),
+           (["finalize", "code_only", "stage_done"], ["s6.manual_close"], True))
+        # W13b: the sibling - prepare refused every case, a confirmed stand, no word
+        driver, world, launched, moves, sites, prepared, task_root = rig(environment="Local", pending=False, overrides=[], refused=CASES,
+                                                                         dispatches={"S6-qa-runner-1": dict(AUTHOR)})
+        text, new = enter_manual(driver, world, CASES, accept=False)
+        eq("W13b every case refused by prepare after an accepted not-complete runner: the same await",
+           ([m[0] for m in moves], pipeline_of(task_root).get("acceptance_awaits")), (["finalize"], {"S6": "S6-qa-runner-1"}))
+        check_in("W13b ...each case printed with prepare's reason", "S6: TC_002: not checked by hand — the check could not be taken", text)
+        # W13c: a NEWER running author dispatch - the wait would not hold: today's Refusal, no marker
+        driver, world, launched, moves, sites, prepared, task_root = rig(dispatches={"S6-qa-runner-1": dict(AUTHOR)})
+        world.dispatches["S6-qa-runner-2"] = dict(running, scope=["TC_001"], id="S6-qa-runner-2")
+        try:
+            driver.manual_close(["TC_001"], [])
+            refusal = ""
+        except story_run.Refusal as raised:
+            refusal = str(raised)
+        check_in("W13c a wait that would not hold is today's Refusal", "no accept record of qa-failure-analyst stands for S6-qa-runner-1", refusal)
+        check("W13c ...and no marker is written", "acceptance_awaits" not in pipeline_of(task_root))
+        # W13d: a person's live pass of the stage acceptance wins - the close goes on, no marker
+        driver, world, launched, moves, sites, prepared, task_root = rig(overrides=(WORD, ACCEPT_WORD), dispatches={"S6-qa-runner-1": dict(AUTHOR)})
+        enter_manual(driver, world, CASES, accept=False)
+        eq("W13d a person's pass is recorded and the close goes on; no marker",
+           (moves[-1][0], "code_only" in [m[0] for m in moves], "acceptance_awaits" in pipeline_of(task_root)), ("stage_done", True, False))
+        # W13e: an unreadable pipeline.json = today's Refusal, the file is not touched
+        driver, world, launched, moves, sites, prepared, task_root = rig(dispatches={"S6-qa-runner-1": dict(AUTHOR)})
+        before = hashlib.sha256((task_root / "pipeline.json").read_bytes()).hexdigest()
+        driver.pipeline = lambda: {}
+        try:
+            driver.manual_close(CASES, [])
+            refusal = ""
+        except story_run.Refusal as raised:
+            refusal = str(raised)
+        check_in("W13e an unreadable pipeline is today's Refusal", "no accept record of qa-failure-analyst stands for S6-qa-runner-1", refusal)
+        eq("W13e ...and pipeline.json is byte-identical", hashlib.sha256((task_root / "pipeline.json").read_bytes()).hexdigest(), before)
+
+        # --- C1-C6: the branch is not taken - exactly one manual dispatch, as today; no request holds the no-stand reason
+        for label, kwargs in (("C1 a confirmed stand with the word on file", {"environment": "Local", "pending": False}),
+                              ("C2 no stand, no word", {"overrides": []}),
+                              ("C3 a revoked word", {"overrides": [dict(WORD, revoked_at="2026-11-17T11:00:00+00:00")]}),
+                              ("C4 a word for S4", {"overrides": [dict(WORD, stage="S4")]}),
+                              ("C5 stage_overrides is not a list", {"overrides": "broken"}),
+                              ("C6 a word for another block", {"overrides": [dict(WORD, match="stand login missing")]})):
+            driver, world, launched, moves, sites, prepared, task_root = rig(**kwargs)
+            text, new = enter_manual(driver, world, CASES, accept=False)
+            eq(f"{label}: one manual dispatch as today, prepared as today, no no-stand record",
+               (bool(new), len(launched), prepared, [r for r in refusals(task_root).values() if r and r.get("reason") == REASON]), (True, 1, CASES, []))
+    finally:
+        for root in roots:
+            harness.cleanup(root)
+
+
 def hf2_11b_nothing_stale_is_byte_identical() -> None:
     """K5: the empty set changes nothing - today's calls, today's receipt text, today's digest, today's runner arguments (the older
     checks of `d1_s6_freshness` go through the real reader on a world whose run rows hold no per-test identity and stay green
@@ -2741,6 +2979,7 @@ def main() -> None:
                        hf2_11b_the_tool_takes_only_a_running_dispatch,
                        hf2_11b_stale_runs_go_to_the_runner_and_the_proofs_follow,
                        hf2_11b_without_a_stand_nothing_is_run_or_proved,
+                       fv3_21_the_stand_word_reaches_the_manual_half,
                        hf2_11b_nothing_stale_is_byte_identical,
                        hf2_11b_forty_tests_changed_by_one_fixture,
                        s6_the_manual_block_waits_for_the_writer_lock,
