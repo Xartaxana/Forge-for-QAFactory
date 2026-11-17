@@ -1,0 +1,33 @@
+{
+ "schema": 1,
+ "group": "s1-s4",
+ "rows": [
+  {"id": "s1.review/agree", "start": "S0", "seed": null, "answer": {"token": "agree", "words": null, "words_file": null}, "reach": "story",
+   "expect": {"checks": ["C2", "C3"]}},
+  {"id": "s1.review/flip", "start": "S0", "seed": null, "answer": {"token": "flip", "words": null, "words_file": null}, "reach": "story",
+   "expect": {"checks": ["C2", "C3"]}},
+  {"id": "s1.review/unavailable", "start": "S0", "seed": null, "answer": {"token": "unavailable", "words": null, "words_file": null}, "reach": "story",
+   "expect": {"checks": ["C2"]}},
+  {"id": "s1.review/free words", "start": "S0", "seed": null,
+   "answer": {"token": null, "words": "Both sources were read; the review stands as the scout wrote it.", "words_file": null}, "reach": "story",
+   "expect": {"checks": ["C2", "C3"]}},
+  {"id": "s1.review/empty", "start": "S0", "seed": null, "answer": {"token": null, "words": null, "words_file": null}, "reach": "story",
+   "expect": {"checks": ["empty"]}},
+  {"id": "kind:s1_review/free words", "start": "S0", "seed": null,
+   "answer": {"token": null, "words": "The second source is out of date; read the first one only.", "words_file": null}, "reach": "story",
+   "expect": {"checks": ["C2", "C3"]}},
+  {"id": "kind:conductor/stage_review_exhausted:rework_stage", "start": "S0", "seed": null,
+   "answer": {"token": "rework_stage", "words": null, "words_file": null}, "reach": "live_only",
+   "why_unreached": "measured at S4 (seed from S0, row stub on qa-case-critic@S4): a critic round marked reject with header verdict ok and findings reject is not turned into stage_review_exhausted by the dry stub - the stage closed and the road went on to S5, and with a verdict word outside ok/concerns/halt/impossible the exit gate refuses the handoff and the ask is conductor why refusal; the repair rounds also pass the 240 s row cap (203 s at seed turn 3)",
+   "expect": {"checks": ["C3", "C9"]}},
+  {"id": "route:s1_gap/code move", "start": "S0", "seed": null, "answer": {"token": "go on", "words": null, "words_file": null}, "reach": "live_only",
+   "why_unreached": "the walker cannot judge a code-move route row yet (dry_world.py run_exit_row); the route raises a Person, so it is walked as kind s1_gap once the scout can be rerun with a gap",
+   "expect": {"checks": []}},
+  {"id": "route:s1_review/code move", "start": "S0", "seed": null, "answer": {"token": "go on", "words": null, "words_file": null}, "reach": "live_only",
+   "why_unreached": "the walker cannot judge a code-move route row yet (dry_world.py run_exit_row); the route is observed through the rows of s1.review and kind:s1_review at S0",
+   "expect": {"checks": []}},
+  {"id": "route:structured_artifact/code move", "start": "S0", "seed": null, "answer": {"token": "go on", "words": null, "words_file": null}, "reach": "live_only",
+   "why_unreached": "the walker cannot judge a code-move route row yet (dry_world.py run_exit_row: no check judges a code move and the seed turns' routes are not read)",
+   "expect": {"checks": []}}
+ ]
+}

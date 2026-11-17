@@ -1,0 +1,7 @@
+{
+ "_about": "The label ledger of the walker's self-test group only (node N4w): read by `test_scenario_dry_1.py --part exits:selftest --ledger <this file>`, never by the census.",
+ "known_red": {
+  "s1.review/unavailable": {"node": "N4W-1", "raised_by": "N4w self-test: proves the known_red path; the dry story offers no `unavailable` answer at s1.review (the inventory leaves nothing unavailable), so C2 is red by the world, not by a defect of main"}
+ },
+ "pins": {"known_red": 1}
+}

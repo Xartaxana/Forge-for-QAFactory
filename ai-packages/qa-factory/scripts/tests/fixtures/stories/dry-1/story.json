@@ -1,0 +1,92 @@
+{
+ "id": "dry-1",
+ "task": "DRY-1",
+ "synthetic": true,
+ "package_version": "0.11.0",
+ "change": {"diff_file": "impl.diff"},
+ "stub": {
+  "qa-case-critic": {"verdict": "ok"},
+  "qa-case-critic@S2": {"result_text": "qa-case-critic S2 DRY-1 · ok\nR-1 · reviewed · the register row names its observable\nR-2 · reviewed · the register row names its observable\nwork/handoffs/S2-qa-case-critic-1.yaml"},
+  "qa-case-critic@S3": {"result_text": "qa-case-critic S3 DRY-1 · ok\nTS-1 · reviewed · the plan row names the requirement and its level\nTS-2 · reviewed · the plan row names the requirement and its level\nwork/handoffs/S3-qa-case-critic-1.yaml"},
+  "qa-case-critic@S4": {
+   "result_text": "qa-case-critic S4 DRY-1 · ok\nTC-1 · reviewed · the case checks the total and names its plan row\nTC-2 · reviewed · the case checks the empty cart and names its plan row\nwork/test-cases/critic-findings.md",
+   "files": {
+    "work/test-cases/critic-findings.md": [
+     "# Critic findings, S4, round 1",
+     "",
+     "Verdict: approve",
+     "",
+     "## Roll-call",
+     "",
+     "| plan row | case | reviewed | verdict | note |",
+     "|---|---|---|---|---|",
+     "| TS-1 | TC-1 | yes | approve | the Then reads the total through the cart page, an independent channel |",
+     "| TS-2 | TC-2 | yes | approve | the Then reads the empty cart's zero and the missing checkout offer; lower level: impossible - the synthetic project holds no rendered cart page a test could read, so an agent reads it by hand |",
+     "",
+     "## Merge candidates",
+     "",
+     "| cases | verdict | reason |",
+     "|---|---|---|",
+     "| TC-1, TC-2 | keep | P16: the total of a cart with lines and the empty cart are two branches of the cart page; one parametrised red line would not name which branch failed (both cover R-1 only because the filler's register holds one row) |"
+    ]
+   }
+  },
+  "qa-automator@S5": {
+   "result_text": "qa-automator S5 window · ok\nTC-1 · green · the test checks the cart total with a quantity\nwork/automation-manifest.json",
+   "manifest_fragments": [
+    {"then_bindings": [
+      {"case": "TC-1", "then": 1, "instance_id": "test_the_case", "assertion_ref": "qa-factory/tests/TC-1_test.py:6", "status": "covered"}
+     ],
+     "obligation_bindings": [{"obligation_id": "OB-1", "instance_ids": ["test_the_case"]}]}
+   ]
+  },
+  "qa-case-designer@S4": {
+   "result_text": "qa-case-designer S4 DRY-1 · ok\nTC-1 · created · the case checks the cart total with a quantity\nwork/handoffs/S4-qa-case-designer-1.yaml",
+   "overrides": {
+    "s4-designer-to-case-critic": {
+     "scope[0].case_version": "pending: the orchestrator pins it with case_versions.py --all (the designer has no Bash)"
+    }
+   }
+  },
+  "qa-test-strategist@S3#1": {
+   "result_text": "qa-test-strategist S3 DRY-1 · ok\nG-1 · reviewed · labelled implements R-1\nG-2 · reviewed · labelled implements R-1\nwork/grounding.yaml",
+   "grounding": {
+    "rows": [
+     {"file": "src/shop/cart.py", "label": "implements", "requirements": ["R-1"], "reason": "the total now multiplies price by quantity, as R-1 asks"},
+     {"file": "src/shop/checkout.py", "label": "implements", "requirements": ["R-1"], "reason": "checkout is offered only while the cart has lines; the register holds R-1 only (the filler's register has one row)"}
+    ],
+    "requirements": [
+     {"r": "R-1", "state": "implemented", "files": ["src/shop/cart.py", "src/shop/checkout.py"]}
+    ],
+    "areas": [
+     {"id": "B-1", "matters": "no", "why": "the cart module has one function the story changes and nothing else calls it in this synthetic project", "regression": "test_cart.py::test_cart_total_multiplies_price_by_quantity defends the cart total"},
+     {"id": "B-2", "matters": "no", "why": "the checkout module has one function the story changes and nothing else calls it in this synthetic project", "regression": "gap:the synthetic project holds no test of the checkout module (test_cart.py does not reach it)"}
+    ]
+   }
+  },
+  "qa-requirements-tester": {
+   "result_text": "qa-requirements-tester S2 DRY-1 · ok\nR-1 · found · the total is the sum of price times quantity of the lines\nR-2 · found · an empty cart shows zero and offers no checkout\nwork/requirements-register.md",
+   "overrides": {
+    "work/requirements-readiness.json": {
+     "goal_summary": "Show a shopper the total of the cart lines, and offer no checkout while the cart is empty.",
+     "aspects": {
+      "shopping cart": {"status": "ready"},
+      "checkout": {"status": "ready"},
+      "sign-in and user accounts": {"status": "n/a", "reason": "the story does not touch sign-in"}
+     }
+    }
+   }
+  }
+ },
+ "walk": [
+  {"stage": "S1", "role": "qa-scout", "door": {"kind": "driver"}, "answers": {"s1_review": "go on"}},
+  {"stage": "S2", "role": "qa-requirements-tester", "door": {"kind": "driver"}},
+  {"stage": "S3", "role": "qa-test-strategist", "door": {"kind": "driver"}},
+  {"stage": "S4", "role": "qa-case-designer", "door": {"kind": "driver"}, "answers": {"gate_A": "approve"}},
+  {"stage": "S5", "role": "qa-automator", "door": {"kind": "driver"}, "answers": {"environment": "go on"}},
+  {"stage": "S6", "role": "qa-runner", "door": {"kind": "driver"}},
+  {"stage": "S7", "role": "qa-failure-analyst", "door": {"kind": "driver"}},
+  {"stage": "S8", "role": "qa-doc-scribe", "door": {"kind": "driver"}},
+  {"stage": "S9", "role": "qa-retro-analyst", "door": {"kind": "driver"}}
+ ]
+}

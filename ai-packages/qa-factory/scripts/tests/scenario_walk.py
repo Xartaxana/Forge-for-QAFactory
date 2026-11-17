@@ -37,14 +37,15 @@ STORIES = harness.FIXTURES / "stories"
 # The closed vocabularies of the walker (FR-13: closed variety is data, here in one place each).
 # An amendment's `field` -> the facet that compares it.
 AMEND_FACETS = {"outcome": "accepted", "decision": "decision", "delivery": "delivery", "question_kind": "question", "options": "question"}
-DOORS = ("exit_gate", "joint", "start", "gate", "delivery")
+DOORS = ("exit_gate", "joint", "start", "gate", "delivery", "driver")
 OPS = ("del", "set", "replace_file", "words")
 FACET_DOORS = {"accepted": ("exit_gate", "joint"), "refused": ("exit_gate", "joint"),
                "handed": ("exit_gate", "joint", "start"), "question": ("gate",), "decision": ("gate",),
                "delivery": ("delivery",)}
 # What a door runs, for --witness-for: the modules whose import closure decides which scenario a changed script belongs to.
 DOOR_MODULES = {"exit_gate": ["exit_gate"], "joint": ["validate_artifacts"], "start": ["story_step"],
-                "gate": ["gate_brief", "question_register", "controller"], "delivery": ["check_delivery", "delivery_verdict"]}
+                "gate": ["gate_brief", "question_register", "controller"], "delivery": ["check_delivery", "delivery_verdict"],
+                "driver": ["story_run"]}
 NOT_PART_OF_ROOT = ("story.json", "expected.json", "variants.json", "README.txt", "variant-files", "handbacks")
 # The one vocabulary of a gate decision and of a question kind: the walker's doors ANSWER in the right-hand tokens, and
 # tools/story_capture.py WRITES expected.json through these same rows (it imports this module by path), so a recorded

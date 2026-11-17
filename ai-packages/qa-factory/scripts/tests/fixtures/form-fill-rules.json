@@ -1,5 +1,5 @@
 {
-  "_about": "Rules of tests/form_filler.py (P1-a spec 3.2, 3.5): which generator fills which kind of hint of a handoff form. First matching rule wins. `when`: max_len (the reader's spec holds a length limit), kind:choice / kind:boolean (the reader's spec reads the hint as a closed list); `pattern`: a full match against the text inside the angle brackets. `context_tokens`: a token a path of the contract names, read from the FillContext key; `form_field_tokens`: a token read from the value the SAME form gives the named field (no plain value in the form: the FillContext key `context_fallback_tokens` names, when it holds one, else the value is unfillable, naming the token); `literal_text`: a value with an angle bracket that is text, not a hint. A hint no rule fits is never guessed: the filler reports it as unfillable. The generators are named in form_filler.GENERATORS.",
+  "_about": "Rules of tests/form_filler.py (P1-a spec 3.2, 3.5): which generator fills which kind of hint of a handoff form. First matching rule wins. `when`: max_len (the reader's spec holds a length limit), kind:choice / kind:boolean (the reader's spec reads the hint as a closed list); `pattern`: a full match against the text inside the angle brackets. `context_tokens`: a token a path of the contract names, read from the FillContext key; `form_field_tokens`: a token read from the value the SAME form gives the named field (no plain value in the form: the FillContext key `context_fallback_tokens` names, when it holds one, else the value is unfillable, naming the token); `world_list_tokens`: a token a list item carries once per file that really exists in the world (`dir` under the FillContext key `root`, files matching `glob`, the token replaced by the file's stem, sorted by file name; no such file: the item is unfillable, never a made-up one); `literal_text`: a value with an angle bracket that is text, not a hint. A hint no rule fits is never guessed: the filler reports it as unfillable. The generators are named in form_filler.GENERATORS.",
   "rules": [
     {"id": "limit", "when": "max_len", "gen": "limit"},
     {"id": "closed-boolean", "when": "kind:boolean", "gen": "first_option"},
@@ -28,6 +28,9 @@
   "form_field_tokens": {
     "<cases_root>": "artifacts.cases_root"
   },
+  "world_list_tokens": {
+    "<instance>": {"root": "task_root", "dir": "work/probes", "glob": "*.json"}
+  },
   "context_fallback_tokens": {
     "<cases_root>": "cases_root"
   },
@@ -38,8 +41,10 @@
   "artifact_tokens": {
     "<case id>": "case_id",
     "<bug id>": "bug_id",
-    "<the diff text>": "impl_diff"
+    "<the diff text>": "impl_diff",
+    "<channel>": "case_channel"
   },
+  "plan_row_key": "P",
   "artifact_templates": {
     "work/impl-diff.txt": {
       "contract": "references/artifact-contract.md",
@@ -51,6 +56,12 @@
       "contract": "references/artifact-contract-plan.md",
       "anchor": "## `test-plan.md`",
       "format": "md",
+      "per_plan_row": {
+        "token": "<TS-n>",
+        "counts": ["rows_total: ", "planned: ", "Pyramid: api "],
+        "each": {"`automate`": "`{disposition}`"},
+        "by_disposition": {"automate": {}, "manual-agent": {" | new | api | ": " |  | api | "}}
+      },
       "template": "---\ntask: <TICKET>\ncreated: 2026-11-13\nrows_total: 1\ncandidates: 0\nplanned: 1\n---\n\n# Test plan\n\nPyramid: api 1\n\n## Plan\n\n| TS | what we verify | R | defect hypothesis | impact class | priority | observable | oracle | disposition + reason | fit | level | technique |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n| <TS-n> | <what is verified, one plain line> | <R-n> | error-path @ <the place the defect would live> | blocked-flow | P1 | expected-contract:spec | requirement:<R-n> | `automate` — <why this row is worth automating> | new | api | <the technique applied> |\n\n## Recommended regression\n\nNo regression: <why no existing test defends the blast radius>\n",
       "required": ["body:## Plan", "task", "created", "rows_total", "candidates", "planned"]
     },
@@ -63,6 +74,20 @@
       "contract": "references/artifact-contract-plan.md",
       "anchor": "`work/test-plan.json` is `{\"rows\": [ ... ]}` — the rows for the scripts, a",
       "format": "json",
+      "per_plan_row": {
+        "at": "rows",
+        "set": {
+          "id": "{row}",
+          "disposition": "{disposition}",
+          "coverage_obligations[0].obligation_id": "OB-{n}",
+          "coverage_delta.entries[0].obligation_id": "OB-{n}",
+          "coverage_delta.planned_instance_ids[0]": "i{n}"
+        },
+        "by_disposition": {
+          "automate": {},
+          "manual-agent": {"fit": "", "rung_basis": {"kind": "judgement", "ref": "filled rung ref"}}
+        }
+      },
       "template": {
         "rows": [
           {
@@ -170,7 +195,7 @@
       "ids": "cases",
       "file_name": "general/<case id>.md",
       "cites": {"body:Plan row:": "P"},
-      "template": "---\nid: <case id>\ntitle: <one line saying what the case checks>\narea: general\npriority: P1\nstatus: Draft\nchannel: auto\nreuse_decision: new\nupdated: 2026-11-13\ntask: <TICKET>\ncovers: [<R-n>]\ndefect_class: error-path\nbasis: requirement:<R-n>\nthen_oracles: [{\"then\": 1, \"source\": \"requirement\", \"ref\": \"<R-n>\"}]\n---\n\n# <case id>\n\nRequirements: <R-n>\nPlan row: <TS-n>\n\n## Steps\n\n1. <the first step the case takes>\n\n## Then\n\n1. <what must hold after the steps>\n\n## Obligation coverage\n\n| part | oracle | boundary | Then and evidence | residual gap |\n|---|---|---|---|---|\n| <the part of the obligation> | requirement:<R-n> | <the boundary observed> | Then 1 | none |\n",
+      "template": "---\nid: <case id>\ntitle: <one line saying what the case checks>\narea: general\npriority: P1\nstatus: Draft\nchannel: <channel>\nreuse_decision: new\nupdated: 2026-11-13\ntask: <TICKET>\ncovers: [<R-n>]\ndefect_class: error-path\nbasis: requirement:<R-n>\nthen_oracles: [{\"then\": 1, \"source\": \"requirement\", \"ref\": \"<R-n>\"}]\n---\n\n# <case id>\n\nRequirements: <R-n>\nPlan row: <TS-n>\n\n## Steps\n\n1. <the first step the case takes>\n\n## Then\n\n1. <what must hold after the steps>\n\n## Obligation coverage\n\n| part | oracle | boundary | Then and evidence | residual gap |\n|---|---|---|---|---|\n| <the part of the obligation> | requirement:<R-n> | <the boundary observed> | Then 1 | none |\n",
       "required": ["id", "title", "area", "priority", "status", "channel", "reuse_decision", "updated"]
     },
     "case": {
@@ -191,7 +216,7 @@
       "row_fields": {
         "from": "window_record.REQUIRED_ROW_FIELDS",
         "at": "tests",
-        "shapes": {"obligation_refs": [{"obligation_id": "<OB-n>", "obligation_hash": "<the hash of the obligation>"}]}
+        "shapes": {"obligation_refs": [{"obligation_id": "<OB-n>"}]}
       },
       "template": {
         "tests": [

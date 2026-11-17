@@ -1,0 +1,7 @@
+{
+ "schema": 1,
+ "group": "s0",
+ "recipes": {
+  "to-halt": [{"drive_until": {"stage": "S1", "question": "halt"}}]
+ }
+}
