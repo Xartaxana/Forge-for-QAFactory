@@ -745,7 +745,7 @@ def _fill_form(row: dict, form: Path, contract, ctx, mine: dict, n: int, dispatc
 def _step(row: dict, project: Path, out: str, script: str, argv: list) -> tuple:
     """One command of a role's steps: `wrote` on exit 0, else a `live_only` row naming the script and its exit; `(code, text)`."""
     code, text = run_script(project, script, argv)
-    (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{script} exit {code}: {cut(text)}"})
+    _record(row, code, text, out, script)
     return code, text
 
 

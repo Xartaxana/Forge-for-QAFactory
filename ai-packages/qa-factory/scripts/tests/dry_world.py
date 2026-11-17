@@ -31,6 +31,7 @@ sys.path.insert(0, str(HERE))
 import harness  # noqa: E402
 import story_run_common as T  # noqa: E402
 import dry_stub  # noqa: E402
+import dry_exits  # noqa: E402
 
 STORIES = harness.FIXTURES / "stories"
 WALK = harness.FIXTURES / "dry-walk"
@@ -798,7 +799,6 @@ def loop_problem(asks: list) -> str:
     """C5 over the asks of the pass in order (each `{"ask": the record the same-ask test reads, "author": hash of the author's last input, "form": hash of the
     form}`): the third identical ask in a row when neither the author's input nor the form changed since the second is the loop of FV1-13/FV1-22 - "" when
     there is none. The direction of error is dry_exits's own: two nearly equal asks merge into one (a false red), one ask is never counted as two."""
-    import dry_exits
     for i in range(2, len(asks)):
         a, b, c = asks[i - 2], asks[i - 1], asks[i]
         if dry_exits.same_ask(a["ask"], b["ask"]) and dry_exits.same_ask(b["ask"], c["ask"]) and (b["author"], b["form"]) == (c["author"], c["form"]):
@@ -809,7 +809,6 @@ def loop_problem(asks: list) -> str:
 
 def author_hashes(world: World, dispatch: str) -> tuple:
     """`(hash of the last prompt a role got, hash of the dispatch's form)`: the two things whose change makes a repeated ask legitimate (C5)."""
-    import dry_exits
     rows = [r for r in read_rows(world.task_root / "state" / "dry-stub.jsonl", "the stub's journal") if r.get("dispatch") and r.get("prompt_sha")]
     form = world.task_root / "work" / "handoffs" / f"{dispatch}.yaml"
     return (rows[-1]["prompt_sha"] if rows else "", dry_exits._file_hash(form) if form.is_file() else "")
@@ -846,7 +845,6 @@ def _details_text(world: World, limit: int):
 def _turn_carriers(world: World, line, class_seen: bool) -> tuple:
     """`(stop, class_seen, fingerprint, questions)` after one driver turn: the stub's journal (E18, the run class), the state fingerprint (C3) and the
     driver's question records. A carrier that cannot be read, or a journal line with the wrong run class, is red and a non-empty `stop`."""
-    import dry_exits
     try:
         stub = read_rows(world.task_root / "state" / "dry-stub.jsonl", "the stub's journal (one JSON object per line)")
         if stub and not class_seen:
@@ -884,8 +882,7 @@ def _record_ask(world: World, q: dict) -> dict:
         offered = (json.loads((world.task_root / "state" / "driver-state.json").read_text(encoding="utf-8")).get("asked") or {}).get("offered") or []
     except (OSError, ValueError):
         offered = []
-    author, form = author_hashes(world, str(q.get("dispatch") or ""))
-    return {"ask": dict(q, offered=offered), "author": author, "form": form}
+    return _ask_of(world, q, offered)
 
 
 def drive_main(world: World, answers: dict, *, line, story_id: str = DEFAULT_STORY, prefix: str = "main", stop_after=None, drive_fn=None) -> dict:
@@ -997,7 +994,6 @@ def _stub_gap_lines(world: World, line) -> None:
 
 def _snapshot_lines(world: World, line, red, ledger: dict) -> None:
     """The snapshots the pass made, and for the stages it could not reach the rows that start there (notes); """
-    import dry_exits
     made = sorted(p.name for p in (world.snaps / world.row["id"]).glob("*") if SNAPSHOT_NAME.match(p.name))
     line("main/snapshots", "note", f"made {', '.join(made) or 'none'}")
     lacking = [s for s in STAGES if s not in made]
@@ -1102,7 +1098,6 @@ def answer_bytes(row: dict, story_dir) -> bytes:
     """The bytes of the answer file a row writes (S-7): `words_file` - the file's raw bytes (BOM and CRLF kept), resolved INSIDE the story folder
     (`dry_exits.resolve_words_file`, EW14); `token` and `words` - `token + "\\n" + words`; `token` only - `token + "\\n"`; `words` only - the words as
     UTF-8; all three null - `b""` (legal only for the variant `empty`, the loader refuses it elsewhere)."""
-    import dry_exits
     answer = row.get("answer") or {}
     token, words, name = answer.get("token"), answer.get("words"), answer.get("words_file")
     if name is not None:
@@ -1227,7 +1222,6 @@ def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_di
     """The facts of ONE row (`judge_row` judges them): a copy of the start snapshot with its OWN `snaps` dir (a gate rehearsal copies the copy, never the
     main snapshots, EW20), the row's control, the seed, the answer, then single-boundary turns until the fingerprint changed with a new ask, the driver
     left with nothing new, a loop showed, or `POST_TURNS` ran out (EW24). The copy is removed with `harness.cleanup`; `close()` is never called on it."""
-    import dry_exits
     from driver_dialog import question_body_sha
     drive_fn = drive_fn or drive
     copy = from_snapshot(world, row["start"])
@@ -1254,7 +1248,7 @@ def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_di
         facts["ask_sha"] = question_body_sha(question.read_text(encoding="utf-8", errors="replace") if question.is_file() else "")
         facts["fp_ask"] = dry_exits.state_fingerprint(copy.task_root).digest
         questions = _state_rows(copy, "driver-questions.jsonl", "the driver's question records")
-        asks = [_ask_of(copy, dict(questions[-1] if questions else {}), ask.get("offered"), dispatch=ask.get("dispatch"))]
+        asks = [_ask_of(copy, dict(questions[-1] if questions else {}), ask.get("offered"), dispatch=str(ask.get("dispatch") or ""))]
         gates, whys, outputs, fp_after, notes = [], [], [], None, []
 
         def rehearse(kind):
@@ -1326,7 +1320,6 @@ def snapshot_index(world: World) -> list:
 
 def _row_not_run(row: dict):
     """The NOTE outcome of a row that does not run (an open owner question, `live_only`, a static `after:`), or None when the row runs."""
-    import dry_exits
     expect = row.get("expect") or {}
     reach = str(row.get("reach"))
     if expect.get("owner_question"):
@@ -1341,7 +1334,6 @@ def _row_not_run(row: dict):
 def _run_judged_row(world: World, row: dict, recipes: dict, answers: dict, story_dir, universe, classer, drive_fn, say) -> object:
     """The outcome of ONE row that runs: its facts (`run_exit_row`) judged by `dry_exits.judge_row`; the scoreboard of the row is said through
     `say(tail, kind, text)`; a carrier the row cannot read is a FAIL naming it."""
-    import dry_exits
     import scenario_walk
     section, subject, _variant = dry_exits._subject_of(row["id"])
     board: list = []
@@ -1365,7 +1357,6 @@ def walk_exits(story_id: str, rows: list, recipes: dict, ledger_path, line, *, e
     the snapshot index, a hash of every start snapshot, then each row on a copy (`run_exit_row`) judged by `dry_exits.judge_row`; a start snapshot the
     prefix did not make is NOTE `after:<node>` when the prefix stop is a `main/S<n>` ledger row and red otherwise (I9); afterwards every start snapshot
     is hashed again (EW21). `line(full name, kind, detail)` prints; the prefix's own lines are never PASS/FAIL (only a red of the prefix is printed)."""
-    import dry_exits
     import known_red
     import scenario_walk
     universe = universe or dry_exits.Universe.real()
