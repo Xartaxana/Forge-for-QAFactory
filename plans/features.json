@@ -354,6 +354,7 @@
         "scripts/driver_timing.py",
         "scripts/driver_chains.py",
         "scripts/tests/mutate_once.py",
+        "scripts/tests/test_mutate_once.py",
         "scripts/tests/fixtures/mutations-*.json",
         "scripts/no_move.py",
         "scripts/tests/test_no_move_seam.py",
