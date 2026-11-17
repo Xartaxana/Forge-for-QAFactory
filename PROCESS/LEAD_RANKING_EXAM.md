@@ -16,8 +16,8 @@ set):
    repository — the keys are in this same file, so the no-tools rule
    is mandatory, and answers are checked for signs of peeking:
    verbatim key phrasing counts as contamination).
-2. Claude Code subagents auto-load CLAUDE.md, so the policy is
-   already in their context. This is a FAIR condition: the exam
+2. The dispatch attaches COORDINATOR.md whole, so the policy is
+   in the candidate's context. This is a FAIR condition: the exam
    measures the verification reflex, not knowledge of the rules;
    cross-family candidates (outside the Claude Code harness) get a
    policy digest in the prompt instead — note this asymmetry in the

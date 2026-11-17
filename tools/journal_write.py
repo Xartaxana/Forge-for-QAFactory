@@ -55,7 +55,7 @@ REPO = _TOOLS.parent
 PACKAGE_SCRIPTS = REPO / "ai-packages" / "qa-factory" / "scripts"
 
 CLI_LOCK_TIMEOUT = 15.0            # seconds; the hooks pass 5
-NOTES_MAX = 300                    # CLAUDE.md rule 12
+NOTES_MAX = 300                    # COORDINATOR.md rule 12
 NEXT_MAX = 20
 WITNESS_LINES = 40
 WITNESS_CHARS = 6000
@@ -419,7 +419,7 @@ def check_notes(notes, via: str = "cli") -> None:
     if not text.strip():
         raise Refused(2, "notes are required: one non-empty line saying what happened and why")
     if via == "cli" and len(text) > NOTES_MAX:
-        raise Refused(2, f"notes are at most {NOTES_MAX} characters (CLAUDE.md rule 12); got {len(text)} -- shorten them, "
+        raise Refused(2, f"notes are at most {NOTES_MAX} characters (COORDINATOR.md rule 12); got {len(text)} -- shorten them, "
                          "the long text goes into a file the notes name")
 
 

@@ -61,7 +61,7 @@ points at this exact path; don't write it anywhere else.
 
 5. **Contamination rule.** The golden set lives in the repo, and a
    scout dispatch could read the file directly. If a run's own trail
-   (see the trail-based acceptance rule in CLAUDE.md) shows it read
+   (see the trail-based acceptance rule in COORDINATOR.md) shows it read
    `PROCESS/SCOUT_GOLDEN_SET.md` itself, mark that run `contaminated`
    in the Runs log. Accept a contaminated run only if every answer
    still traces to a primary source outside this file (a file:line in

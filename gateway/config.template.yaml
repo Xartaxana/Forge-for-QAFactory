@@ -24,21 +24,21 @@ model_list:
       model: {{LEAD_PROVIDER}}/{{LEAD_MODEL}}
       api_key: os.environ/{{LEAD_API_KEY_ENV}}
 
-  # Mandatory acceptance gate for builder-class diffs (CLAUDE.md rule 3;
+  # Mandatory acceptance gate for builder-class diffs (COORDINATOR.md rule 3;
   # delegation.config.yaml roles.critic).
   - model_name: critic
     litellm_params:
       model: {{CRITIC_PROVIDER}}/{{CRITIC_MODEL}}
       api_key: os.environ/{{CRITIC_API_KEY_ENV}}
 
-  # Implementation from a written spec (CLAUDE.md rule 2;
+  # Implementation from a written spec (COORDINATOR.md rule 2;
   # delegation.config.yaml roles.builder).
   - model_name: builder
     litellm_params:
       model: {{BUILDER_PROVIDER}}/{{BUILDER_MODEL}}
       api_key: os.environ/{{BUILDER_API_KEY_ENV}}
 
-  # Recon: repo search, file reading, context gathering (CLAUDE.md
+  # Recon: repo search, file reading, context gathering (COORDINATOR.md
   # rule 1; delegation.config.yaml roles.scout).
   - model_name: scout
     litellm_params:
@@ -46,7 +46,7 @@ model_list:
       api_key: os.environ/{{SCOUT_API_KEY_ENV}}
 
   # Shadow Evaluation judge (shadow_eval.py --judge-model) -- a
-  # supervised worker, not a rules-level function (CLAUDE.md's
+  # supervised worker, not a rules-level function (COORDINATOR.md's
   # function/grade split). api-keys-only in delegation.config.yaml;
   # calibrate it against judge_calibration.json before trusting it
   # (see gateway/README.md "Shadow Evaluation").

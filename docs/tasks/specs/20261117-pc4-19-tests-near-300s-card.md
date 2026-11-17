@@ -535,3 +535,4 @@ Not applied (outside the findings, the Lead's): the critic's F4 suggestion to co
 write the per-node re-point list now.
 
 - Q-r (b) (Lead, 17.11.2026, after the fix round): miss 1 is left to each stream's DoD run (`--witness-for` of its owns) and to NC-19's; no quote in §6 before dispatch.
+- B0b (Lead, 17.11.2026, builder question t-1259): a file whose kept preamble has `sys.path.insert(0, ...parents[1])` fails proof (g) (the parts are staged in a temp dir). Each stream adds a prep commit B0b replacing that line with `sys.path.insert(0, str(SCRIPTS))` after the harness import (the N2 precedent form, `test_story_step_config.py:17`); its key is the diff of that one line. Streams A and D check their preamble for the same line first. The tool gap is node PC4-20.

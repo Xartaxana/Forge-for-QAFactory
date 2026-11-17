@@ -14,7 +14,7 @@ staged, main() silently returns 0 (the gate emits nothing at all).
 Only deterministically decidable facts are checked -- presence,
 shape, typed fields; the meaning of notes is never parsed.
 
-Checks (numbering matches this file's own spec / CLAUDE.md's "Routing
+Checks (numbering matches this file's own spec / COORDINATOR.md's "Routing
 log" section):
  1. Append-only: staged must start with HEAD as a prefix.
  2. Every NEW line is a valid single-line JSON object with
@@ -150,7 +150,7 @@ log" section):
     designer}, in this order:
     (a) `by` outside FAMILIES (exact lowercase key; "lead", "claude-opus-5-5" and "Opus" included) FAILS first, with
         the family list as its door -- no rank arithmetic ever runs on an acceptor that cannot be identified;
-    (b) basis=="judge" is REFUSED on every line (no judge is bound in this deployment, CLAUDE.md rule 13), before
+    (b) basis=="judge" is REFUSED on every line (no judge is bound in this deployment, COORDINATOR.md rule 13), before
         ok_rank, so no acceptor rank makes it legal;
     (c) ok_rank: rank(by) > rank(agent) -- legal at any basis (a model ranked above a function's binding may stand in
         during an outage: a higher-ranked acceptor is never refused);
@@ -312,7 +312,7 @@ QUEUED_TO_LEAD_AGENTS = {"critic", "designer"}
 # membership (closes a leak where basis=queued-to-lead passed membership
 # for ANY by/agent, including builder-class at a sonnet coordinator).
 BASIS_VALUES = {"critic", "queued-to-lead"}
-# basis="judge" is REFUSED on every line (no judge is bound in this deployment, CLAUDE.md rule 13; FG7-16).
+# basis="judge" is REFUSED on every line (no judge is bound in this deployment, COORDINATOR.md rule 13; FG7-16).
 JUDGE_BASIS_VALUE = "judge"
 CONFIG_REL = "delegation.config.yaml"   # read from the root of the repo being validated (S2 of the architect-tier spec)
 # reviewed_through of a `calibrated` line: a git sha (the Architect's review marker, ARCHITECT_START step 8)
@@ -676,7 +676,7 @@ def _matrix_d0058_violation(event: str, agent, by: str, obj: dict, config_text=N
     if basis == JUDGE_BASIS_VALUE:
         return (
             "role-vs-tier acceptance matrix: basis \"judge\" is not legal here -- no judge is bound in this "
-            "deployment (CLAUDE.md rule 13); accept from a tier above, or use basis 'critic' / 'queued-to-lead' "
+            "deployment (COORDINATOR.md rule 13); accept from a tier above, or use basis 'critic' / 'queued-to-lead' "
             "for the (by, agent) pair"
         )
 

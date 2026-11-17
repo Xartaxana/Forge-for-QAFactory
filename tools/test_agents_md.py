@@ -16,6 +16,7 @@ REAL = TOOLS.parent
 SCRIPT = TOOLS / "agents_md.py"
 sys.path.insert(0, str(TOOLS))
 import agents_md  # noqa: E402
+import coordinator_rules  # noqa: E402
 
 SETTINGS = {
     "hooks": {
@@ -49,6 +50,8 @@ def make_repo(root, claude="# Top\n\n@PROJECT.md\n\n@docs/IDX.md\n", extra=None)
         "tools/hook_a.py": '"""Hook A does a thing.\n\nMore text.\n"""\n',
         "tools/hook_b.py": "x = 1\n",
     }
+    for rel in coordinator_rules.COORDINATOR_FILES:       # the coordinator files every Codex text carries (F7)
+        files.setdefault(rel, "coordinator text of %s\n" % rel)
     files.update(extra or {})
     for rel, content in files.items():
         p = root / rel
@@ -71,7 +74,7 @@ def real_copy(tmp_path_factory):
     """A copy of the real sources (not the real AGENTS.md) with a fresh generated output."""
     root = tmp_path_factory.mktemp("real")
     imports = [ln[1:].strip() for ln in (REAL / "CLAUDE.md").read_text(encoding="utf-8").splitlines() if ln.startswith("@")]
-    for rel in ("CLAUDE.md", *imports, ".claude/settings.json"):
+    for rel in ("CLAUDE.md", *imports, *coordinator_rules.COORDINATOR_FILES, ".claude/settings.json"):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(REAL / rel, root / rel)
     shutil.copytree(REAL / ".claude" / "agents", root / ".claude" / "agents")
@@ -85,6 +88,11 @@ def real_copy(tmp_path_factory):
 
 def out_of(root):
     return (root / "AGENTS.md").read_bytes().decode("utf-8")
+
+
+def claude_part(text):
+    """The text before the coordinator blocks: what CLAUDE.md and its `@` imports expand to (COORDINATOR.md opens the tail)."""
+    return text.split("<!-- begin COORDINATOR.md -->")[0]
 
 
 # ---------------------------------------------------------------- expansion
@@ -111,7 +119,7 @@ def test_fenced_import_not_expanded(tmp_path):
     assert run("--repo", root).returncode == 0
     text = out_of(root)
     assert "```\n@PROJECT.md\n```" in text and "~~~\n@PROJECT.md\n~~~" in text
-    assert "<!-- begin PROJECT.md -->" not in text
+    assert "<!-- begin PROJECT.md -->" not in claude_part(text)
 
 
 FENCED_CLAUDE = ("# Top\n\n```\n@PROJECT.md\n```\n\n~~~\n@PROJECT.md\n~~~\n\n```sh\n~~~\n@PROJECT.md\n```\n\n"
@@ -125,7 +133,7 @@ def test_whole_body_of_a_fixture_with_fenced_blocks_is_pinned(tmp_path):
     fence reader moved to md_table.fence_walk: a fenced import is kept as text, a mark of the other kind inside a block does not close
     it, an import after the blocks is expanded."""
     root = make_repo(tmp_path / "r", claude=FENCED_CLAUDE)
-    assert "\n".join(agents_md.build_body(root)) == FENCED_BODY
+    assert "\n".join(agents_md.build_claude_body(root)) == FENCED_BODY
     assert run("--repo", root).returncode == 0
     assert FENCED_BODY in out_of(root)
 
@@ -133,16 +141,35 @@ def test_whole_body_of_a_fixture_with_fenced_blocks_is_pinned(tmp_path):
 def test_a_fence_opened_with_tildes_and_closed_with_backticks_is_not_closed(tmp_path):
     """The closing mark must be of the opening kind (md_table.fence_walk): the import after the mismatching mark is still inside."""
     root = make_repo(tmp_path / "r", claude="# Top\n\n~~~\n```\n@PROJECT.md\n")
-    assert "\n".join(agents_md.build_body(root)) == "# Top\n\n~~~\n```\n@PROJECT.md"
+    assert "\n".join(agents_md.build_claude_body(root)) == "# Top\n\n~~~\n```\n@PROJECT.md"
     root = make_repo(tmp_path / "s", claude="# Top\n\n~~~\n```\n~~~\n@PROJECT.md\n")
-    assert "<!-- begin PROJECT.md -->" in "\n".join(agents_md.build_body(root))
+    assert "<!-- begin PROJECT.md -->" in "\n".join(agents_md.build_claude_body(root))
 
 
 @pytest.mark.parametrize("claude", ["# Top\n\n````\n```\n@PROJECT.md\n````\n", "# Top\n\n```\n```sh\n@PROJECT.md\n```\n"])
 def test_a_shorter_run_or_a_closer_with_an_info_string_does_not_close_a_block(tmp_path, claude):
     """CommonMark closing rule (md_table.fence_walk, F6-16): the import line stays text inside the block, as before the reader moved."""
     root = make_repo(tmp_path / "r", claude=claude)
-    assert "\n".join(agents_md.build_body(root)) == claude.rstrip("\n")
+    assert "\n".join(agents_md.build_claude_body(root)) == claude.rstrip("\n")
+
+
+def test_every_coordinator_file_follows_the_claude_part_under_markers_in_list_order(tmp_path):
+    """F7 / spec edge e9: Codex keeps the full text, so AGENTS.md = CLAUDE.md, then each file of
+    coordinator_rules.COORDINATOR_FILES between its own begin/end markers, in the list's order."""
+    root = make_repo(tmp_path / "r", claude="# Top\n")
+    assert run("--repo", root).returncode == 0
+    text = out_of(root)
+    blocks = ["<!-- begin %s -->\n%s<!-- end %s -->" % (rel, (root / rel).read_text(encoding="utf-8"), rel)
+              for rel in coordinator_rules.COORDINATOR_FILES]
+    assert "# Top\n" + "\n".join(blocks) + "\n" in text
+
+
+@pytest.mark.parametrize("name", coordinator_rules.COORDINATOR_FILES)
+def test_a_missing_coordinator_file_exit_2_names_it(tmp_path, name):
+    root = make_repo(tmp_path / "r", claude="# Top\n", extra={name: None})
+    r = run("--repo", root)
+    assert r.returncode == 2 and name in r.stderr
+    assert not (root / "AGENTS.md").exists()
 
 
 def test_the_fence_reader_is_md_table_and_agents_md_holds_no_fence_regex():
@@ -155,7 +182,7 @@ def test_the_fence_reader_is_md_table_and_agents_md_holds_no_fence_regex():
 def test_import_after_a_closed_fence_is_expanded(tmp_path):
     root = make_repo(tmp_path / "r", claude="# Top\n\n```\ncode\n```\n\n@PROJECT.md\n")
     assert run("--repo", root).returncode == 0
-    assert "<!-- begin PROJECT.md -->" in out_of(root)
+    assert "<!-- begin PROJECT.md -->" in claude_part(out_of(root))
 
 
 def test_inline_import_not_expanded(tmp_path):
@@ -164,7 +191,7 @@ def test_inline_import_not_expanded(tmp_path):
     assert run("--repo", root).returncode == 0
     text = out_of(root)
     assert "see @PROJECT.md now" in text and "@PROJECT.md trailing" in text
-    assert "<!-- begin PROJECT.md -->" not in text
+    assert "<!-- begin PROJECT.md -->" not in claude_part(text)
 
 
 def test_missing_import_exit_2_names_it(tmp_path):
@@ -402,11 +429,11 @@ def test_real_size_notice(real_copy):
 
 
 def _repo_of_size(root, target):
-    """Tune PROJECT.md filler until the generated file is exactly `target` bytes."""
+    """Tune COORDINATOR.md filler until the generated file is exactly `target` bytes."""
     make_repo(root)
     filler = 0
     for _ in range(50):
-        (root / "PROJECT.md").write_text("x" * filler + "\n", encoding="utf-8")
+        (root / "COORDINATOR.md").write_text("x" * filler + "\n", encoding="utf-8")   # once in the text, unlike PROJECT.md
         size = len(agents_md.build(root))
         if size == target:
             return root

@@ -82,3 +82,7 @@ A: refusal text keeps FR-1 shape and now ends with a runnable door (FR-2, `perso
 - S7 site `driver_stage_s7.py:772-775` of the same close is FV3-26's.
 
 Changelog fragment: `ai-packages/qa-factory/changelog.d/fv3-22-skill-road-s6-close.md` (bullet 1 only; bullet 2 is FV3-22-2's).
+
+## Canon fix
+
+Canon 44189216482 forge-check: `tools/test_forge_metrics.py` K1 listed `scripts/stage_close.py` as unattributed. Added one row `"scripts/stage_close.py"` in `plans/features.json`, right after `scripts/driver_*.py` (the feature that holds the driver_stage_s6 files). origin/main merged first (clean).

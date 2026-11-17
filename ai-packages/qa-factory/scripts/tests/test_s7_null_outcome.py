@@ -460,7 +460,7 @@ def the_refusal_lists_are_cut_AT_and_BEYOND_the_cap() -> None:
 
 # ---------------------------------------------------------------------------------------------- K3, S3
 def every_other_contract_behaves_as_it_did() -> None:
-    check_eq("REQUIRED_LISTS is unchanged: `scope`, and only it", handoff.REQUIRED_LISTS, ("scope",))
+    check_eq("REQUIRED_LISTS: `scope` and `inputs_read`", handoff.REQUIRED_LISTS, ("scope", "inputs_read"))
     named = [p.stem for p in sorted(handoff.CONTRACTS.glob("*.yaml"))
              if p.stem not in ("index", "vocabulary") and handoff.null_outcomes(p.stem)]
     check_eq("S3: exactly one contract names a null outcome - the S7 hand to the automator", named, [CONTRACT])
@@ -486,7 +486,7 @@ def every_other_contract_behaves_as_it_did() -> None:
         _doc, _fixed, problems, _j, _d = HC.check(handoff.parse(form), scribe, HC.Artifacts(task), fix=True, use_judge=False)
         scope_problem = [p for p in problems if p.path == "scope"]
         check_eq("K3: the scribe form with an empty scope is refused, as it always was", len(scope_problem), 1)
-        check_in("K3: with the unchanged text", "no rows. One row per item in scope", scope_problem[0].text)
+        check_in("K3: with the unchanged text", "no rows. `scope` is a required list", scope_problem[0].text)
         check_not_in("K3: and with no word about a null outcome", "work/triage.json", scope_problem[0].text)
     finally:
         cleanup(task)
@@ -502,7 +502,7 @@ def every_other_contract_behaves_as_it_did() -> None:
         finally:
             HC.handoff.null_outcomes = before
         check_in("S3: a contract with no `null_outcome` block refuses the empty scope in the old words",
-                 "no rows. One row per item in scope", text_of(problems))
+                 "no rows. `scope` is a required list", text_of(problems))
     finally:
         cleanup(task)
 
