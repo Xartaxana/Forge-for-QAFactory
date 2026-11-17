@@ -37,7 +37,9 @@ ARABIC_FIVE = chr(0x0665)
 # The 22 rows of the node spec plus the one Q6-A adds (source_freshness): 23.
 EXPECTED_IDS = [
     "stand_identity", "provenance_acceptance", "request_shape", "inputs_unchanged", "test_identity",
-    "collected_ids", "executor_present", "live_check_demand", "s5_coverage", "s5_window", "delivery",
+    "collected_ids", "executor_present", "live_check_demand", "s5_coverage", "s5_window",
+    "critic_review",      # RD1-29 (t-1235): the critic's review word AFTER the window (the row `s5_window` holds it inside)
+    "delivery",
     "manual_evidence_shape", "case_preconditions", "environment_preparation", "baseline_identity",
     "witness_backstop", "equivalence_metric", "then_oracle",
     "exploratory_oracle",   # MR !10 W4 (t-1594): the exploratory findings oracle that accepts person_confirmed (F2(a)); unknown branch debt
@@ -79,6 +81,7 @@ EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "st
                       "s5_window",              # C3-d (t-1081): the critic's review word through the predicate (three consumers)
                       "test_identity",          # C3-b2 (t-1080): the reuse sites accept through the predicate
                       "baseline_identity",      # C3-g (t-1157, AR-20): the receipt's status word through the predicate
+                      "critic_review",          # RD1-29 (t-1235): the post-window readers accept the review word through the predicate
                       "stand_identity"]         # C3-h (t-1179, AR-20): the probe's own result words; the unknown branch pinned by test
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
@@ -357,8 +360,8 @@ def part_live_registry() -> None:
     # merged (t-1083): converted 21 -> 23, debt 6 -> 4
     # C3-g (t-1157): baseline_identity converted, converted 23 -> 24, debt 4 -> 3
     # C3-h (t-1179): stand_identity converted, converted 24 -> 25, debt 3 -> 2
-    check_eq("K-T1.14 the registry file's rows split 25 converted / 2 debt / 6 exempt (C3-R converted six debt rows for good)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 25, "debt": 2, "exempt": 6})
+    check_eq("K-T1.14 the registry file's rows split 26 converted / 2 debt / 6 exempt (C3-R converted six debt rows for good)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 26, "debt": 2, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -809,6 +812,7 @@ def part_fix_pass() -> None:
                      "s5_window",     # C3-d (t-1081): target -> code (the words `approved` / `unverified`)
                      "baseline_identity",   # C3-g (t-1157): target -> code (the receipt's words `captured` / `inconclusive`)
                      "stand_identity",      # C3-h (t-1179): target -> code (the probe's own `result` words)
+                     "critic_review",       # RD1-29 (t-1235): new row, `code` (the critic's four words)
                      "stand_login_gate", "stand_check", "probe_verdict", "finish_exit_gate", "exploratory_oracle", "branch_accounting",
                      "s3_grounding", "regression_on_main", "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base"]))
     check("F4 no live converted row says target",
@@ -1080,7 +1084,6 @@ D13_TRIPLES = [
     # RH1-5 (t-1433, 0b53cc33): `finish` splits an exit-gate record of kind `unreadable` from the refusals - two comparisons
     # (`kind == 'unreadable'` and `kind != 'unreadable'`) at the site finish_exit_gate already registers; no new site, no new row.
     ("story_step.py", "_finish_gate", "finish_exit_gate"),
-    ("window_record.py", "build", "s5_window"),    # C3-d (t-1081): `item['review']['verdict'] != 'approved'`, the review note, a produce site
 ]
 # The total is pinned beside the set: two comparisons of one triple are one entry above, and the count is what notices one of them go.
 # 134 -> 135 (t-598, F-7 of t-596): EP1-36's `record.get("verdict") == "incomplete"` stands in `_judge_rows` (a site of the
@@ -1123,7 +1126,11 @@ D13_TRIPLES = [
 # 150 -> 151 (C3-g, t-1157, AR-20): `baseline_identity` now says `code`, so the scan reads `record['capture_status'] == 'captured'`
 # in its registered `produce` site `manual_evidence.write_baseline_receipt` (triple joins; 53 -> 54 triples); `deployment_readiness`'s
 # `status == 'captured'` became an `acceptable(...)` call. Measured with GR.analyse before (150 / 53, the pins) and after (151 / 54).
-D13_ITEM_COUNT = 151
+# 151 -> 150 (RD1-29, t-1235, AR-20): the review note's comparison `item['review']['verdict'] != 'approved'` leaves `window_record.build` for
+# `window_record.review_note` (an `acceptable(...)` call, role `accept` under `s5_window`), so the triple `("window_record.py", "build", "s5_window")`
+# leaves the set (54 -> 53 triples) and the count falls by that one comparison. Measured with `gate_registry.py --sites` before (151) and after (150).
+# The new row `critic_review` (six sites) adds no counted comparison: its sites ask `acceptable` and compare no row word.
+D13_ITEM_COUNT = 150
 
 
 def part_site_attribution() -> None:

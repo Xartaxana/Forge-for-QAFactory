@@ -198,6 +198,18 @@ class BasisTests(unittest.TestCase):
         entry = _entry("t", "TC-1", critic_verdict="approved_with_fixes")
         self.assertEqual(D.instance_basis(entry, green), "reviewed by the code critic, fixes named · not probed")
 
+    def test_an_unreadable_gate_registry_shows_the_words_without_the_level(self):
+        # RD1-29 (E2): the display never raises over the registry; it says what it can (the critic's words) and no level
+        import gate_registry
+        import gate_template as GT
+        saved = list(GT._READ)
+        GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+        try:
+            entry = _entry("t", "TC-1", critic_verdict="approved", probe={"proof_level": "live"})
+            self.assertEqual(D.instance_basis(entry, {"status": "passed"}), "reviewed by the code critic")
+        finally:
+            GT._READ[:] = saved
+
     def test_a_missing_level_vocabulary_never_crashes_the_dashboard(self):
         import contextlib
         import io

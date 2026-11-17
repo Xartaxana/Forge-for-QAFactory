@@ -2731,6 +2731,294 @@ def test_the_executor_question_now_reaches_the_e2e_profile() -> None:
         cleanup(root)
 
 
+# --- U7 5a (r8, Q12, r12): a missing launcher gets ONE conductor turn when the project names an install command ------------
+# expected from: docs/tasks/specs/20261117-u7-pass-without-stuck-spec-r3.md section 2 r8, Q12, r12, section 3 item (iii)
+
+LAUNCHER = "a-launcher-nobody-installed-u7"
+UNSET = object()          # the dependency check did not run: `_drift` is never set on the rehearsal
+
+
+def drift_entry(profiles, command=("poetry", "install"), state="differs", why=""):
+    """What `check_s5_dependencies` keeps: one group of profiles, its state and the install command the project names."""
+    return {"profiles": list(profiles),
+            "result": {"state": state, "why": why, "lock": "poetry.lock", "differs": [], "absent": [], "conditional": 0, "checked": 0,
+                       "command": {"argv": list(command), "cwd": ".", "source": "profile"}}}
+
+
+def launcher_story(prefix: str, toolchain: str = "", tests_root: str = "") -> Path:
+    """The cmp2 story whose profiles launch a program nobody installed; `toolchain` (a `quiet` template) switches the collect on."""
+    def edit(cfg):
+        cfg["gate_rehearsal"].pop("skip_executor")
+        for profile in cfg["profiles"]:
+            profile["commands"]["one_test"]["argv"] = [LAUNCHER, "<test-file>"]
+        if toolchain:
+            cfg["gate_rehearsal"].pop("skip_collect")
+            cfg["test_command_templates"] = {"quiet": toolchain}
+        if tests_root:
+            cfg["tests_root"] = tests_root
+    return cmp2_story(prefix, config=edit)
+
+
+def launcher_rehearsal(root: Path, steps, drift=UNSET, drift_all=None) -> gate_preflight.Rehearsal:
+    use_project(root)
+    r = gate_preflight.Rehearsal(root / "qa-factory" / "artifacts" / CMP2_TICKET, "A")
+    if drift is not UNSET:
+        r._drift, r._drift_all = list(drift), list(drift_all if drift_all is not None else drift)
+    for name in steps:
+        getattr(r, "check_" + name)()
+    return r
+
+
+def turn_record(root: Path) -> Path:
+    return root / "qa-factory" / "artifacts" / CMP2_TICKET / "state" / "executor-turns.json"
+
+
+def api_finding(r, check: str):
+    return next(f for f in r.findings if f["check"] == check and f.get("profile") == "api")
+
+
+def test_u7_5a_r8_a_missing_launcher_the_project_can_install_is_one_conductor_turn_else_the_persons_card() -> None:
+    root = launcher_story("qa-gate-u7-5a-r8-")
+    try:
+        probe = launcher_rehearsal(root, ("s5_executor",), [drift_entry(["api"])])
+        digest = api_finding(probe, "s5_executor")["install_digest"]
+        key = gate_preflight.executor_turn_key("api", LAUNCHER, digest)
+        had = json.dumps({"turns": [{"key": key, "at": "2026-11-17T10:00:00"}]})
+        for label, drift, record, expected in (
+                ("an install command is known and no turn was had", [drift_entry(["api"])], None, gate_preflight.FACTORY_FIXABLE),
+                ("no install command is known", [], None, gate_preflight.PERSON_DECIDES),
+                ("the entry names no command", [drift_entry(["api"], command=())], None, gate_preflight.PERSON_DECIDES),
+                ("the install belongs to another profile", [drift_entry(["e2e-ui"])], None, gate_preflight.PERSON_DECIDES),
+                ("a turn is recorded for the key", [drift_entry(["api"])], had, gate_preflight.PERSON_DECIDES),
+                ("the turn record cannot be read", [drift_entry(["api"])], "{not json", gate_preflight.PERSON_DECIDES),
+                ("the turn record has the wrong shape", [drift_entry(["api"])], json.dumps({"turns": "x"}), gate_preflight.PERSON_DECIDES),
+                ("the dependency check did not run", UNSET, None, gate_preflight.PERSON_DECIDES)):
+            path = turn_record(root)
+            path.unlink(missing_ok=True)
+            if record is not None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(record, encoding="utf-8")
+            found = api_finding(launcher_rehearsal(root, ("s5_executor",), drift), "s5_executor")
+            check_eq(f"r8 {label}: the class of the api finding", found["class"], expected)
+            if expected == gate_preflight.PERSON_DECIDES:
+                # words unchanged: the three-answer card is the one wording of `executor_question`
+                statement, options = gate_preflight.executor_question(LAUNCHER, "api", found["cases"], "S5")
+                check_eq(f"r8 {label}: the card's words are the question's own", (found["message"], found["fix"]), (statement, options))
+        # the other profile of the same rehearsal, with no install of its own, is the card while api is fixable
+        turn_record(root).unlink(missing_ok=True)
+        r = launcher_rehearsal(root, ("s5_executor",), [drift_entry(["api"])])
+        fixable, other = api_finding(r, "s5_executor"), next(f for f in r.findings if f.get("profile") == "e2e-ui")
+        check_eq("r8: api is the conductor's, e2e-ui (no install command) is the person's",
+                 (fixable["class"], other["class"]), (gate_preflight.FACTORY_FIXABLE, gate_preflight.PERSON_DECIDES))
+        check_eq("r8: the finding carries the key's parts", (fixable["profile"], fixable["tool"], bool(fixable["install_digest"])),
+                 ("api", LAUNCHER, True))
+        check_in("r8 M-a: the fix says the install command", "poetry install", fixable["fix"])
+    finally:
+        cleanup(root)
+
+
+def test_u7_5a_r8_the_toolchain_road_takes_the_same_decision_and_zero_automate_rows_collect_nothing() -> None:
+    template = f'{LAUNCHER} pytest -m "<test-id>"'       # a runner that does not start: `not_started`
+    root = launcher_story("qa-gate-u7-5a-toolchain-", toolchain=template)
+    try:
+        for label, drift, expected in (("install known", [drift_entry(["api"])], gate_preflight.FACTORY_FIXABLE),
+                                       ("no install known", [], gate_preflight.PERSON_DECIDES),
+                                       ("the dependency check did not run", UNSET, gate_preflight.PERSON_DECIDES)):
+            turn_record(root).unlink(missing_ok=True)
+            found = api_finding(launcher_rehearsal(root, ("s5_toolchain",), drift), "s5_toolchain")
+            check_eq(f"r8 toolchain {label}: the class", found["class"], expected)
+            check_eq(f"r8 toolchain {label}: the tool is the project command's launcher", found["tool"], LAUNCHER)
+        # one key on every road: a turn the executor road had is the toolchain road's turn too
+        r = launcher_rehearsal(root, ("s5_toolchain",), [drift_entry(["api"])])
+        key = gate_preflight.executor_turn_key("api", LAUNCHER, api_finding(r, "s5_toolchain")["install_digest"])
+        turn_record(root).parent.mkdir(parents=True, exist_ok=True)
+        turn_record(root).write_text(json.dumps({"turns": [{"key": key, "at": "2026-11-17T10:00:00"}]}), encoding="utf-8")
+        check_eq("r8 toolchain: a turn had for the key -> the card",
+                 api_finding(launcher_rehearsal(root, ("s5_toolchain",), [drift_entry(["api"])]), "s5_toolchain")["class"],
+                 gate_preflight.PERSON_DECIDES)
+    finally:
+        cleanup(root)
+    # B-006 (iii): no automate row -> nothing collected, nothing asked; a plan that cannot be read is not "no automate row"
+    for label, edit, expected_findings in (
+            ("every row manual", lambda plan: json.dumps({"rows": [dict(r, disposition="manual-agent") for r in json.loads(plan)["rows"]]}), 0),
+            ("the plan is missing", None, 1),
+            ("automate rows present", lambda plan: plan, 1)):
+        root = launcher_story("qa-gate-u7-5a-zero-", toolchain=template)
+        try:
+            plan = root / "qa-factory" / "artifacts" / CMP2_TICKET / "work" / "test-plan.json"
+            if edit is None:
+                plan.unlink()
+            else:
+                plan.write_text(edit(plan.read_text(encoding="utf-8")), encoding="utf-8")
+            r = launcher_rehearsal(root, ("s5_toolchain",), [])
+            check_eq(f"B-006 iii {label}: the toolchain findings", len([f for f in r.findings if f["check"] == "s5_toolchain"]), expected_findings)
+        finally:
+            cleanup(root)
+
+
+def test_u7_5a_q12_a_collect_that_is_not_run_is_said_not_silent() -> None:
+    for label, kwargs, phrase in (
+            ("the tests folder is not a folder", {"toolchain": 'pytest -m "<test-id>"', "tests_root": "no-such-folder"}, "is not a folder here"),
+            ("the test command is not one the check can collect", {"toolchain": "make check"}, "not one this check knows how to collect")):
+        root = launcher_story("qa-gate-u7-5a-q12-", **kwargs)
+        try:
+            r = launcher_rehearsal(root, ("s5_toolchain",), [])
+            said = [row["message"] for row in r.info if row["check"] == "s5_toolchain"]
+            check_eq(f"Q12 {label}: no finding", [f for f in r.findings if f["check"] == "s5_toolchain"], [])
+            check_eq(f"Q12 {label}: ONE note says the existing tests were not collected", (len(said), phrase in said[0] if said else False), (1, True))
+            check_in(f"Q12 {label}: and that the stage meets the toolchain first", "S5 meets the toolchain first", said[0] if said else "")
+        finally:
+            cleanup(root)
+
+
+def test_u7_5a_f14_an_unreadable_environment_joins_the_card_of_its_profile_or_says_nothing() -> None:
+    clause = "the packages installed for this profile could not be read"
+    root = launcher_story("qa-gate-u7-5a-f14-")
+    try:
+        for label, entries, expected in (
+                ("an unknown entry with its reason", [drift_entry(["api"], state="unknown", why="no lock file the factory reads")],
+                 f"{clause}: no lock file the factory reads"),
+                ("an unknown entry with no reason", [drift_entry(["api"], state="unknown")], clause),
+                ("two unknown entries of one profile", [drift_entry(["api"], state="unknown", why="first reason"),
+                                                        drift_entry(["api"], state="unknown", why="second reason")], f"{clause}: first reason")):
+            r = launcher_rehearsal(root, ("s5_executor",), [], entries)
+            api, other = api_finding(r, "s5_executor"), next(f for f in r.findings if f.get("profile") == "e2e-ui")
+            check_eq(f"F-14 {label}: ONE clause on api's card", api["message"].count(clause), 1)
+            check(f"F-14 {label}: the clause (with the entry's own reason) ends the card", api["message"].endswith(f"; {expected}"), api["message"])
+            check_not_in(f"F-14 {label}: the other profile's card is untouched", clause, other["message"])
+    finally:
+        cleanup(root)
+    # no card and no note of the profile -> nothing is said: api's launcher resolves, the unknown entry covers api only
+    def resolves(cfg):
+        cfg["gate_rehearsal"].pop("skip_executor")
+        for profile in cfg["profiles"]:
+            profile["commands"]["one_test"]["argv"] = [sys.executable if profile["profile_id"] == "api" else LAUNCHER, "<test-file>"]
+    root = cmp2_story("qa-gate-u7-5a-f14-none-", config=resolves)
+    try:
+        r = launcher_rehearsal(root, ("s5_executor",), [], [drift_entry(["api"], state="unknown", why="no lock file the factory reads")])
+        texts = [f["message"] for f in r.findings] + [row["message"] for row in r.info]
+        check_eq("F-14: api has no card and no note -> no text of this rehearsal carries the clause",
+                 [t for t in texts if clause in t], [])
+        check_eq("F-14: the other profile still gets its card", [f["profile"] for f in r.findings], ["e2e-ui"])
+    finally:
+        cleanup(root)
+
+
+class LauncherRig:
+    """A Driver over a seeded project whose rehearsal is the REAL gate A rehearsal of a cmp2 story (its task root stands in for
+    the driver's), with the conductor and the commands a round would run replaced by recorders. Nothing starts a process or a model."""
+
+    def __init__(self, story_root: Path, rehearsal=None) -> None:
+        import story_run
+        from story_run_common import driver_for, seed
+        self.story_run = story_run
+        self.root, _task, env = seed("QA-9")
+        self.story, self.calls, self.ran, self.out = story_root, [], [], ""
+        self.task = story_root / "qa-factory" / "artifacts" / CMP2_TICKET
+        driver = driver_for(self.root, env, "QA-9")
+        driver.task_root = self.task
+
+        def rehearse(gate):
+            use_project(story_root)
+            return rehearsal() if rehearsal else gate_preflight.run(self.task, gate)
+
+        def conductor(text, *, words="", files=None, words_file=None):
+            self.calls.append(text)
+            return {"action": "continue", "did": "stub"}
+        driver.rehearse, driver.conductor = rehearse, conductor
+        driver.gate_text = lambda gate: "the packet"
+        driver.judged_reply = lambda *a, **k: ""
+        driver.run_argv = lambda argv: self.ran.append(list(argv)) or (0, "wrote")
+        driver.rebuild_report = lambda: True
+        driver.render_appendix = lambda: None
+        self.driver = driver
+
+    def gate(self):
+        import contextlib
+        import io
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            try:
+                result = self.driver.gate_repair("A")
+            except self.story_run.Person as person:
+                result = person
+        self.out += printed.getvalue()
+        return result
+
+    def close(self) -> None:
+        import os
+        os.chdir(SCRIPTS)
+        cleanup(self.root)
+
+
+def test_u7_5a_r8_the_driver_hands_a_fixable_launcher_to_the_conductor_once_and_the_next_rehearsal_asks_the_person() -> None:
+    root = launcher_story("qa-gate-u7-5a-rig-")
+    original = gate_preflight.Rehearsal.check_s5_dependencies
+
+    def fake(self):
+        self._drift = [drift_entry(["api"])]
+        self._drift_all = list(self._drift)
+    gate_preflight.Rehearsal.check_s5_dependencies = fake
+    rig = LauncherRig(root)
+    try:
+        first = rig.gate()
+        check_eq("r8 rig: the first gate entry went to the conductor once and ran a round of it", (len(rig.calls), first), (1, {"ran": True, "top": ""}))
+        check_in("r8 rig: the conductor was told the launcher and the end-without-asking clause", "end the turn without asking the person", rig.calls[0])
+        record = json.loads(turn_record(root).read_text(encoding="utf-8"))["turns"]
+        check_eq("r8 rig: the record holds the key of the profile and the tool", [t["key"].split("|")[:2] for t in record], [["api", LAUNCHER]])
+        second = rig.gate()
+        cards = [f for f in gate_preflight.run(rig.task, "A")["findings"] if f["check"] == "s5_executor" and f.get("profile") == "api"]
+        check_eq("r8 rig: the next rehearsal asks the person the ONE question about api",
+                 [(f["class"], f["tool"]) for f in cards], [(gate_preflight.PERSON_DECIDES, LAUNCHER)])
+        check_eq("r8 rig: still ONE conductor call in all (nothing is handed twice), and the gate was shown", (len(rig.calls), second["ran"]), (1, False))
+        # the record cannot be written: printed, remembered, the finding is not handed again
+        turn_record(root).unlink()
+        rig2, real_write = LauncherRig(root), Path.write_text
+
+        def refusing(self, *args, **kwargs):
+            if self.name == gate_preflight.EXECUTOR_TURNS_FILE:
+                raise OSError("read-only")
+            return real_write(self, *args, **kwargs)
+        Path.write_text = refusing
+        try:
+            rig2.gate()
+            rig2.gate()
+            check_eq("r8 rig: a record that cannot be written costs ONE conductor call, not one per entry", len(rig2.calls), 1)
+            check_in("r8 rig: and it is said", "could not be recorded", rig2.out)
+        finally:
+            Path.write_text = real_write
+            rig2.close()
+    finally:
+        gate_preflight.Rehearsal.check_s5_dependencies = original
+        rig.close()
+        cleanup(root)
+
+
+def test_u7_5a_r12_a_probe_finding_that_repeats_after_a_good_write_never_gets_a_third_round() -> None:
+    """B4 (the pin moved here from the quarantined test_story_run_gate_repair.py): the write exits 0 and the finding stays."""
+    root = cmp2_story("qa-gate-u7-5a-r12-")
+    try:
+        for label, words in (("the same words each time", lambda n: "`api`: `api-c` runs this story's code and no probe is registered for it yet."),
+                             ("new words each time", lambda n: f"`api`: `api-c` runs this story's code; attempt {n} left no probe registered")):
+            n = [0]
+
+            def repeating():
+                n[0] += 1
+                return {"findings": [{"id": "s5_runtime_probe-1", "check": "s5_runtime_probe", "class": gate_preflight.FACTORY_FIXABLE,
+                                      "message": words(n[0]), "fix": "", "profile": "api",
+                                      "argv": ["{python}", "{plugin_root}/scripts/runtime_probe.py", "--suggest", "--write", "--profile", "api"]}]}
+            rig = LauncherRig(root, rehearsal=repeating)
+            try:
+                for _ in range(4):
+                    rig.gate()
+                check_eq(f"r12 {label}: the write ran, and at most GATE_REPAIR_CAP times", 1 <= len(rig.ran) <= rig.story_run.GATE_REPAIR_CAP, True)
+                check_eq(f"r12 {label}: the list went to the conductor ONCE, never a third round", len(rig.calls), 1)
+            finally:
+                rig.close()
+    finally:
+        cleanup(root)
+
+
 # --- §5: the page objects wait less than the stand takes to load a page ----------------------------
 
 def with_limits(load=110, wait=30, **extra):
@@ -6236,6 +6524,12 @@ if __name__ == "__main__":
     test_f3a_an_e2e_row_is_keyed_to_the_profile_named_as_its_level()
     test_ep1_41f_a_device_level_is_keyed_by_the_fits_levels_of_its_surface()
     test_the_executor_question_now_reaches_the_e2e_profile()
+    test_u7_5a_r8_a_missing_launcher_the_project_can_install_is_one_conductor_turn_else_the_persons_card()
+    test_u7_5a_r8_the_toolchain_road_takes_the_same_decision_and_zero_automate_rows_collect_nothing()
+    test_u7_5a_q12_a_collect_that_is_not_run_is_said_not_silent()
+    test_u7_5a_f14_an_unreadable_environment_joins_the_card_of_its_profile_or_says_nothing()
+    test_u7_5a_r8_the_driver_hands_a_fixable_launcher_to_the_conductor_once_and_the_next_rehearsal_asks_the_person()
+    test_u7_5a_r12_a_probe_finding_that_repeats_after_a_good_write_never_gets_a_third_round()
     test_k5_a_page_that_loads_slower_than_the_page_objects_wait_is_one_card()
     test_k5_strict_greater_than_at_and_beyond_the_wait()
     test_k5_nothing_recorded_is_not_measured_and_never_a_card()

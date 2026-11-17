@@ -47,6 +47,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import contract as C  # noqa: E402
 import external_writes as W  # noqa: E402
+import gate_template  # noqa: E402  (the ONE predicate the critic's review word approves through: row `critic_review`)
 import proof_level  # noqa: E402
 import run_history as RH  # noqa: E402  (RED_STATUSES: the one red pair; an import failure is loud, never "no red run")
 import hooklib  # noqa: E402
@@ -312,9 +313,6 @@ def run_row_for(entry: dict, index: dict):
     return None
 
 
-# The critic verdicts that approve (`handoffs/s5-critic-to-automator.yaml`: `approved_with_fixes` is a legal verdict). The
-# stamp, the coverage map and gate B all read the same pair here; `report_facts.APPROVING` is its twin (a test holds them equal).
-APPROVING = ("approved", "approved_with_fixes")
 # Why an instance cannot carry its case's stamp, in the order the first one wins - the words `plan` prints after `left` / `why`.
 NOT_GREEN, NOT_RUN, NOT_APPROVED = "not_green", "not_run", "not_approved"
 HOLDS = (NOT_GREEN, NOT_RUN, NOT_APPROVED)
@@ -329,7 +327,7 @@ def instance_hold(entry: dict, index: dict) -> str:
       `not_run`      the manifest says `green` but the run holds no GREEN row of its own for it: no row at all, `skipped`,
                      `partial` without a red `raw_status`, a word nobody knows. The manifest's green is the automator's word
                      before the run, not an execution (FR-18); an unknown is no pass (FR-59);
-      `not_approved` the critic's verdict is not in `APPROVING`.
+      `not_approved` the critic's verdict is not one the registry row `critic_review` approves (`critic_review.stamp`, raw reading).
     Error direction: this is a gate, so "hold" is the safe side - not stamping, not counting, not demanding a stamp is always
     allowed; counting a row of another test, or an unknown word, as green is not (`run_row_for` already refuses both). An entry
     that is not an object, or has no status, is `not_green`. A row without an entry (a test the manifest does not know) is
@@ -341,7 +339,7 @@ def instance_hold(entry: dict, index: dict) -> str:
         return NOT_GREEN
     if row is None or C.result_status(row) != "passed":
         return NOT_RUN
-    return "" if entry.get("critic_verdict") in APPROVING else NOT_APPROVED
+    return "" if gate_template.acceptable(entry.get("critic_verdict"), "critic_review.stamp") else NOT_APPROVED
 
 
 NO_EVIDENCE = "no_automation_evidence"   # the reason of a case with no live instance at all (AR-23: the empty outcome is a hold)

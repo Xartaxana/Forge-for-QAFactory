@@ -163,7 +163,7 @@ def instance_hold_keys() -> None:
     """HF3-1 A-K1 (AR-13, FR-59, FR-18): `instance_hold` - THE one predicate the stamp, the coverage map and gate B ask. `""` = can
     carry its case's stamp; else the first of `not_green` / `not_run` / `not_approved`. ERROR DIRECTION: a gate, so "hold" is the
     safe side; a row of another test, a word nobody knows and a missing row are never green. Kills: `not_run` never returned (m1),
-    `skipped` read as green (m6), `approved_with_fixes` outside `APPROVING` (m3: the second row of the verdict table)."""
+    `skipped` read as green (m6), `approved_with_fixes` outside the registry row `critic_review` (m3: the second row of the verdict table)."""
     def row(status: str = "passed", test_id: str = "tests/a.py::test_x", **fields) -> dict:
         return dict({"test_id": test_id, "instance_id": "test_x", "status": status}, **fields)
 
@@ -180,6 +180,8 @@ def instance_hold_keys() -> None:
         ("`unverified` -> not_approved", own, {"critic_verdict": "unverified"}, "not_approved"),
         ("a verdict nobody knows -> not_approved", own, {"critic_verdict": "mystery"}, "not_approved"),
         ("no verdict at all -> not_approved", own, {"critic_verdict": None}, "not_approved"),
+        ("a padded word is read RAW at the stamp (RD1-29 F5 pin: a later unification is a visible change) -> not_approved",
+         own, {"critic_verdict": " approved"}, "not_approved"),
         ("manifest `red` beside a green row -> not_green (a green row does not lift the manifest's word)", own, {"status": "red"}, "not_green"),
         ("manifest with no status -> not_green", own, {"status": None}, "not_green"),
         ("green + a red row (failed) -> not_green", {"test_x": row("failed")}, {}, "not_green"),
@@ -206,9 +208,41 @@ def instance_hold_keys() -> None:
     check_eq("A-K1 edge: no index / an empty one for a green approved entry: not_run (never ''; the run is unknown)",
              [S.instance_hold({"instance_id": "test_x", "status": "green", "critic_verdict": "approved"}, i)
               for i in (None, {}, S.run_rows_index({}), S.run_rows_index(None))], ["not_run"] * 4)
-    # the verdict set follows the critic's contract (handoffs/s5-critic-to-automator.yaml:45) and the report's own pair (drift detector)
-    import report_facts as RF
-    check_eq("A-K1: `APPROVING` equals `report_facts.APPROVING` (the twin; a drift here splits the readers)", S.APPROVING, RF.APPROVING)
+    # RD1-29 (AR-1, AR-13, E1-E4, E9-E11): the words that approve AFTER the window are the registry row `critic_review`, read through the
+    # one predicate; the old twin pin `APPROVING == report_facts.APPROVING` is this table. Expected: the owner's words (the charter's four
+    # verdicts, `handoffs/s5-critic-to-automator.yaml`): `approved` and `approved_with_fixes` approve, nothing else - never the code's output.
+    import gate_registry
+    import gate_template as GT
+    registry, why = gate_registry.load_registry(gate_registry.PLUGIN_ROOT)
+    check_eq("RD1-29: the registry reads", why, None)
+    by_id = {r["id"]: r for r in registry["rows"]}
+    row_of, s5 = by_id["critic_review"], by_id["s5_window"]
+    words = list(C.CRITIC_VERDICTS) + ["Approved", " approved", "approved ", "", None, ["approved"], "\u0430pproved", "approved;rejected",
+                                       "approved" * 1250]
+    broken = {"rows": [r for r in registry["rows"] if r["id"] != "critic_review"]}
+    lacking = {"rows": [dict(r, words=[w for w in r["words"] if w != "approved_with_fixes"]) if r["id"] == "critic_review" else r
+                        for r in registry["rows"]]}
+    unreadable = {"rows": "x"}
+    for consumer in sorted(row_of["accepts"]):
+        for word in words:
+            want = word in ("approved", "approved_with_fixes")
+            check_eq(f"RD1-29: {consumer} takes {ascii(str(word)[:20])} -> {want}", GT.acceptable(word, consumer), want)
+            check_eq(f"RD1-29 E2/E10: {consumer} takes {ascii(str(word)[:20])} on an unreadable registry or without the row -> False",
+                     [GT.acceptable(word, consumer, registry=reg) for reg in (unreadable, broken)], [False, False])
+        check_eq(f"RD1-29: {consumer} with a registry lacking `approved_with_fixes` (the data drives it) -> False",
+                 GT.acceptable("approved_with_fixes", consumer, registry=lacking), False)
+    check_eq("RD1-29 E11: the row's words are the code vocabulary's (a new critic word without a row is red)",
+             set(row_of["words"]), set(C.CRITIC_VERDICTS))
+    check_eq("RD1-29 E9: a word in both rows has one class and one reason code",
+             {w: (row_of["verdict_map"][w], s5["verdict_map"][w]) for w in set(row_of["words"]) & set(s5["words"])
+              if row_of["verdict_map"][w] != s5["verdict_map"][w]}, {})
+    # an unreadable registry at the site itself: nothing is stamped (E2, AR-28)
+    saved = list(GT._READ)
+    try:
+        GT._READ[:] = [(unreadable, gate_registry.structural_error(unreadable))]
+        check_eq("RD1-29 E2: an unreadable registry never stamps (`approved` -> not_approved)", hold(own), "not_approved")
+    finally:
+        GT._READ[:] = saved
 
 
 def one_predicate_stories(root: Path) -> None:
