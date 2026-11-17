@@ -1133,25 +1133,79 @@ def counts(world: World) -> dict:
         ("passed", "passed-by-person.jsonl", "the passes by the person's word"))}
 
 
-def row_facts(copy: World, before: dict, mid: dict) -> dict:
+def row_facts(copy: World, before: dict, mid: dict, first: dict | None = None) -> dict:
     """The facts of a row that live in the copy's files (the rest the walker holds from its own turns): the answer records written after the answer
     (`mid` = `counts` taken when the answer was written), the stub lines the row added since `before`, the conductor calls and passes after the
-    answer, the routes the wrapper recorded during the row."""
+    answer, the routes the wrapper recorded during the row. `conductor_calls` is the C2 cut (card r2 section 4): the calls of the answer's OWN turn -
+    from the answer up to the end of the first post-answer turn that wrote a new question row (`first` = `counts` taken then; the end when None) -
+    and a stub line marked `chosen: true` (the person's own choice, sent on by the driver) is not counted. The walker's re-sent answer is never
+    judged as the person's."""
     stub = _state_rows(copy, "dry-stub.jsonl", "the stub's journal")
     return {"answer_records": _state_rows(copy, "driver-answers.jsonl", "the driver's answer records")[mid["answers"]:],
             "stub_added": [{"run_class": r.get("run_class"), "conductor": bool(r.get("conductor"))} for r in stub[before["stub"]:]],
-            "conductor_calls": sum(1 for r in stub[mid["stub"]:] if r.get("conductor")),
+            "conductor_calls": sum(1 for r in stub[mid["stub"]:(first["stub"] if first else None)] if r.get("conductor") and r.get("chosen") is not True),
             "passed_lines": len(_state_rows(copy, "passed-by-person.jsonl", "the passes by the person's word")) - mid["passed"],
             "routes_added": [str(r.get("route")) for r in _state_rows(copy, "dry-routes.jsonl", "the routes the wrapper recorded")[before["routes"]:]]}
 
 
+def _triple(record: dict) -> tuple:
+    return (str(record.get("kind") or ""), str(record.get("stage") or ""), str(record.get("dispatch") or ""))
+
+
+def ask_row(questions: list, asked: dict):
+    """The ordinal (0-based) of the LAST row of `driver-questions.jsonl` whose (kind, stage, dispatch) equal the pending ask's, or None. Not simply the
+    last row: a deferred question writes a row and is not pending, and the same triple can recur (a seam after a plain ask; a held re-raise), where the
+    last row is the pending one."""
+    want = _triple(asked)
+    return next((i for i in range(len(questions) - 1, -1, -1) if _triple(questions[i]) == want), None)
+
+
+def ask_window(copy: World) -> tuple:
+    """`(ordinal, window)`: THE one reader of which price records belong to the pending ask (card r2 section 3). The ordinal is the row of the pending
+    ask in `driver-questions.jsonl` (`ask_row`; None when nothing is pending or no row matches); the window is the records of `dry-priced.jsonl` with an
+    INTEGER `q` equal to it and `prompt` not true, in file order. A record of an earlier ask, a record priced for a conductor prompt and a record with no
+    `q` (an older spy) are never in a window: a price record counts for an ask only if it was written while raising THAT question for the person."""
+    asked = pending_ask(copy)
+    if not asked:
+        return None, []
+    ordinal = ask_row(_state_rows(copy, "driver-questions.jsonl", "the driver's question records"), asked)
+    if ordinal is None:
+        return None, []
+    priced = _state_rows(copy, "dry-priced.jsonl", "the price keys the wrapper recorded")
+    return ordinal, [r for r in priced if type(r.get("q")) is int and r["q"] == ordinal and r.get("prompt") is not True]
+
+
 def _holds(copy: World, stage: str, question: str) -> bool:
-    """True when the copy ALREADY holds the question pending (EW12): the pending ask is at the stage and its kind, or the last priced key, is `question`."""
+    """True when the copy ALREADY holds the question pending (EW12): the pending ask is at the stage and its kind, or the last record of its window, is `question`."""
     asked = pending_ask(copy)
     if not asked or str(asked.get("stage") or "") != stage:
         return False
-    priced = _state_rows(copy, "dry-priced.jsonl", "the price keys the wrapper recorded")
-    return asked.get("kind") == question or bool(priced and priced[-1].get("key") == question)
+    window = ask_window(copy)[1]
+    return asked.get("kind") == question or bool(window and window[-1].get("key") == question)
+
+
+def _say(copy: World, step: dict, drive_fn, budget) -> tuple:
+    """`(reached, detail)` of one `say` step (card r2 section 5): the pending ask must be `question` at `stage`; the words are written as the answer and ONE
+    driver process runs (`--max-boundaries 60`, the `drive_until` turn form, under the row's budget); reached only when a new question row was written AND the
+    pending ask is STILL `question` at `stage` AND it carries a non-empty `offered`. A seed never reaches a plain ask by `say`, and never another question that
+    happens to carry `offered`."""
+    stage, question, words = step["stage"], step["question"], step["words"]
+    asked = pending_ask(copy)
+    if not asked or asked.get("kind") != question or str(asked.get("stage") or "") != stage:
+        return False, f"say: pending is {(asked or {}).get('kind') or 'none'} at {(asked or {}).get('stage') or '-'}, expected {question} at {stage}"
+    (copy.root / "answer.md").write_bytes(words.encode("utf-8"))
+    before = len(_state_rows(copy, "driver-questions.jsonl", "the driver's question records"))
+    run = drive_fn(copy, "--answer", str(copy.root / "answer.md"), "--max-boundaries", "60", timeout=budget.left())
+    if run.rc == -9 or budget.charge(run.seconds):
+        return False, budget.over("say turn")
+    if len(_state_rows(copy, "driver-questions.jsonl", "the driver's question records")) <= before:
+        return False, (f"the driver exited ({run.rc}) with no new question" if run.rc else f"say: the words at {question} raised no new question")
+    now = pending_ask(copy)
+    if not now or now.get("kind") != question or str(now.get("stage") or "") != stage:
+        return False, f"say: pending is now {(now or {}).get('kind') or 'none'} at {(now or {}).get('stage') or '-'}, expected {question}"
+    if not now.get("offered"):
+        return False, f"say: the new {question} ask offers nothing (offered [])"
+    return True, ""
 
 
 def run_seed(copy: World, recipe, answers: dict, *, cap=ROW_CAP_EXITS, drive_fn=None, budget=None) -> tuple:
@@ -1159,10 +1213,15 @@ def run_seed(copy: World, recipe, answers: dict, *, cap=ROW_CAP_EXITS, drive_fn=
     run when the copy already holds the question; else one driver process per turn, an intermediate question answered with the story's closed words
     (`walk_answers`, the main pass's one source); an intermediate question with no words, the conductor, a driver exit with no new question or
     `MAX_TURNS` is NOT reached and the detail names it (EW17, EW25). `op`: a script of the closed list, run in the copy with `STORY_RUN_CLASS=dry`,
-    exit != 0 is not reached with the stderr cut at 400."""
+    exit != 0 is not reached with the stderr cut at 400. `say`: the person's words at a question (`_say`)."""
     drive_fn = drive_fn or drive
     budget = budget or Budget(cap)
     for step in recipe or []:
+        if "say" in step:
+            done, why = _say(copy, step["say"], drive_fn, budget)
+            if not done:
+                return False, why
+            continue
         if "op" in step:
             script, *args = step["op"]
             fill = {"{task_root}": str(copy.task_root), "{task}": copy.task}
@@ -1205,6 +1264,12 @@ def run_seed(copy: World, recipe, answers: dict, *, cap=ROW_CAP_EXITS, drive_fn=
     return True, ""
 
 
+def _row_of(questions: list, asked: dict, ordinal) -> dict:
+    """The question row the ask is (by its ordinal), or the ask's own kind, stage and dispatch when no row matches: never `questions[-1]` (a deferred row is
+    not pending)."""
+    return dict(questions[ordinal]) if ordinal is not None else {"kind": asked.get("kind"), "stage": asked.get("stage"), "dispatch": asked.get("dispatch")}
+
+
 def _ask_of(world: World, record: dict, offered, dispatch=None) -> dict:
     """The ask of a question record (C5): the record with the options offered, and the hashes of the author's dispatch and its form."""
     author, form = author_hashes(world, str((record.get("dispatch") if dispatch is None else dispatch) or ""))
@@ -1221,7 +1286,7 @@ def _rework_facts(ask: dict) -> dict:
 def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_dir, *, cap=ROW_CAP_EXITS, drive_fn=None, line=None) -> dict:
     """The facts of ONE row (`judge_row` judges them): a copy of the start snapshot with its OWN `snaps` dir (a gate rehearsal copies the copy, never the
     main snapshots, EW20), the row's control, the seed, the answer, then single-boundary turns until the fingerprint changed with a new ask, the driver
-    left with nothing new, a loop showed, or `POST_TURNS` ran out (EW24). The copy is removed with `harness.cleanup`; `close()` is never called on it."""
+    left with nothing new, a loop showed, the new ask is another question than the judged one (`ended_at`), or `POST_TURNS` ran out (EW24). The copy is removed with `harness.cleanup`; `close()` is never called on it."""
     from driver_dialog import question_body_sha
     drive_fn = drive_fn or drive
     copy = from_snapshot(world, row["start"])
@@ -1240,15 +1305,17 @@ def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_di
             return facts
         ask = pending_ask(copy)
         facts["ask"] = dict(ask, offered=list(ask.get("offered") or [])) if ask else None
-        priced = _state_rows(copy, "dry-priced.jsonl", "the price keys the wrapper recorded")
-        facts["priced_at_ask"] = priced[-1] if priced else None
+        facts["ask_ordinal"], facts["priced_window"] = ask_window(copy)
+        questions = _state_rows(copy, "driver-questions.jsonl", "the driver's question records")
+        facts["priced_seen"] = [{"key": r.get("key"), "q": r.get("q"), "prompt": r.get("prompt")}
+                                for r in _state_rows(copy, "dry-priced.jsonl", "the price keys the wrapper recorded")]
+        facts["ask_reraised"] = bool(ask and facts["ask_ordinal"] is not None and ask_row(questions[:facts["ask_ordinal"]], ask) is not None)
         if not ask:
             return facts
         question = copy.task_root / "state" / "driver-question.md"
         facts["ask_sha"] = question_body_sha(question.read_text(encoding="utf-8", errors="replace") if question.is_file() else "")
         facts["fp_ask"] = dry_exits.state_fingerprint(copy.task_root).digest
-        questions = _state_rows(copy, "driver-questions.jsonl", "the driver's question records")
-        asks = [_ask_of(copy, dict(questions[-1] if questions else {}), ask.get("offered"), dispatch=str(ask.get("dispatch") or ""))]
+        asks = [_ask_of(copy, _row_of(questions, ask, facts["ask_ordinal"]), ask.get("offered"), dispatch=str(ask.get("dispatch") or ""))]
         gates, whys, outputs, fp_after, notes = [], [], [], None, []
 
         def rehearse(kind):
@@ -1259,7 +1326,7 @@ def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_di
         rehearse(str(ask.get("kind")))
         path = copy.root / "answer.md"
         path.write_bytes(answer_bytes(row, story_dir))
-        mid, asked_count = counts(copy), len(questions)
+        mid, asked_count, first = counts(copy), len(questions), None
         for turn in range(POST_TURNS):
             run = drive_fn(copy, "--answer", str(path), "--max-boundaries", "1", timeout=budget.left())
             facts["post_turns"] = turn + 1
@@ -1271,22 +1338,32 @@ def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_di
             fp_after, notes = fingerprint.digest, list(fingerprint.notes)
             questions = _state_rows(copy, "driver-questions.jsonl", "the driver's question records")
             now = pending_ask(copy)
-            if now and now.get("kind") == "conductor" and now.get("why"):
+            if first is None and now and now.get("kind") == "conductor" and now.get("why"):      # the whys of the answer's own turn, up to the first new row
                 whys.append(str(now["why"]))
             if len(questions) <= asked_count:
                 break
             asked_count = len(questions)
-            asks.append(_ask_of(copy, questions[-1], (now or {}).get("offered")))
-            if now:
-                rehearse(str(now.get("kind")))
+            if first is None:
+                first = counts(copy)
+            if not now:      # a turn that wrote a question row and left none pending ends the turns: it is not the judged ask (G3 (c)); no asks entry
+                facts["ended_at"] = {"turn": turn + 1, "kind": "none", "stage": ""}
+                break
+            asks.append(_ask_of(copy, _row_of(questions, now, ask_row(questions, now)), now.get("offered")))
+            rehearse(str(now.get("kind")))
             facts["loop"] = loop_problem(asks)
             if facts["loop"] or fp_after != facts["fp_ask"]:
+                break
+            if not dry_exits.same_ask(asks[0]["ask"], asks[-1]["ask"]):
+                # The walker's answer is only re-sent to an ask with the same C5 identity as the judged ask (G3). The turn that ends the loop is collected whole
+                # (G2): its whys, its asks entry, its gate rehearsal, its loop check and its fingerprint are taken above; the comparison is with the JUDGED
+                # ask, never with the previous one. `ended_at` replaces `exhausted` (G1): `judge_row` keeps the `turns` check armed for a row that judges no C3.
+                facts["ended_at"] = {"turn": turn + 1, "kind": str(now.get("kind") or ""), "stage": str(now.get("stage") or "")}
                 break
         else:
             facts["exhausted"] = True
         text = "\n".join(outputs)
         facts.update(fp_after=fp_after, fp_notes=notes, gates=gates, conductor_whys=whys, asked_after=pending_ask(copy), refusal_text=first_refusal(text),
-                     empty_refused="is empty" in text, **row_facts(copy, before, mid))
+                     empty_refused="is empty" in text, **row_facts(copy, before, mid, first))
         if "C9" in checks and ask.get("kind") == "conductor" and ask.get("why") == "stage_review_exhausted":
             facts["rework"] = _rework_facts(ask)
         if line:

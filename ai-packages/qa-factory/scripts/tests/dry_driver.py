@@ -4,7 +4,7 @@
 
 The driver does not write the price key of a question into the question's record (`driver_dialog.ask` holds no such field), so the walker
 cannot learn WHICH closed question was raised, with WHICH answers, from the driver's files. This wrapper records it: every call of the
-one resolution of a closed question's prices (`no_move.priced_options`, the call each question site makes) appends `{"key", "answers"}` to
+one resolution of a closed question's prices (`no_move.priced_options`, the call each question site makes) appends `{"key", "answers", "q", "prompt"}` to
 `state/dry-priced.jsonl` of the task, in the world of the dry story, and then returns what the real function returned. The spy never changes
 an argument or a result, and it records only after the real call succeeded - a question whose prices cannot be read is not offered, so it is
 not recorded either. It is the process of the driver, not a test's lambda over a seam: the loop, `no_move`, `take_answer` and the rest of
@@ -41,12 +41,37 @@ def _append(sink: Path, record: str, what: str) -> None:
         print(f"dry_driver: cannot record {what} in {sink} ({type(exc).__name__}); expected a writable state folder", file=sys.stderr)
 
 
+def _raising_for_conductor() -> bool:
+    """True when a frame named `_conductor_text` is on the call stack of the spy's caller: the driver is composing a conductor PROMPT, not raising a
+    question for the person (walk `f_back` by name; `inspect.stack()` would read source on every call). The only conductor-prompt pricing road today is
+    `_conductor_text` -> `gate_prices` -> `priced_section` -> `priced_options` (a selftest row of `dry_stub.py` guards the name)."""
+    frame = sys._getframe(2)
+    while frame is not None:
+        if frame.f_code.co_name == "_conductor_text":
+            return True
+        frame = frame.f_back
+    return False
+
+
+def _question_count(sink: Path):
+    """How many question rows the driver had written when the spy was called: `driver_journal.question_rows` (the one reader) of the task root, which is
+    `sink.parent.parent` (`<task root>/state/dry-priced.jsonl`). None when the rows cannot be read: a record with no integer `q` is never attributed to an ask."""
+    try:
+        import driver_journal
+        return len(driver_journal.question_rows(sink.parent.parent)[0])
+    except (OSError, ValueError):
+        return None
+
+
 def passing_spy(real, sink: Path):
-    """A function with the signature of `real` that returns exactly what `real` returns and, after a successful call, appends the key and the
-    answers (the `answer` id of each option the site offered, in order) as one line to `sink`."""
+    """A function with the signature of `real` that returns exactly what `real` returns and, after a successful call, appends one line to `sink`:
+    `{"key", "answers", "q", "prompt"}` - the key, the answers (the `answer` id of each option the site offered, in order), `q` = the number of rows of
+    `state/driver-questions.jsonl` at the call (the driver writes the row of a question AFTER pricing it, so a record priced while raising question number
+    `n`, 0-based, carries `q == n`), and `prompt` = true when the call happens while the driver composes a conductor prompt (`_raising_for_conductor`). The
+    walker reads these two fields in `dry_world.ask_window`: a record counts for an ask only when `q` is the ask's ordinal and `prompt` is not true."""
     def spy(key, options, *args, **kwargs):
         result = real(key, options, *args, **kwargs)
-        line = json.dumps({"key": key, "answers": [str(option.get("answer")) for option in options]})
+        line = json.dumps({"key": key, "answers": [str(option.get("answer")) for option in options], "q": _question_count(sink), "prompt": _raising_for_conductor()})
         _append(sink, line, f"the price key {key!r}")
         return result
     return spy

@@ -68,7 +68,8 @@ def parse_moves(prompt: str) -> list:
     return moves
 
 
-STUB_ONLY = ("variant", "execute")        # keys of a row's `conductor` control the stub itself reads; they are never part of the verdict it prints
+CHOSEN_HEADING = "## The person's choice"     # the heading `driver_conductor._conductor_text` puts before the paragraph of a token the person chose
+STUB_ONLY = ("variant", "execute")      # keys of a row's `conductor` control the stub itself reads; they are never part of the verdict it prints
 
 
 def move_option(move: str, token: str) -> dict:
@@ -1023,8 +1024,12 @@ def claude_main(argv: list) -> int:
         if done and done.get("refused"):
             verdict = {"action": "stop", "did": f"stub: {done['refused']}", "question": ""}
         result, session = "I looked.\n" + json.dumps(verdict), f"stub-conductor-{n}"
+        # `chosen`: the prompt carries a line EQUAL to the heading the driver appends for the person's own choice (`driver_conductor._conductor_text`; the
+        # heading is not the last one in the prompt and a prompt cut at 6000 characters can lose it); the walker's C2 does not count such a call as the
+        # conductor reading the answer. `prompt_chars`: the prompt's length, so a cut heading is reported with the number (a product finding, never a stub gap).
         journal(task_dir, dict({"ts": now(), "conductor": "conductor", "n": n, "role": "", "wrote": [], "live_only": [], "action": verdict.get("action"),
-                                "prompt_sha": hashlib.sha256(prompt.encode("utf-8")).hexdigest(), "run_class": os.environ.get("STORY_RUN_CLASS", "")},
+                                "prompt_sha": hashlib.sha256(prompt.encode("utf-8")).hexdigest(), "run_class": os.environ.get("STORY_RUN_CLASS", ""),
+                                "chosen": CHOSEN_HEADING in prompt.splitlines(), "prompt_chars": len(prompt)},
                                **({"executed": done} if done else {})))
     ns: dict = {}
     exec(T.RECEIPT, ns)
@@ -1665,6 +1670,12 @@ def selftest_n2(tmp: Path) -> None:
     verdict = json.loads(answer["result"].split("\n", 1)[1])
     check_eq("N2 item 3: the row's variant narrows the offer and its why_person / checked are the row's; the counter runs on",
              (answer["session_id"], [o["token"] for o in verdict["options"]], verdict["why_person"], verdict["checked"]), ("stub-conductor-2", [tokens[-1]], "decision", "the gate card"))
+    rc, answer, err = call(project, control, prompt + "\n\n## The person's choice\nthe person chose rework\n\n## The refusal\nafter it\n")
+    chosen_row = rows(task_dir)[-1]
+    rc, answer, err = call(project, control, prompt)
+    plain_row = rows(task_dir)[-1]
+    check_eq("N2 edge: a prompt with a line equal to `## The person's choice` (not the last heading) journals chosen true, one without chosen false; both journal prompt_chars",
+             (chosen_row["chosen"], plain_row["chosen"], plain_row["prompt_chars"], chosen_row["prompt_chars"] > plain_row["prompt_chars"]), (True, False, len(prompt), True))
     rc, answer, err = call(project, dict(control, conductor={"variant": "no-such-token"}), prompt)
     verdict = json.loads(answer["result"].split("\n", 1)[1])
     check("N2 edge: a variant the prompt does not offer is a `stop` naming it, never an invented option", verdict["action"] == "stop" and "no-such-token" in verdict["did"], str(verdict))
@@ -1686,17 +1697,60 @@ def selftest_n2(tmp: Path) -> None:
     check_eq("E4: the counters are per key in the journal (D2: 2 calls, D3: 1), never a shared index", (calls_before(counted, "D2"), calls_before(counted, "D3")), (2, 1))
     # dry_driver.py: a spy that passes, and no attribute of the driver's class assigned (a grep over the owned files, with its positive control)
     seen = []
-    spy = dry_driver.passing_spy(lambda key, options, *a, **k: (seen.append(key) or [{"token": None}]), tmp / "n2-priced" / "dry-priced.jsonl")
+    spy = dry_driver.passing_spy(lambda key, options, *a, **k: (seen.append(key) or [{"token": None}]), tmp / "n2-priced" / "state" / "dry-priced.jsonl")
     answered = spy("s1.gap", [{"answer": "go on"}, {"answer": "stop"}], {}, {})
-    check_eq("N2 item 5: the spy returns what the real function returned and records {key, answers}",
-             (answered, [json.loads(l) for l in (tmp / "n2-priced" / "dry-priced.jsonl").read_text(encoding="utf-8").splitlines()]),
-             ([{"token": None}], [{"key": "s1.gap", "answers": ["go on", "stop"]}]))
+    check_eq("N2 item 5 (a): the spy returns what the real function returned and records {key, answers, q, prompt}: no questions file is q 0, not a prompt",
+             (answered, [json.loads(l) for l in (tmp / "n2-priced" / "state" / "dry-priced.jsonl").read_text(encoding="utf-8").splitlines()]),
+             ([{"token": None}], [{"key": "s1.gap", "answers": ["go on", "stop"], "q": 0, "prompt": False}]))
+    asked_dir = tmp / "n2-priced-q" / "state"
+    asked_dir.mkdir(parents=True)
+    (asked_dir / "driver-questions.jsonl").write_text('{"kind": "s1_review", "stage": "S1"}\n{"kind": "gate_A", "stage": "S4"}\n', encoding="utf-8")
+    spy_q = dry_driver.passing_spy(lambda key, options, *a, **k: [], asked_dir / "dry-priced.jsonl")
+
+    def _conductor_text():       # the name the driver's conductor prompt builder carries: the spy stamps `prompt` by it
+        spy_q("gate_A", [{"answer": "approve"}])
+    spy_q("gate_A", [{"answer": "rework"}])
+    _conductor_text()
+    stamped = [json.loads(l) for l in (asked_dir / "dry-priced.jsonl").read_text(encoding="utf-8").splitlines()]
+    check_eq("N2 item 5 (b)(c): q is the number of rows of driver-questions.jsonl at the call (2); a call from inside `_conductor_text` is prompt true",
+             [(r["q"], r["prompt"]) for r in stamped], [(2, False), (2, True)])
+    import ast
+    import driver_conductor
+
+    def callers(source: str, name: str) -> list:
+        """The names of the functions that contain a call `self.<name>(` (innermost def)."""
+        class Walk(ast.NodeVisitor):
+            def __init__(self):
+                self.stack, self.hits, self.defs = [], [], []
+
+            def visit_FunctionDef(self, node):
+                self.defs.append(node.name)
+                self.stack.append(node.name)
+                self.generic_visit(node)
+                self.stack.pop()
+
+            def visit_Call(self, node):
+                f = node.func
+                if isinstance(f, ast.Attribute) and f.attr == name and isinstance(f.value, ast.Name) and f.value.id == "self":
+                    self.hits.append(self.stack[-1] if self.stack else "")
+                self.generic_visit(node)
+        walk = Walk()
+        walk.visit(ast.parse(source))
+        return walk.hits, walk.defs
+    control_hits, control_defs = callers("class A:\n    def f(self):\n        self.g()\n    def g(self):\n        pass\n", "g")
+    check_eq("N2 item 5 (d): positive control of the AST walk: it finds the call `self.g(` inside `f` and the def of `g`", (control_hits, "g" in control_defs), (["f"], True))
+    hits, defs = callers(Path(driver_conductor.__file__).read_text(encoding="utf-8"), "gate_prices")
+    check("N2 item 5 (d): the spy's prompt stamp is by the name `_conductor_text`: driver_conductor still defines it and `self.gate_prices(` is called exactly once, inside it; "
+          "if this fails re-point the stamp (dry_driver._raising_for_conductor) at the function that now builds the conductor prompt",
+          hasattr(driver_conductor, "_conductor_text") or any(hasattr(v, "_conductor_text") for v in vars(driver_conductor).values() if isinstance(v, type)),
+          f"classes of driver_conductor: {[n for n, v in vars(driver_conductor).items() if isinstance(v, type)]}")
+    check_eq("N2 item 5 (d): `gate_prices` is defined in driver_conductor and called exactly once, from `_conductor_text`", ("gate_prices" in defs, hits), (True, ["_conductor_text"]))
     try:
-        dry_driver.passing_spy(lambda *a, **k: (_ for _ in ()).throw(ValueError("unreadable prices")), tmp / "n2-priced" / "never.jsonl")("k", [])
+        dry_driver.passing_spy(lambda *a, **k: (_ for _ in ()).throw(ValueError("unreadable prices")), tmp / "n2-priced" / "state" / "never.jsonl")("k", [])
         got = "no error"
     except ValueError:
         got = "raised"
-    check_eq("N2 item 5: a refusal of the real function passes through and nothing is recorded", (got, (tmp / "n2-priced" / "never.jsonl").exists()), ("raised", False))
+    check_eq("N2 item 5: a refusal of the real function passes through and nothing is recorded", (got, (tmp / "n2-priced" / "state" / "never.jsonl").exists()), ("raised", False))
     check_eq("N2 item 5: the sink is the task's state folder of the call's own --project and --task",
              dry_driver.sink_path(["--project", "P", "--task", "T", "--x"]), Path("P") / "qa-factory" / "artifacts" / "T" / "state" / "dry-priced.jsonl")
     check("N2 edge: no --project or --task is None, the wrapper refuses naming them", dry_driver.sink_path(["--task", "T"]) is None)
