@@ -87,6 +87,92 @@ def restore(name: str) -> None:
     shutil.copy(GOOD / name, Q3 / name)
 
 
+def tbw_t7a_a_sites() -> None:
+    """told-before-work T7a-A: every refusal of the thirteen requirement-side and bug-side validators (`validate_artifacts.py`) is
+    `refusal("validate_artifacts:<function>", <text>)` and its text is the one it always was. ONE table, a row per function: the
+    function is called on a file or value that breaks it, the first message is a literal (the OLD file's output, byte for byte),
+    its Record carries `check == <id>`, and the row of that id states the sentence the Record prints (`expected`). Every message
+    the call returns carries the id (one function, one requirement)."""
+    import stage_joints as SJ
+    scratch = ROOT / "scratch-t7a-a"
+    nl = chr(10)
+    dash = "—"
+
+    def at(name: str, text: str) -> Path:
+        return write(scratch / name, text)
+    then = nl.join(["## Then", "", "1. the total is 5", "2. the code is 422", ""])
+    cells = nl.join(["---", "created: 2099-01-01", "---", "## Register", "| R | a |", "|---|---|", "| R-1 | x | y |", ""])
+    register = nl.join([
+        "## Register", "",
+        "| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable | delta |",
+        "|---|---|---|---|---|---|---|---|",
+        "| R-1 | x | ac | - | yes | AC-1 | diff:src/app.py:12 | bogus |", ""])
+    claims = nl.join([
+        "## Behaviour claims", "",
+        "| R | before | before_ref | now | now_ref | differs | question | origin |",
+        "|---|---|---|---|---|---|---|---|",
+        "| R-1 | a | b | c | d | no | Q1 | S2 |", ""])
+    at("work/context-manifest.json", json.dumps({"observables": []}))
+    rows = [
+        ("check_case", lambda e: V.check_case(at("test-cases/TC-9.md", "no front matter" + nl), e),
+         "TC-9.md: no YAML frontmatter"),
+        ("check_case_form", lambda e: V.check_case_form(Path("TC-9.md"), {}, e),
+         f"TC-9.md: FORM {dash} 'task' is missing (a case with updated >= 2026-09-07: task, covers: [R-n], defect_class, basis "
+         f"{dash} inherited from the plan row)"),
+        ("check_then_oracles", lambda e: V.check_then_oracles(Path("TC-9.md"), {"basis": "requirement:R-1"}, then, e),
+         "TC-9.md: FORM - `then_oracles` is missing (a case with updated >= 2026-10-02): say where the expected value of Then 1, 2 "
+         "comes from, as ONE line of JSON: then_oracles: [{\"then\": 1, \"source\": \"requirement\", \"ref\": \"R-1\"}] with source "
+         "one of requirement | ac | spec | precedent | person | unknown (code is never a source; `unknown` needs a question that "
+         "shows before/now)"),
+        ("check_cell_counts", lambda e: V.check_cell_counts(Path("r.md"), cells, "## Register", "register", e),
+         "r.md: R-1: the register row holds 3 cells under a header of 2 - a bare `|` inside a cell ends the cell, so what follows "
+         "lands in another column. Way on: write | inside a cell as \\| (for example a \\| b)"),
+        ("check_bug", lambda e: V.check_bug(at("bugs/BUG-1.md", "none" + nl), e), "BUG-1.md: no YAML frontmatter"),
+        ("check_bug_filing_header",
+         lambda e: V.check_bug_filing_header(Path("BUG-1.md"), {"source_draft": "x", "violates": "requirement:R-1"}, e),
+         f"BUG-1.md: FORM {dash} 'cases' is missing or empty (the case ids the bug is about, from the draft's `case`/`cases`); a bug "
+         "about no case says `cases: []` and writes `no_case_reason` (why)"),
+        ("check_bug_form", lambda e: V.check_bug_form(Path("BUG-1.md"), {}, "text", e),
+         f"BUG-1.md: FORM {dash} 'impact' is missing (an impact class from the scale ['access', 'blocked-flow', 'cosmetic', "
+         "'data-loss', 'degraded', 'money', 'none'])"),
+        ("check_register", lambda e: V.check_register(at("work/requirements-register.md", "none" + nl), e),
+         "requirements-register.md: no YAML frontmatter"),
+        ("check_delta_column", lambda e: V.check_delta_column(Path("r.md"), register, e),
+         "r.md: R-1: delta 'bogus' is none of new | changed | unchanged (exactly these lowercase words; an empty cell is not one) - "
+         "write what the product did BEFORE this MR for the behaviour the requirement states: no such behaviour (new), a different "
+         "one (changed), the same (unchanged)"),
+        ("check_behaviour_claims", lambda e: V.check_behaviour_claims(scratch / "work" / "requirements-register.md", claims, e),
+         f"requirements-register.md: R-1: behaviour claim {dash} `origin` 'S2' is none of: empty (written at S2) | S3-grounding"),
+        ("check_manifest_reuse",
+         lambda e: V.check_manifest_reuse(scratch / "work" / "requirements-register.md", "",
+                                          [["R-1", "x", "y", "z", "a", "b", "diff:src/never/seen.py:9"]], e),
+         f"requirements-register.md: R-1: observable cites 'src/never/seen.py', which context-manifest.json never recorded {dash} "
+         "S1's evidence is what S2 builds on. If the manifest really did not answer, keep the fact: add a `manifest_gap` line naming "
+         "that path, what you looked for and why the manifest fell short. Silent re-reading of the implementation is how the same "
+         "gap survives into the next story."),
+        ("check_requirements_review", lambda e: V.check_requirements_review(at("requirements-review.md", "none" + nl), e),
+         "requirements-review.md: no YAML frontmatter"),
+        ("check_understanding", lambda e: V.check_understanding(at("understanding.md", "x" + nl), e),
+         f"understanding.md: section '## Why this change' is missing {dash} the gate-A message is assembled from these sections in order"),
+    ]
+    try:
+        for name, provoke, old in rows:
+            rid = f"validate_artifacts:{name}"
+            found: list = []
+            provoke(found)
+            check(f"t7a-a {name}: the call refuses", bool(found), "no message")
+            if not found:
+                continue
+            check_eq(f"t7a-a {name}: the first message is the old text, byte for byte", str(found[0]), old)
+            check_eq(f"t7a-a {name}: every message carries the id", sorted({getattr(r, "check", "") for r in found}), [rid])
+            row, why = SJ.row_for(rid)
+            told = SJ.told_text(row)[0] if row else ""
+            check(f"t7a-a {name}: its row states a sentence the refusal can print", bool(told), why)
+            check_eq(f"t7a-a {name}: the Record carries that sentence", found[0].expected, told)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
 def main() -> None:
     try:
         # --- rule: understanding brief -------------------------------------------------------------
@@ -1336,6 +1422,7 @@ def main() -> None:
                      (before, [str(p) for p in moved.problems], moved.projected, after), ([], [], ["R-28"], []))
         finally:
             shutil.rmtree(story.parent, ignore_errors=True)
+        tbw_t7a_a_sites()
     finally:
         cleanup(ROOT)
 
