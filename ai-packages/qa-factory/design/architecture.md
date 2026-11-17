@@ -61,7 +61,7 @@ The owner set four goals on 20.10.2026, one section each:
 
 **AR-3 — A project's facts live in its config or in the answer registry, with a default for every key.**
 - Invariant: what varies per project is a config key or a strategy-file section, and onboarding asks for it; a fact only a person's answer can give (which role is a product role, which is not) also lives in the answer registry `records/project-knowledge.json`, whose one writer is `project_knowledge.py` and which is read config first, registry second. Every template key has `since` and `absent_means`. Migration fills missing keys and never touches a person's value, so an older project runs without re-onboarding.
-- Carriers: `references/templates/config.json`; `references/config-keys.json`; `scripts/config_contract.py` (`migration_plan`); `scripts/readiness.py`; `skills/qa-onboarding/phases/p2-interview.md`; `dev:plans/builder-rules.md` rules 1 and 9; `records/project-knowledge.json` with `scripts/project_knowledge.py` (`state`, `record`).
+- Carriers: `references/templates/config.json`; `references/config-keys.json`; `scripts/config_contract.py` (`migration_plan`); `scripts/readiness.py`; `skills/qa-onboarding/phases/p2-interview.md`; `dev:.claude/agents/builder.md` rules 4 and 11; `records/project-knowledge.json` with `scripts/project_knowledge.py` (`state`, `record`).
 - Detector: `test_config_migration.py`. Gap: nothing pairs a key read in code with its template row and interview topic; this is the reader side of AR-22.
 - Breakage: none recorded for the migration itself (the reader-side case is under AR-22).
 - Change check: one commit carries the template row, the `config-keys.json` row, a read with a default, and the interview topic that asks it. A changed note appends to `note_history`. Run `test_config_migration.py`.
@@ -119,7 +119,7 @@ The owner set four goals on 20.10.2026, one section each:
 
 **AR-11 — A role gets only the tools and the context its work needs.**
 - Invariant: a role's tools are those its phase steps name. Its whole start load (charter, the project's CLAUDE.md, injection, packet, launch card, brief with its side files, form) is ONE number per role, summed by `scripts/role_load.py` in tokens, and stays under one threshold. Text added to a role's context removes at least as much.
-- Carriers: FR-56, P14, FR-52; audits A2, A19, A22 (role start load), A23; `scripts/role_load.py`, `references/role-load.json`; `scripts/role_permissions.py`; `selftest.py --limits`; `dev:plans/builder-rules.md` rule 5.
+- Carriers: FR-56, P14, FR-52; audits A2, A19, A22 (role start load), A23; `scripts/role_load.py`, `references/role-load.json`; `scripts/role_permissions.py`; `selftest.py --limits`; `dev:.claude/agents/builder.md` rule 11.
 - Detector: `test_audit_rules.py` and `selftest.py --limits` (CI `package-fast`).
 - Breakage: FR-56's record. The scout's fixed prompt was 36.7K tokens with Bash and about 25K without.
 - Change check: a new tool is named by a phase step. Added text comes with `role_load.py --all` before and after. Run both detectors.
@@ -141,7 +141,7 @@ The owner set four goals on 20.10.2026, one section each:
 - Carriers: P1, P3, P22, P27; FR-12, FR-13, FR-47; AR-2, AR-7; `scripts/tests/fixtures/judgment-census.json` with
   `scripts/tests/test_judgment_census.py`; `scripts/refusal_registry.py` (`sites()`, the one scanner of refusal sites);
   `references/role-load.json` (`process_ratchet_tokens`); `references/stages.json` (`advice`);
-  `dev:tools/architecture_gate.py` (the `judgment:` line); `dev:docs/tasks/critic-diff-brief.md` question 11; axis 32 of
+  `dev:tools/architecture_gate.py` (the `judgment:` line); `dev:.claude/agents/critic.md` rule 22 Q11; axis 32 of
   `dev:docs/SIBLING_MAP.md`.
 - Detector: `test_judgment_census.py` (every check unit of every `scripts/*.py` outside `scripts/tests/` has a census row with a class;
   whether a unit blocks is computed - refusal sites through `refusal_registry.sites()` and the declared blocking path - never hand-labelled;
@@ -219,8 +219,8 @@ The owner set four goals on 20.10.2026, one section each:
   - `scripts/tests/test-layers.json`: `quarantine` shrinks only by `dev:tools/test_quarantine.py purge`, and `pin_holds` only shrinks once files have entered the quarantine. A `keep` row leaves only through that tool. The rows naming detector tests in this map change only in a phase-2 commit that names the replacement.
   - `scripts/tests/known_red.py`: the one loader of the known-red ledger `scripts/tests/fixtures/form-rounds.json` (`known_red`, and `not_in_world` with `pins.not_in_world`). A row carries `raised_by`; a green row still listed is refused as stale. Detector: `scripts/tests/test_field_producers.py` (the red rows equal the ledger).
   - `dev:tools/lint_ratchet.py`, second line: hand-written reader inputs (`HandReaderInput`) only go down.
-- Detector: both ratchets' `--check` (CI `forge-check`); `dev:tools/test_quarantine.py check` in the nightly CI job `quarantine-check`; calibration check 35 (b); critic-diff-brief question 9.
-- Breakage: B-420. Pyflakes findings brought in by merges held CI red on main until 07.10 (`dev:plans/builder-rules.md` rule 7).
+- Detector: both ratchets' `--check` (CI `forge-check`); `dev:tools/test_quarantine.py check` in the nightly CI job `quarantine-check`; calibration check 35 (b); `dev:.claude/agents/critic.md` rule 22 Q9.
+- Breakage: B-420. Pyflakes findings brought in by merges held CI red on main until 07.10 (`dev:docs/TESTING.md` section "what to run for your own edit").
 - Change check: list every row added or raised (key, old -> new, reason). A new ratchet joins axis 18 and question 9 in the commit that creates it.
 
 ## D. Continuity between stages
