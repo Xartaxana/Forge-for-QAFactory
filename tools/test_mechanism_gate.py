@@ -104,8 +104,11 @@ def test_mechanism_paths_template_homes_and_self_protection():
     # Template MECHANISM_PREFIXES: known mechanism homes + self-protection
     # of the enforcement chain (this gate, the SessionStart hook it shares
     # a home with, the hooks dir, the hook registration file).
+    # delegation.config.yaml and the ladder home are DATA/code that decide acceptance legality (S2.5): a commit
+    # staging only the config is a mechanism commit.
     extra = ["BOOT.md", "tools/mechanism_gate.py", "tools/session_context.py",
-             ".githooks/commit-msg", ".claude/settings.json"]
+             ".githooks/commit-msg", ".claude/settings.json",
+             "delegation.config.yaml", "tools/tier_ladder.py"]
     assert mg.mechanism_paths(extra) == extra
     # Narrowness is deliberate (ported from the source deployment):
     # other tools/ and gateway/ files stay outside the net.
@@ -601,478 +604,132 @@ def test_resolve_lead_binding_falls_back_to_api_for_non_claude():
             == "llama-3.3-70b-versatile")
 
 
-def test_tier_declared_ok_exact_and_family_vs_non_claude():
-    assert mg.tier_declared_ok("claude-fable-5", "claude-fable-5")
-    assert mg.tier_declared_ok("fable", "claude-fable-5")
-    assert not mg.tier_declared_ok("sonnet", "claude-fable-5")
-    # Non-Claude binding: no family, only an exact match qualifies.
-    assert mg.tier_declared_ok("llama-3.3-70b-versatile",
-                               "llama-3.3-70b-versatile")
-    assert not mg.tier_declared_ok("fable", "llama-3.3-70b-versatile")
-
-
-# --- config onboarding ladder (build_role_ladder / _resolve_ladder_rank /
-# tier_declared_ok config_text) -- a full mirror of HQ's own gate logic.
-
-CONFIG_LADDER_NON_CLAUDE = """
-roles:
-  critic:
-    subscription:
-      model: gpt-x
-  lead:
-    subscription:
-      model: llama-3.3-70b-versatile
-"""
-
-CONFIG_LADDER_NON_CLAUDE_WITH_RESERVE = """
-roles:
-  lead:
-    subscription:
-      model: llama-3.3-70b-versatile
-  reserve:
-    subscription:
-      model: claude-fable-5
-"""
-
-CONFIG_LADDER_OPUS_LEAD_FABLE_RESERVE = """
-roles:
-  lead:
-    subscription:
-      model: claude-opus-5
-  reserve:
-    subscription:
-      model: claude-fable-5
-"""
-
-CONFIG_LADDER_AMBIGUOUS_FAMILY = """
-roles:
-  critic:
-    subscription:
-      model: claude-critic-opus-x
-  reserve:
-    subscription:
-      model: claude-reserve-opus-y
-  lead:
-    subscription:
-      model: llama-3.3-70b-versatile
-"""
-
-CONFIG_LADDER_WITH_NON_COORD_ROLES = """
-roles:
-  scout:
-    subscription:
-      model: claude-haiku-3
-  builder:
-    subscription:
-      model: claude-sonnet-5
-  critic:
-    subscription:
-      model: claude-opus-4
-  lead:
-    subscription:
-      model: claude-opus-5
-  judge:
-    subscription:
-      model: claude-judge-model
-  analyst:
-    subscription:
-      model: claude-analyst-model
-  designer:
-    subscription:
-      model: claude-designer-model
-"""
-
-
-def test_build_role_ladder_fixed_order_and_ranks():
-    ladder = mg.build_role_ladder(CONFIG_LADDER_WITH_NON_COORD_ROLES)
-    assert ladder == [
-        (0, "claude-haiku-3"),
-        (1, "claude-sonnet-5"),
-        (2, "claude-opus-4"),
-        (3, "claude-opus-5"),
-    ]
-
-
-def test_build_role_ladder_ignores_judge_and_analyst():
-    ladder = mg.build_role_ladder(CONFIG_LADDER_WITH_NON_COORD_ROLES)
-    ids = [model_id for _rank, model_id in ladder]
-    assert "claude-judge-model" not in ids
-    assert "claude-analyst-model" not in ids
-
-
-def test_build_role_ladder_ignores_designer():
-    # designer -- a standing function at the same tier as critic
-    # (opus), but NOT a coordination rung of the ladder (roles.designer
-    # is not in ROLE_RANKS) -- the same treatment as judge/analyst above.
-    ladder = mg.build_role_ladder(CONFIG_LADDER_WITH_NON_COORD_ROLES)
-    ids = [model_id for _rank, model_id in ladder]
-    assert "claude-designer-model" not in ids
-    assert len(ladder) == 4  # scout/builder/critic/lead only
-
-
-def test_build_role_ladder_role_without_model_no_rung():
-    # roles.reserve is present as a key, but with no model -- no rung.
-    config = """
-roles:
-  lead:
-    subscription:
-      model: claude-opus-5
-  reserve:
-    subscription:
-      model:
-"""
-    assert mg.build_role_ladder(config) == [(3, "claude-opus-5")]
-
-
-def test_build_role_ladder_empty_without_config():
-    assert mg.build_role_ladder(None) == []
-    assert mg.build_role_ladder("") == []
-    assert mg.build_role_ladder("not: yaml: [broken\n") == []
-
-
-def test_tier_declared_ok_non_claude_ladder_exact_id_lead_passes():
-    # A non-Claude LADDER: lead=llama-3.3-70b-versatile, critic=gpt-x --
-    # an EXACT-id declaration of the lead rung passes.
-    assert mg.tier_declared_ok(
-        "llama-3.3-70b-versatile", "llama-3.3-70b-versatile", CONFIG_LADDER_NON_CLAUDE)
-
-
-def test_tier_declared_ok_non_claude_ladder_lower_rung_fails():
-    # The same ladder -- a declaration of the critic rung (BELOW lead)
-    # does not pass.
-    assert not mg.tier_declared_ok(
-        "gpt-x", "llama-3.3-70b-versatile", CONFIG_LADDER_NON_CLAUDE)
-
-
-def test_tier_declared_ok_reserve_exact_id_passes_at_non_claude_lead():
-    # reserve=claude-fable-5 at a non-Claude lead -- an EXACT-id
-    # declaration of the reserve rung (STRICTLY ABOVE lead) passes.
-    assert mg.tier_declared_ok(
-        "claude-fable-5", "llama-3.3-70b-versatile", CONFIG_LADDER_NON_CLAUDE_WITH_RESERVE)
-
-
-def test_tier_declared_ok_reserve_family_match_passes_at_non_claude_lead():
-    # The same config -- a declaration of "fable" (a bare family, a
-    # family match of EXACTLY ONE reserve rung) also passes.
-    assert mg.tier_declared_ok(
-        "fable", "llama-3.3-70b-versatile", CONFIG_LADDER_NON_CLAUDE_WITH_RESERVE)
-
-
-def test_tier_declared_ok_real_shape_opus_lead_fable_reserve_passes():
-    # The real shape (lead: claude-opus-5, reserve: claude-fable-5) --
-    # "tier: fable" passes.
-    assert mg.tier_declared_ok(
-        "fable", "claude-opus-5", CONFIG_LADDER_OPUS_LEAD_FABLE_RESERVE)
-
-
-def test_tier_declared_ok_no_reserve_tier_fable_still_passes_via_p2():
-    # BOUNDARY (TEMPORAL, the current toolkit's own config): roles.reserve
-    # is absent -- the ladder has no rung 4 at all -- "tier: fable" at
-    # an opus-lead still passes, now via the FAMILY-STRICTLY-ABOVE-
-    # BINDING branch of tier_declared_ok (fable's rank, index 0 in
-    # LEAD_FAMILIES, is strictly above opus's rank, index 1) -- a full
-    # mirror of HQ's own gate logic, not gated on roles.reserve
-    # actually being configured.
-    ladder = mg.build_role_ladder(CONFIG_SAMPLE_OPUS)
-    assert all(rank != 4 for rank, _model in ladder)
-    assert mg.tier_declared_ok("fable", "claude-opus-5", CONFIG_SAMPLE_OPUS)
-
-
-# --- family-strictly-above-binding pair:
-# above the binding passes, below the binding is rejected -- both
-# forms explicit, not only inferred from the P2 test above.
-
-
-def test_tier_declared_ok_family_above_binding_passes():
-    # Binding opus, declaration fable (both the bare family and the
-    # full model id) -- fable's rank (0) is STRICTLY ABOVE opus's rank
-    # (1) -- accepted.
-    assert mg.tier_declared_ok("fable", "claude-opus-5")
-    assert mg.tier_declared_ok("claude-fable-5", "claude-opus-5")
-
-
-def test_tier_declared_ok_family_below_binding_fails():
-    # The same opus binding, a declaration BELOW it (sonnet/haiku) --
-    # rejected.
-    assert not mg.tier_declared_ok("sonnet", "claude-opus-5")
-    assert not mg.tier_declared_ok("haiku", "claude-opus-5")
-
-
-def test_tier_declared_ok_fable_binding_nothing_above_regression_pin():
-    # BOUNDARY: a fable binding -- the "nothing above fable" regression
-    # pin. fable's rank is already 0 (no smaller index exists), so a
-    # declaration of opus/anything else still does not pass through
-    # this branch (unchanged behavior).
-    assert not mg.tier_declared_ok("opus", "claude-fable-5")
-    assert not mg.tier_declared_ok("sonnet", "claude-fable-5")
-
-
-def test_tier_declared_ok_non_claude_binding_unaffected_by_new_branch():
-    # A non-Claude binding (fam(binding) is None) -- the function
-    # returns False before this branch is even reached, regression pin.
-    assert not mg.tier_declared_ok("fable", "llama-3.3-70b-versatile")
-
-
-def test_tier_declared_ok_non_claude_declaration_does_not_match_higher_family():
-    # The other edge of the new branch: a Claude binding (opus), but a
-    # NON-CLAUDE declaration (declared_fam is None) -- this branch does
-    # not match at all, fail-closed (only an exact match qualifies).
-    assert not mg.tier_declared_ok("llama-3.3-70b-versatile", "claude-opus-5")
-
-
-def test_decide_full_lead_binding_opus_tier_fable_passes():
-    code, _ = mg.decide_full(
-        msg="feat: mechanism X\n\naxis 1: covered\ntier: fable",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=CONFIG_SAMPLE_OPUS)
-    assert code == 0
-
-
-def test_decide_full_lead_binding_opus_tier_sonnet_fails():
-    code, reason = mg.decide_full(
-        msg="feat: mechanism X\n\naxis 1: covered\ntier: sonnet",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=CONFIG_SAMPLE_OPUS)
-    assert code == 1
-    assert "Not lead tier" in reason
-
-
-def test_decide_full_lead_binding_fable_tier_opus_fails():
-    # Regression pin: a fable binding -- "above" it does not exist,
-    # "tier: opus" (below fable) is still rejected.
-    code, reason = mg.decide_full(
-        msg="feat: mechanism X\n\naxis 1: covered\ntier: opus",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=CONFIG_SAMPLE)
-    assert code == 1
-    assert "Not lead tier" in reason
-
-
-def test_decide_full_lead_binding_non_claude_tier_fable_fails():
-    # Regression pin: a non-Claude binding -- a declaration higher by
-    # rank does not save it (the branch is silent for fam(binding) is
-    # None).
-    code, reason = mg.decide_full(
-        msg="feat: mechanism X\n\naxis 1: covered\ntier: fable",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=CONFIG_SAMPLE_NON_CLAUDE)
-    assert code == 1
-    assert "Not lead tier" in reason
-
-
-def test_tier_declared_ok_ambiguous_family_match_does_not_resolve():
-    # BOUNDARY (a documented fork): TWO rungs of the same Claude family
-    # (critic and reserve, both "opus") -- the bare family "opus" does
-    # NOT resolve via the ladder (ambiguity), and the binding (lead) is
-    # non-Claude, so the family-substring branch is silent too -- the
-    # result is FAIL.
-    assert not mg.tier_declared_ok(
-        "opus", "llama-3.3-70b-versatile", CONFIG_LADDER_AMBIGUOUS_FAMILY)
-
-
-def test_tier_declared_ok_no_config_regression_pin_explicit_none():
-    # Regression pin (config_text=None EXPLICITLY, not relying on a
-    # real file): behaves exactly as before this port.
-    assert mg.tier_declared_ok("claude-fable-5", "claude-fable-5", None)
-    assert mg.tier_declared_ok("fable", "claude-fable-5", None)
-    assert not mg.tier_declared_ok("sonnet", "claude-fable-5", None)
-
-
-def test_decide_full_ladder_non_claude_lead_tier_exact_id_passes():
-    code, _ = mg.decide_full(
-        msg="feat: mechanism X\n\naxis 1: covered -- both deployments\ntier: llama-3.3-70b-versatile",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=CONFIG_LADDER_NON_CLAUDE)
-    assert code == 0
-
-
-def test_decide_full_ladder_non_claude_lead_tier_lower_rung_fails():
-    code, reason = mg.decide_full(
-        msg="feat: mechanism X\n\naxis 1: covered -- both deployments\ntier: gpt-x",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=CONFIG_LADDER_NON_CLAUDE)
-    assert code == 1
-    assert "Not lead tier" in reason
-
-
-# --- family-strength guard on the ladder (BOTH the exact-id path and
-# the family-match path) -- a nonsense config (a rung positionally
-# above lead but weaker by family) must not silently resolve.
-
-CONFIG_LADDER_NONSENSE_RESERVE_BELOW_LEAD = """
-roles:
-  lead:
-    subscription:
-      model: claude-opus-5
-  reserve:
-    subscription:
-      model: claude-sonnet-5
-"""
-
-CONFIG_LADDER_NO_LEAD_RESERVE_OPUS = """
-roles:
-  reserve:
-    subscription:
-      model: claude-opus-5
-"""
-
-CONFIG_LADDER_DUPLICATE_MODEL_ID = """
-roles:
-  builder:
-    subscription:
-      model: claude-fable-5
-  lead:
-    subscription:
-      model: llama-3.3-70b-versatile
-  reserve:
-    subscription:
-      model: claude-fable-5
-"""
-
-
-def test_resolve_ladder_rank_nonsense_reserve_below_lead_family_does_not_resolve():
-    # reserve is configured with a model WEAKER than lead (sonnet <
-    # opus by LEAD_FAMILIES) -- positionally reserve is rung 4, but the
-    # family match does NOT resolve at all.
-    assert mg._resolve_ladder_rank("sonnet", CONFIG_LADDER_NONSENSE_RESERVE_BELOW_LEAD) is None
-
-
-def test_tier_declared_ok_nonsense_reserve_below_lead_tier_sonnet_fails():
-    assert not mg.tier_declared_ok(
-        "sonnet", "claude-opus-5", CONFIG_LADDER_NONSENSE_RESERVE_BELOW_LEAD)
-
-
-def test_decide_full_nonsense_reserve_below_lead_tier_sonnet_fails():
-    code, reason = mg.decide_full(
-        msg="feat: mechanism X\n\naxis 1: covered\ntier: sonnet",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=CONFIG_LADDER_NONSENSE_RESERVE_BELOW_LEAD)
-    assert code == 1
-    assert "Not lead tier" in reason
-
-
-def test_resolve_ladder_rank_no_lead_rung_returns_none_even_with_reserve():
-    # roles.lead is ABSENT, reserve=opus is configured -- the ladder
-    # path resolves NOTHING (no reference rank), even though "opus"
-    # would otherwise exact-match the reserve rung.
-    assert mg._resolve_ladder_rank("claude-opus-5", CONFIG_LADDER_NO_LEAD_RESERVE_OPUS) is None
-    assert mg._resolve_ladder_rank("opus", CONFIG_LADDER_NO_LEAD_RESERVE_OPUS) is None
-
-
-def test_tier_declared_ok_no_lead_reserve_opus_tier_opus_fails():
-    # The "nothing above fable" pin holds even WITH a config present
-    # (not only with config_text=None): roles.lead absent ->
-    # resolve_lead_binding defaults to "fable" -- nothing beats fable,
-    # neither by the ladder nor by the family branch.
-    binding = mg.resolve_lead_binding(CONFIG_LADDER_NO_LEAD_RESERVE_OPUS)
-    assert binding == "fable"
-    assert not mg.tier_declared_ok("opus", binding, CONFIG_LADDER_NO_LEAD_RESERVE_OPUS)
-
-
-def test_decide_full_no_lead_reserve_opus_tier_opus_fails():
-    code, reason = mg.decide_full(
-        msg="feat: mechanism X\n\naxis 1: covered\ntier: opus",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=CONFIG_LADDER_NO_LEAD_RESERVE_OPUS)
-    assert code == 1
-    assert "Not lead tier" in reason
-
-
-CONFIG_LADDER_EXACT_WEAKER_FAMILY_AT_RESERVE = """
-roles:
-  lead:
-    subscription:
-      model: claude-opus-5
-  reserve:
-    subscription:
-      model: claude-sonnet-5
-"""
-
-CONFIG_LADDER_EXACT_STRONGER_FAMILY_AT_RESERVE = """
-roles:
-  lead:
-    subscription:
-      model: claude-sonnet-5
-  reserve:
-    subscription:
-      model: claude-opus-5
-"""
-
-CONFIG_LADDER_EXACT_NON_CLAUDE_STEP_AT_RESERVE = """
-roles:
-  lead:
-    subscription:
-      model: claude-opus-5
-  reserve:
-    subscription:
-      model: llama-3.3-70b-versatile
-"""
-
-
-def test_resolve_ladder_rank_exact_match_weaker_family_at_reserve_does_not_resolve():
-    # A nonsense config: reserve (positionally rung 4, ABOVE lead) is
-    # configured with a model WEAKER than lead by family (sonnet <
-    # opus) -- an EXACT id match with it no longer resolves at all
-    # (the guard applies on this path too, symmetric with the
-    # family-match path).
-    assert mg._resolve_ladder_rank(
-        "claude-sonnet-5", CONFIG_LADDER_EXACT_WEAKER_FAMILY_AT_RESERVE) is None
-
-
-def test_tier_declared_ok_exact_match_weaker_family_at_reserve_fails():
-    assert not mg.tier_declared_ok(
-        "claude-sonnet-5", "claude-opus-5", CONFIG_LADDER_EXACT_WEAKER_FAMILY_AT_RESERVE)
-
-
-def test_decide_full_exact_match_weaker_family_at_reserve_rejects():
-    code, reason = mg.decide_full(
-        msg="feat: mechanism X\n\naxis 1: covered\ntier: claude-sonnet-5",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=CONFIG_LADDER_EXACT_WEAKER_FAMILY_AT_RESERVE)
-    assert code == 1
-    assert "Not lead tier" in reason
-
-
-def test_resolve_ladder_rank_exact_match_stronger_family_at_reserve_still_resolves():
-    # Positive control of the same guard: a candidate STRONGER (not
-    # weaker) than lead by family -- the guard does NOT discard it, an
-    # exact match resolves as before.
-    assert mg._resolve_ladder_rank(
-        "claude-opus-5", CONFIG_LADDER_EXACT_STRONGER_FAMILY_AT_RESERVE) == 4
-
-
-def test_resolve_ladder_rank_exact_match_non_claude_step_trusts_ladder_position():
-    # The CANDIDATE rung's family is unresolvable (a non-Claude
-    # model_id) -- the guard stays silent, TRUSTING THE LADDER'S
-    # POSITION -- an exact match resolves (rank 4), as before this fix.
-    assert mg._resolve_ladder_rank(
-        "llama-3.3-70b-versatile", CONFIG_LADDER_EXACT_NON_CLAUDE_STEP_AT_RESERVE) == 4
-
-
-def test_tier_declared_ok_exact_match_non_claude_step_trusts_ladder_position_passes():
-    assert mg.tier_declared_ok(
-        "llama-3.3-70b-versatile", "claude-opus-5", CONFIG_LADDER_EXACT_NON_CLAUDE_STEP_AT_RESERVE)
-
-
-def test_resolve_ladder_rank_duplicate_model_id_takes_max_rank():
-    # The SAME model_id sits on SEVERAL rungs (builder=1 AND reserve=4,
-    # both "claude-fable-5") -- resolution takes the MAXIMUM rank among
-    # exact matches (4), not the first one in ladder order (1).
-    assert mg._resolve_ladder_rank(
-        "claude-fable-5", CONFIG_LADDER_DUPLICATE_MODEL_ID) == 4
-
-
-def test_tier_declared_ok_duplicate_model_id_passes_via_max_rank():
-    assert mg.tier_declared_ok(
-        "claude-fable-5", "llama-3.3-70b-versatile", CONFIG_LADDER_DUPLICATE_MODEL_ID)
-
-
-def test_decide_full_duplicate_model_id_tier_fable_passes():
-    code, _ = mg.decide_full(
-        msg="feat: mechanism X\n\naxis 1: covered\ntier: claude-fable-5",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=CONFIG_LADDER_DUPLICATE_MODEL_ID)
-    assert code == 0
+# --- the tier gate on the ladder home (tools/tier_ladder.py): ONE table per behaviour. Each named config is one
+# world; `architect` is the rung above lead (it replaces the old `reserve` key, which is no longer read).
+
+def _roles(**roles):
+    lines = ["roles:"]
+    for function, model in roles.items():
+        lines += [f"  {function}:", "    subscription:", f"      model: {model}"]
+    return "\n".join(lines) + "\n"
+
+
+TIER_CONFIGS = {
+    "none": None,
+    "fable-lead": CONFIG_SAMPLE,
+    "opus-lead": CONFIG_SAMPLE_OPUS,
+    "non-claude-lead": CONFIG_SAMPLE_NON_CLAUDE,
+    # the two worlds of the Architect landing: today's live config (no architect key) and the AFTER config
+    "today": _roles(lead="claude-fable-5-1", critic="claude-opus-5-5", builder="claude-sonnet-5-5", scout="claude-sonnet-5-5"),
+    "today-key-bound": _roles(lead="claude-fable-5-1", architect="claude-fable-5-1", critic="claude-opus-5-5",
+                              builder="claude-sonnet-5-5", scout="claude-sonnet-5-5"),
+    "after": _roles(lead="claude-opus-5-5", architect="claude-fable-5-1", critic="claude-opus-5-5",
+                    builder="claude-sonnet-5-5", scout="claude-sonnet-5-5"),
+    "after-no-architect": _roles(lead="claude-opus-5-5", critic="claude-opus-5-5", builder="claude-sonnet-5-5",
+                                 scout="claude-sonnet-5-5"),
+    "lead-equals-critic-opus": _roles(lead="claude-opus-5-5", critic="claude-opus-5-5"),
+    "non-claude-ladder": _roles(critic="gpt-x", lead="llama-3.3-70b-versatile"),
+    "non-claude-lead-architect-fable": _roles(lead="llama-3.3-70b-versatile", architect="claude-fable-5"),
+    "opus-lead-architect-fable": _roles(lead="claude-opus-5", architect="claude-fable-5"),
+    "ambiguous-family": _roles(critic="claude-critic-opus-x", architect="claude-reserve-opus-y", lead="llama-3.3-70b-versatile"),
+    "architect-below-lead": _roles(lead="claude-opus-5", architect="claude-sonnet-5"),
+    "architect-above-sonnet-lead": _roles(lead="claude-sonnet-5", architect="claude-opus-5"),
+    "architect-non-claude-step": _roles(lead="claude-opus-5", architect="llama-3.3-70b-versatile"),
+    "no-lead-architect-opus": _roles(architect="claude-opus-5"),
+    "duplicate-model-id": _roles(builder="claude-fable-5", lead="llama-3.3-70b-versatile", architect="claude-fable-5"),
+    "reserve-key-not-read": _roles(lead="claude-opus-5", reserve="claude-fable-5"),
+    # an operator who bound opus and slipped: the gate falls back to the defaults and must SAY so (spec 2.4)
+    "broken-yaml-opus": _roles(lead="claude-opus-5-5") + "not: yaml: [broken\n",
+    "oversize-opus": _roles(lead="claude-opus-5-5") + "# " + "x" * 65536 + "\n",
+}
+
+
+@pytest.mark.parametrize("config, declared, ok", [
+    # config TODAY: lead = fable, no architect key
+    ("today", "fable", True), ("today", "claude-fable-5-2", True), ("today", "opus", False),
+    ("today", "claude-opus-5-5", False), ("today", "sonnet", False),
+    # config AFTER: opus is the lead, fable the architect
+    ("after", "opus", True), ("after", "claude-opus-5-5", True), ("after", "fable", True),
+    ("after", "claude-fable-5-2", True), ("after", "sonnet", False), ("after", "haiku", False),
+    # architect key absent / present: identical for fable (never MORE privileged without the key)
+    ("after-no-architect", "fable", True), ("after-no-architect", "claude-fable-5-2", True),
+    ("after-no-architect", "sonnet", False), ("today-key-bound", "fable", True), ("today-key-bound", "opus", False),
+    # the same model on lead and critic: the max rank (lead) wins
+    ("lead-equals-critic-opus", "opus", True),
+    # no config / a fable binding: nothing above fable, opus and sonnet stay refused
+    ("none", "fable", True), ("none", "claude-fable-5", True), ("none", "sonnet", False), ("none", "opus", False),
+    ("fable-lead", "claude-fable-5", True), ("fable-lead", "fable", True), ("fable-lead", "sonnet", False),
+    ("fable-lead", "opus", False),
+    # an opus lead without an architect key: fable is above it by the family order, sonnet/haiku below
+    ("opus-lead", "fable", True), ("opus-lead", "claude-fable-5", True), ("opus-lead", "opus", True),
+    ("opus-lead", "sonnet", False), ("opus-lead", "haiku", False), ("opus-lead", "llama-3.3-70b-versatile", False),
+    # a non-Claude lead: exact id passes, a family word cannot be placed, a lower rung is refused
+    ("non-claude-lead", "llama-3.3-70b-versatile", True), ("non-claude-lead", "fable", False),
+    ("non-claude-ladder", "llama-3.3-70b-versatile", True), ("non-claude-ladder", "gpt-x", False),
+    # the architect rung (was `reserve`): exact id, family word, the real shape, a non-Claude step trusted
+    ("non-claude-lead-architect-fable", "claude-fable-5", True), ("non-claude-lead-architect-fable", "fable", True),
+    ("opus-lead-architect-fable", "fable", True), ("architect-non-claude-step", "llama-3.3-70b-versatile", True),
+    ("architect-above-sonnet-lead", "claude-opus-5", True),
+    # an architect bound WEAKER than lead never inherits rank >= lead (exact id and family word)
+    ("architect-below-lead", "sonnet", False), ("architect-below-lead", "claude-sonnet-5", False),
+    # no lead model: the default lead (fable) is the binding; an architect-only opus never becomes lead
+    ("no-lead-architect-opus", "opus", False), ("no-lead-architect-opus", "claude-opus-5", False),
+    # the same id on builder and architect: the max rank (architect) wins
+    ("duplicate-model-id", "claude-fable-5", True),
+    # two rungs of one family (critic and architect, both opus): the max rank of the family wins (was: ambiguous -> refused)
+    ("ambiguous-family", "opus", True),
+    # the old `reserve` key is not read: it raises no rank
+    ("reserve-key-not-read", "claude-fable-5", True), ("reserve-key-not-read", "sonnet", False),
+])
+def test_tier_declared_ok_table(config, declared, ok):
+    cfg = TIER_CONFIGS[config]
+    assert mg.tier_declared_ok(declared, mg.resolve_lead_binding(cfg), cfg) is ok
+
+
+@pytest.mark.parametrize("config, tier, code, fragment", [
+    ("opus-lead", "fable", 0, ""), ("opus-lead", "sonnet", 1, "Not lead tier"),
+    ("fable-lead", "opus", 1, "Not lead tier"), ("non-claude-lead", "fable", 1, "Not lead tier"),
+    ("non-claude-ladder", "llama-3.3-70b-versatile", 0, ""), ("non-claude-ladder", "gpt-x", 1, "Not lead tier"),
+    ("architect-below-lead", "sonnet", 1, "Not lead tier"), ("architect-below-lead", "claude-sonnet-5", 1, "Not lead tier"),
+    ("no-lead-architect-opus", "opus", 1, "Not lead tier"), ("duplicate-model-id", "claude-fable-5", 0, ""),
+    ("fable-lead", "claude-fable-5", 0, ""), ("none", "fable", 0, ""), ("none", "sonnet", 1, "Not lead tier"),
+    ("today", "fable", 0, ""), ("today", "claude-fable-5-2", 0, ""), ("today", "opus", 1, "Not lead tier"),
+    ("after", "opus", 0, ""), ("after", "claude-opus-5-5", 0, ""), ("after", "fable", 0, ""),
+    ("after", "sonnet", 1, "Not lead tier"),
+    ("after-no-architect", "fable", 0, ""), ("today-key-bound", "fable", 0, ""),
+    # the refusal says what passes (F2a)
+    ("fable-lead", "opus", 1, "expected the lead binding or a model ranked lead or above"),
+    # a fallback road keeps its reason in the refusal (F1): broken / oversize config binding opus, `tier: opus`
+    ("broken-yaml-opus", "opus", 1, "not readable YAML"), ("oversize-opus", "opus", 1, "over 64 KB"),
+    ("broken-yaml-opus", "fable", 0, ""), ("oversize-opus", "fable", 0, ""),
+])
+def test_decide_full_tier_line_table(config, tier, code, fragment):
+    got, reason = mg.decide_full(
+        msg=f"feat: mechanism X\n\naxis 1: covered\ntier: {tier}", block_extra="", staged=["CLAUDE.md"],
+        map_text="## Axis 1 --\n", config_text=TIER_CONFIGS[config])
+    assert got == code and fragment in reason
+
+
+def test_decide_full_no_tier_line_refusal_carries_the_config_note_too():
+    got, reason = mg.decide_full(
+        msg="feat: mechanism X\n\naxis 1: covered", block_extra="", staged=["CLAUDE.md"],
+        map_text="## Axis 1 --\n", config_text=TIER_CONFIGS["broken-yaml-opus"])
+    assert got == 1 and "No \"tier: <value>\" line" in reason and "not readable YAML" in reason
+
+
+@pytest.mark.parametrize("config, lead, family", [
+    ("none", "fable", "fable"), ("fable-lead", "claude-fable-5", "fable"),
+    ("non-claude-lead", "llama-3.3-70b-versatile", None), ("today", "claude-fable-5-1", "fable"),
+    ("after", "claude-opus-5-5", "opus"), ("no-lead-architect-opus", "fable", "fable"),
+])
+def test_binding_wrappers_read_the_ladder_home(config, lead, family):
+    assert mg.resolve_lead_binding(TIER_CONFIGS[config]) == lead
+    assert mg.lead_family(lead) == family
+
+
+def test_the_old_ladder_carriers_are_gone():
+    for name in ("ROLE_RANKS", "LEAD_FAMILIES", "build_role_ladder", "_resolve_ladder_rank", "_resolve_role_model"):
+        assert not hasattr(mg, name), name
 
 
 def test_decide_full_missing_tier_line_fails():
@@ -1083,6 +740,7 @@ def test_decide_full_missing_tier_line_fails():
     assert code == 1
     assert "tier" in reason.lower()
     assert "Lead queue" in reason
+    assert "docs/tasks/lead-queue.md" in reason and "CURRENT_CONTEXT" not in reason
 
 
 def test_decide_full_tier_mismatch_fails_with_distinct_text():
@@ -1723,6 +1381,55 @@ def test_audit_ignores_labels_in_fences_and_fails_closed_on_a_bad_map():
 def test_audit_cli_needs_since(capsys):
     assert mg.main(["--audit"]) == 1
     assert "--audit needs --since" in capsys.readouterr().err
+
+
+# --- the Architect's batch-review reader: --list --since <date|sha> (A6) ----
+
+_LIST_COMMITS = [
+    ("aaaa1111bbbb", "feat: first mechanism\n\naxis 1: n/a\ntier: fable\n", ["CLAUDE.md", "docs/RELATED_WORK.md"]),
+    ("cccc2222dddd", "docs: not a mechanism\n", ["docs/RELATED_WORK.md"]),
+    ("eeee3333ffff", "feat: second mechanism\n\ntier: opus\ntier: fable\n", ["delegation.config.yaml", "tools/tier_ladder.py"]),
+    ("9999aaaa0000", "chore: untiered\n", ["PROCESS/X.md"]),
+]
+
+
+@pytest.mark.parametrize("since, commits, code, lines, fragment", [
+    ("2026-10-07", _LIST_COMMITS, 0, 7, "aaaa1111 2026-10-08T12:00:00 fable feat: first mechanism"),
+    ("2026-10-07T08:30", _LIST_COMMITS, 0, 7, "eeee3333 2026-10-08T12:00:00 opus,fable feat: second mechanism"),
+    ("abcdef1", _LIST_COMMITS, 0, 7, "    delegation.config.yaml"),
+    ("2026-10-07", _LIST_COMMITS, 0, 7, "9999aaaa 2026-10-08T12:00:00 - chore: untiered"),
+    ("2026-10-07", _LIST_COMMITS[1:2], 0, 1, "0 commits"),
+    ("2026-10-07", [], 0, 1, "0 commits"),
+    ("yesterday", _LIST_COMMITS, 1, 1, "ISO date"),
+    ("2026-13-45", _LIST_COMMITS, 1, 1, "commit sha"),
+    ("", _LIST_COMMITS, 1, 1, "ISO date"),
+    ("--all", _LIST_COMMITS, 1, 1, "got '--all'"),
+    ("abc", _LIST_COMMITS, 1, 1, "7-40 hex"),
+], ids=["date", "datetime", "sha", "no-tier", "window-without-mechanism", "empty-window", "bad-word", "bad-date",
+        "empty-value", "option-injection", "short-sha"])
+def test_list_commits_table(since, commits, code, lines, fragment):
+    got, report = mg.list_commits(since, git=_fake_runner(commits))
+    assert got == code and len(report.splitlines()) == lines and fragment in report
+    if not code and commits is _LIST_COMMITS:  # the non-mechanism commit is not listed; paths are indented
+        assert "cccc2222" not in report and "docs/RELATED_WORK.md" not in report
+
+
+@pytest.mark.parametrize("since, hint", [("20261116", True), ("abcdef1", True), ("2026-11-16", False)],
+                         ids=["date-without-dashes-read-as-sha", "sha", "iso-date"])
+def test_list_commits_git_failure_hints_the_sha_reading_in_sha_mode_only(since, hint):
+    def broken(*args):
+        raise mg.AuditError("git log failed with exit 128: bad revision")
+    code, report = mg.list_commits(since, git=broken)
+    assert code == 1 and "bad revision" in report
+    assert ("7-40 hex digits is read as a commit sha; a date is YYYY-MM-DD" in report) is hint
+
+
+def test_list_commits_git_failure_exits_1_and_the_cli_needs_since(capsys):
+    def broken(*args):
+        raise mg.AuditError("git log failed with exit 128: bad revision")
+    assert mg.list_commits("abcdef1", git=broken)[0] == 1
+    assert mg.main(["--list"]) == 1 and "--list needs --since" in capsys.readouterr().err
+    assert mg.main(["--list", "--since", "not-a-date"]) == 1 and "ISO date" in capsys.readouterr().err
 
 
 # --- t-783 (the fix round under the critic t-777) --------------------------

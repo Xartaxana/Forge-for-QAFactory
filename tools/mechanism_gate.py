@@ -100,9 +100,11 @@ without git):
    or no roles.lead key -> default to the "fable" family (the
    subscription-contour default for Lead). A declaration is accepted
    on an exact match with the bound model, OR by containing its tier
-   family (fable/opus/sonnet/haiku, matched as a substring) -- a
-   non-Claude binding has no family, so only an exact model-id match
-   qualifies for it. The skip branch ("not a mechanism") and merge
+   family or its rank on the ladder home (tools/tier_ladder.py:
+   rank_of_model(declared) >= the lead rank) -- a non-Claude binding has
+   no family, so only an exact model-id match qualifies for it. The
+   mechanism-commit reader for the Architect's batch review is
+   `--list --since <date|sha>`. The skip branch ("not a mechanism") and merge
    commits do not require a tier line (same exemption net as the axis
    block). The gate does NOT verify the declaration is true --
    two-layer enforcement: code guarantees the line's presence and
@@ -185,8 +187,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
-
 try:
     from tools.md_regions import scan, KIND_FENCED, KIND_BLOCKQUOTE  # package-style
 except ImportError:
@@ -197,6 +197,11 @@ except ImportError:
         KIND_FENCED = "fenced"
         KIND_BLOCKQUOTE = "blockquote"
 
+try:
+    from tools import tier_ladder  # package-style
+except ImportError:
+    import tier_ladder  # sibling-module fallback (a leaf: stdlib only; the ladder home, S2)
+
 REPO = Path(__file__).resolve().parents[1]
 MAP_PATH = REPO / "docs" / "SIBLING_MAP.md"
 # Template dependency (toolkit transfer): this template has ONE decisions
@@ -205,7 +210,6 @@ DECISIONS_FULL = "DECISIONS.md"
 # This template's install root, next to this gate -- not the caller's cwd.
 CONFIG_PATH = REPO / "delegation.config.yaml"
 
-LEAD_FAMILIES = ("fable", "opus", "sonnet", "haiku")
 TIER_LINE_RE = re.compile(r"^\s*tier\s*:\s*(\S.*?)\s*$", re.IGNORECASE | re.MULTILINE)
 
 MECHANISM_PREFIXES = (
@@ -260,6 +264,7 @@ MECHANISM_PREFIXES = (
     # mechanism_prefixes is the machine check that this list stays
     # complete against that closure as the wiring drifts.
     "tools/tier_echo.py",           # imported by tools/journal_echo.py
+    "tools/tier_ladder.py",         # the ladder home: imported by THIS file (tier gate), later by journal_validator / session_context / tier_echo / dispatch_gate / journal_hooks
     "tools/ci_read.py",             # imported by tools/test_quarantine.py, which session_context.py imports (the quarantine line of SessionStart, TD-15)
     "tools/ci_read_common.py",      # imported by tools/ci_read.py
     "tools/preflight_quota.py",     # imported by tools/session_context.py
@@ -280,6 +285,7 @@ MECHANISM_PREFIXES = (
     "tools/test_volume.py",         # live once the Lead places commit-msg (by choice of the spec; file arrives with its stream)
     "tools/wave.py",                # the merge road (list entry only; file arrives with the C3 stream)
     "logs/journal-letters.json",    # DATA that decides id issue (the clone letter registry): an edit changes who may issue which ids
+    "delegation.config.yaml",       # DATA that decides the acceptance matrix and the tier gate: an edit re-ranks every acceptor
 )
 
 # Template dependency (toolkit transfer, empirically verified against
@@ -580,35 +586,21 @@ def label_verdict(msg: str, block_extra: str, axes: list[int], map_text: str,
 
 
 def resolve_lead_binding(config_text: str | None) -> str:
-    """The model bound to roles.lead in delegation.config.yaml. No file,
-    no roles.lead key, or unparsable YAML -> default to the "fable"
-    family (the subscription-contour default for Lead) -- a
-    conservative (fail-closed) choice: it requires an explicit
-    declaration from anyone below the top tier. The declaration itself
-    is NOT checked for truth here (see tier_declared_ok) -- two-layer
-    enforcement: code guarantees the shape, calibration against
-    transcripts judges the truth, a tier above."""
-    if not config_text:
-        return "fable"
-    try:
-        data = yaml.safe_load(config_text) or {}
-    except yaml.YAMLError:
-        return "fable"
-    lead = (data.get("roles") or {}).get("lead") or {}
-    model = ((lead.get("subscription") or {}).get("model")
-             or (lead.get("api") or {}).get("model"))
-    return model or "fable"
+    """The model bound to roles.lead (a thin wrapper over the ladder home, kept
+    for its importers). No file, no roles.lead model, an unparsable or unusable
+    config -> "fable" (DEFAULT_BINDINGS: a conservative, fail-closed default --
+    it requires an explicit declaration from anyone below the top tier). The
+    declaration itself is NOT checked for truth here (see tier_declared_ok):
+    code guarantees the shape, calibration against transcripts judges the
+    truth, a tier above."""
+    return tier_ladder.lead_binding(config_text) or "fable"
 
 
 def lead_family(binding: str) -> str | None:
-    """The bound model's tier family by substring (fable/opus/sonnet/
-    haiku); None -- no family recognized (a non-Claude binding), in
-    which case only an exact model-id match qualifies."""
-    low = binding.lower()
-    for fam in LEAD_FAMILIES:
-        if fam in low:
-            return fam
-    return None
+    """The bound model's tier family (a thin wrapper over tier_ladder.family_of);
+    None -- no family recognized (a non-Claude binding), in which case only an
+    exact model-id match qualifies."""
+    return tier_ladder.family_of(binding)
 
 
 def find_tier_declarations(msg: str) -> list[str]:
@@ -659,211 +651,25 @@ def _region_filtered_tier_declarations(msg: str, scan_result) -> list[str]:
     return result
 
 
-# --- config onboarding ladder (a full mirror of HQ's own gate logic):
-# roles.{scout,builder,critic,lead,reserve} in delegation.config.yaml,
-# in this FIXED functional order -- reserve (a Fable-class reserve
-# tier) is the ONE rung STRICTLY ABOVE lead; roles.judge/roles.analyst
-# are not coordination roles and are not part of the ladder.
-# roles.designer is ALSO not a ladder rung -- designer is a standing
-# function at the same tier as critic (see .claude/agents/designer.md)
-# but is NOT a coordination role in the sense of this hierarchy (it
-# coordinates specs, not dispatches work); like judge/analyst, its key
-# is simply absent from ROLE_RANKS and build_role_ladder() does not
-# read it by construction -- see test_build_role_ladder_ignores_designer.
-ROLE_RANKS = {"scout": 0, "builder": 1, "critic": 2, "lead": 3, "reserve": 4}
-
-
-def _resolve_role_model(role_data) -> str | None:
-    """The model of ONE role, by the same subscription/api priority as
-    resolve_lead_binding() -- but WITHOUT the "fable" default: a role
-    with no model (the key is absent, or subscription.model/api.model
-    are both empty) simply produces no ladder rung; that is not the
-    same thing as the lead binding specifically (whose absence IS a
-    meaningful subscription-contour default)."""
-    if not isinstance(role_data, dict):
-        return None
-    model = ((role_data.get("subscription") or {}).get("model")
-             or (role_data.get("api") or {}).get("model"))
-    return model or None
-
-
-def build_role_ladder(config_text: str | None) -> list[tuple[int, str]]:
-    """[(rank, model_id)] per ROLE_RANKS, in the fixed order
-    (scout=0 ... reserve=4) -- built from roles.* in config_text; a
-    role with no configured model produces no rung. An empty/broken/
-    absent config_text -> an empty ladder (fails open into the
-    existing family heuristic in tier_declared_ok, which knows nothing
-    about the ladder and works exactly as before)."""
-    if not config_text:
-        return []
-    try:
-        data = yaml.safe_load(config_text) or {}
-    except yaml.YAMLError:
-        return []
-    roles = data.get("roles")
-    if not isinstance(roles, dict):
-        return []
-    ladder = []
-    for role_name, rank in ROLE_RANKS.items():
-        model = _resolve_role_model(roles.get(role_name))
-        if model:
-            ladder.append((rank, model))
-    return ladder
-
-
-def _resolve_ladder_rank(declared: str, config_text: str | None) -> int | None:
-    """Resolves a tier declaration into a ladder rank.
-
-    The ladder path is legal ONLY when the ladder actually HAS a
-    "lead" rung (roles.lead is configured with a model) -- without it
-    there is no reference rank to call "above/at lead" relative to; an
-    empty ladder OR a ladder without a lead rung -> None unconditionally,
-    neither (a) nor (b) below is even tried (edge: roles.lead absent
-    but reserve=opus configured -- "tier: opus" does not resolve via
-    the ladder at all; the non-ladder "nothing above fable" pin from
-    the existing branches still holds even with a config present, not
-    only with config_text=None).
-
-    (a) An EXACT match with some rung's model_id resolves to its rank
-        -- when the SAME model_id sits on SEVERAL rungs (an admin
-        literally duplicated the model), the MAXIMUM rank among all
-        exact matches is taken, not the first one in ladder order
-        (works for a non-Claude rung too -- "tier:
-        llama-3.3-70b-versatile" matches a non-Claude lead rung by
-        exact id). A family-strength guard (the same one branch (b)
-        below already has) also applies HERE: when BOTH the lead
-        rung's family and the candidate rung's family resolve to a
-        non-empty LEAD_FAMILIES value, and the candidate's family is
-        WEAKER than the lead rung's family, the exact match is
-        DISCARDED (a nonsense config -- e.g. reserve configured with a
-        model weaker than lead -- must not silently inherit rank 4
-        through an exact-id match either). When the candidate rung's
-        family is UNRESOLVABLE (a non-Claude model_id that happens to
-        match `declared` exactly), the guard stays silent and TRUSTS
-        THE LADDER'S POSITION (the config is the operator's word: if
-        the admin put exactly that id on exactly that rung, there is
-        nothing to compare against -- the position is authoritative).
-        Likewise, when the lead rung's OWN family does not resolve
-        (a non-Claude lead), the guard stays silent too (nothing to
-        compare against).
-    (b) Otherwise, when declared IS a Claude model (lead_family(declared)
-        is not None), a family match of EXACTLY ONE ladder rung of
-        that same family resolves to its rank -- AMBIGUITY (2+ rungs
-        of the same family) does NOT resolve via this path at all (a
-        documented fork: "when there is exactly one such rung").
-        ADDITIONALLY the candidate rung's family must be NO WEAKER (by
-        LEAD_FAMILIES ordinal, where index 0 is the strongest family
-        "fable") than the lead rung's OWN family -- otherwise a
-        nonsense config (e.g. reserve configured with a model weaker
-        than lead, even though POSITIONALLY reserve is above) must not
-        silently inherit the positional rank 4 through the family
-        heuristic. The guard applies ONLY when the lead rung's family
-        resolves (a Claude lead); with a non-Claude lead (the lead
-        rung's family unresolved) there is nothing to compare against
-        -- the guard does not block (the already-covered "reserve at a
-        non-Claude lead" case).
-    None -- a ladder with no lead rung, or declared resolves via
-    neither (a) nor (b) (including a non-Claude declared with no exact
-    id match -- the family path is simply undefined for it)."""
-    ladder = build_role_ladder(config_text)
-    lead_rank = ROLE_RANKS["lead"]
-    lead_models = [model_id for rank, model_id in ladder if rank == lead_rank]
-    if not lead_models:
-        return None  # no lead rung -- the ladder path resolves NOTHING
-    lead_model = lead_models[0]
-    lead_fam = lead_family(lead_model)
-
-    # Family-strength guard, ALSO on the exact-id-match path -- see the
-    # docstring above, "(a) An EXACT match", for the full breakdown
-    # (comparable families -> guard active; an unresolvable candidate
-    # family -> trust the ladder's position).
-    exact_matches = []
-    for rank, model_id in ladder:
-        if declared != model_id:
-            continue
-        cand_fam = lead_family(model_id)
-        if lead_fam is not None and cand_fam is not None:
-            if LEAD_FAMILIES.index(cand_fam) > LEAD_FAMILIES.index(lead_fam):
-                continue  # nonsense: this rung is weaker than lead by family -- discard
-        exact_matches.append(rank)
-    if exact_matches:
-        return max(exact_matches)  # the maximum rank among exact matches
-
-    declared_fam = lead_family(declared)
-    if declared_fam is None:
-        return None
-    candidates = []
-    for rank, model_id in ladder:
-        if lead_family(model_id) != declared_fam:
-            continue
-        # The guard is active only when the lead rung's family is known
-        # (a Claude lead) -- a candidate rung is forbidden from being
-        # WEAKER than lead by LEAD_FAMILIES ordinal (a larger index =
-        # weaker).
-        if lead_fam is not None:
-            cand_fam = lead_family(model_id)
-            if LEAD_FAMILIES.index(cand_fam) > LEAD_FAMILIES.index(lead_fam):
-                continue  # nonsense: positionally >= lead, but weaker by family
-        candidates.append(rank)
-    if len(candidates) == 1:
-        return candidates[0]
-    return None
-
-
 def tier_declared_ok(declared: str, binding: str, config_text: str | None = None) -> bool:
-    """config_text (optional, default None): the config's onboarding
-    ladder STRICTLY EXTENDS the existing paths below, never narrows
-    them (see the docstrings of _resolve_ladder_rank/build_role_ladder
-    above). The exact-match branch and the family-strictly-above-
-    binding branch immediately below are a full mirror of HQ's own
-    gate logic (a full-mirror-of-the-gate-logic port, not deployment
-    history specific to HQ): the RESERVE-ABOVE-BINDING concept
-    (a tier strictly above the current lead binding is still a full
-    lead -- the same reasoning the config onboarding ladder itself
-    encodes via its own "reserve" rung, one position above "lead") is
-    the concept this template's own delegation.config.yaml ships too
-    (roles.reserve, see CONFIG_LADDER_OPUS_LEAD_FABLE_RESERVE in the
-    test twin) -- it is not gated on roles.reserve actually being
-    configured. The ladder resolution (step below) is tried in
-    ADDITION: a non-Claude binding with a non-Claude ladder resolves by
-    exact id (see the "lead: llama-3.3-70b-versatile" case in the test
-    twin)."""
+    """A declared tier passes when it is exactly the lead binding, or when its
+    rank on the ladder home (tier_ladder.rank_of_model: exact id, family, or the
+    family order for an unbound family) is lead or above. The four old branches
+    (exact / family substring / family strictly above / config ladder) are the
+    cases (a)-(c) of that one function; an architect key absent or present give
+    the same answer for a declaration of the architect family when lead is
+    below it. Error direction: the resolver may only err downward -- a
+    declaration it cannot place is refused."""
     if declared == binding:
         return True
-    fam = lead_family(binding)
-    if fam is not None:
-        if fam in declared.lower():
-            return True
-        # A declaration of a family STRICTLY ABOVE the binding's own
-        # family is also legal -- the reserve-above-binding concept:
-        # a tier above the current lead binding is a full lead itself
-        # (the transitional commit re-binding Lead is committed BY a
-        # session of the old, higher tier). Rank is the family's
-        # position in LEAD_FAMILIES (index 0 = the strongest family,
-        # "fable"); "strictly above" means a SMALLER index. A "fable"
-        # binding has index 0 already -- no index is smaller than 0,
-        # so this branch is silent for it without a separate check:
-        # the "nothing above fable" regression pin holds automatically
-        # by the index arithmetic. A non-Claude DECLARATION
-        # (declared_fam is None) does not match this branch -- only an
-        # exact match (step 1 above) or the ladder (step 4 below)
-        # apply to it.
-        declared_fam = lead_family(declared)
-        if declared_fam is not None and LEAD_FAMILIES.index(declared_fam) < LEAD_FAMILIES.index(fam):
-            return True
-    # The config's onboarding ladder: a declared rank >= the "lead"
-    # rung's FIXED position (ROLE_RANKS, independent of which rungs
-    # happen to be configured today) is accepted.
-    declared_rank = _resolve_ladder_rank(declared, config_text)
-    if declared_rank is not None and declared_rank >= ROLE_RANKS["lead"]:
-        return True
-    return False
+    rank = tier_ladder.rank_of_model(declared, config_text)
+    return rank is not None and rank >= tier_ladder.FUNCTION_RANKS["lead"]
 
 
 def _tier_queue_note() -> str:
     return ("a mechanism commit is Lead-tier work: a session below the "
             "lead binding's tier does NOT commit the mechanism itself -- "
-            "it goes into the Lead queue in CURRENT_CONTEXT.md; a "
+            "it goes into the Lead queue docs/tasks/lead-queue.md; a "
             "lead-tier session adds the line \"tier: <its own model>\".")
 
 
@@ -962,6 +768,10 @@ def decide_full(msg: str, block_extra: str, staged: list[str],
     if not hits or merging or _skip_declared(msg, scan_result):
         return 0, ""
     binding = resolve_lead_binding(config_text)
+    config_note = tier_ladder.effective_bindings(config_text)[1]
+    # spec 2.4: a fallback road never drops its reason -- both refusals carry the config note
+    note = (f" (delegation.config.yaml: {config_note} -- the default bindings apply where no lead is read, "
+            "lead=" + binding + "; fix the file)") if config_note else ""
     # ALL found tier lines must pass -- reject if even ONE does not
     # match the binding (see find_tier_declarations()'s docstring for
     # the chosen semantics). Region-aware selection (see the docstring
@@ -970,13 +780,14 @@ def decide_full(msg: str, block_extra: str, staged: list[str],
     if not declared_list:
         return 1, ("commit touches mechanism files:\n  " + "\n  ".join(hits)
                     + "\nNo \"tier: <value>\" line (lead binding: "
-                    + binding + ") -- " + _tier_queue_note())
+                    + binding + ")" + note + " -- " + _tier_queue_note())
     bad = [d for d in declared_list if not tier_declared_ok(d, binding, config_text)]
     if bad:
         return 1, ("commit touches mechanism files:\n  " + "\n  ".join(hits)
                     + "\nNot lead tier: \"tier: " + bad[0]
                     + "\" does not match the binding (" + binding
-                    + ") -- " + _tier_queue_note())
+                    + "); expected the lead binding or a model ranked lead or above on "
+                    "tools/tier_ladder.py" + note + " -- " + _tier_queue_note())
     return 0, ""
 
 
@@ -1120,6 +931,60 @@ def _audit_main(argv: list[str]) -> int:
     return code
 
 
+_SINCE_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+
+def list_commits(since: str, git=_git_strict) -> tuple[int, str]:
+    """The Architect's batch-review reader (spec 4.5 step 5): one line per commit
+    of the window that touches a mechanism path (mechanism_paths(); merges
+    against their first parent) -- `<sha> <committer date> <tier: values or -> <subject>`
+    -- then its mechanism paths, indented. `since` is an ISO date (as --audit) or
+    a commit sha (the window is `<sha>..HEAD`). Exit 1 on a bad value (the
+    message names both forms) or a git failure; an empty window is "0 commits",
+    exit 0. It lists; the review verdict is a tier above's."""
+    sha_mode = bool(_SINCE_SHA_RE.fullmatch(since or ""))
+    if sha_mode:
+        args = ["log", f"{since}..HEAD"]
+    elif _since_ok(since or ""):
+        args = ["log", f"--since={since}"]
+    else:
+        return 1, (f"mechanism_gate list: --since must be an ISO date (YYYY-MM-DD or "
+                   f"YYYY-MM-DDTHH:MM) or a commit sha (7-40 hex digits), got {since!r}")
+    out, commits = [], 0
+    try:
+        for sha, when, body in _log_records(git(*args, "--format=%H%x1f%cI%x1f%B%x1e")):
+            paths = [p for p in git("show", "--format=", "--name-only",
+                                    "--diff-merges=first-parent", sha).splitlines() if p]
+            hits = mechanism_paths(paths)
+            if not hits:
+                continue
+            commits += 1
+            tiers = ",".join(find_tier_declarations(body)) or "-"
+            subject = next((l for l in body.splitlines() if l.strip()), "").strip()
+            out.append(f"{sha[:8]} {when.isoformat()} {tiers} {subject}")
+            out.extend(f"    {p}" for p in hits)
+    except AuditError as exc:
+        hint = (" (a value of 7-40 hex digits is read as a commit sha; a date is YYYY-MM-DD)"
+                if sha_mode else "")
+        return 1, f"mechanism_gate list: {exc}{hint}"
+    return 0, "\n".join(out) if commits else "0 commits"
+
+
+def _list_main(argv: list[str]) -> int:
+    since = None
+    for i, arg in enumerate(argv):
+        if arg.startswith("--since="):
+            since = arg.split("=", 1)[1]
+        elif arg == "--since" and i + 1 < len(argv):
+            since = argv[i + 1]
+    if not since:
+        print("mechanism_gate: --list needs --since <date|sha>", file=sys.stderr)
+        return 1
+    code, report = list_commits(since)
+    print(report, file=sys.stderr if code else sys.stdout)
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
@@ -1127,6 +992,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if argv[0] == "--audit":
         return _audit_main(argv[1:])
+    if argv[0] == "--list":
+        return _list_main(argv[1:])
     staged = [p for p in _git("diff", "--cached", "--name-only", "--no-renames", "-z").split("\0") if p]
     merge_head = _git("rev-parse", "--git-path", "MERGE_HEAD").strip()
     merging = bool(merge_head) and Path(merge_head).exists()

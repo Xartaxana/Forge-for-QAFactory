@@ -60,7 +60,7 @@ if str(_TOOLS_DIR) not in sys.path:
 # unambiguously -- no package-style guess is needed or safe here.
 from usage_report import (  # the memoized load_prices(); the one cost formula; the one unpriced-turn count
     PricesError, accounted_cost, get_prices, unpriced_turns)
-from mechanism_gate import resolve_lead_binding  # the ONE reader of the Lead binding (delegation.config.yaml)
+import tier_ladder  # the ONE home of the coordinator binding (delegation.config.yaml roles.lead)
 
 import streams
 
@@ -68,7 +68,6 @@ import streams
 # at import time (also when the module is imported, not only on a direct run).
 streams.utf8_stdio()
 
-_UNBOUND = "fable"  # what resolve_lead_binding returns when the config names no roles.lead model
 CONFIG_PATH = _TOOLS_DIR.parent / "delegation.config.yaml"
 _NEEDED_TABLES = ("cc_usage", "requests")
 _CONTOUR_RE = re.compile(r"^contour:\s*([A-Za-z0-9_-]+)")
@@ -120,21 +119,24 @@ def _na_line(db_path, reason: str) -> str:
 
 
 def top_tier_model(path=None) -> str:
-    """The counterfactual's model: the one bound to roles.lead in delegation.config.yaml, read through
-    mechanism_gate.resolve_lead_binding (no model id is written in this tool). A config that cannot be read, or
-    that names no lead model, is a PricesError naming the file -- never a silent default price (FR-41). A model
-    the price file does not know is not an error here: the counterfactual is then unpriced and the savings are
-    "not measurable"."""
+    """The counterfactual's model: the COORDINATOR model -- the one bound to roles.lead in delegation.config.yaml,
+    read through tier_ladder (no model id is written in this tool). A config that cannot be read, or that names no
+    lead model, is a PricesError naming the file -- never a silent default price (FR-41; tier_ladder's
+    DEFAULT_BINDINGS is for gates, not for money). A model the price file does not know is not an error here: the
+    counterfactual is then unpriced and the savings are "not measurable"."""
     config = Path(path if path is not None else CONFIG_PATH)
     try:
         text = config.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
         raise PricesError(f"delegation config {config}: cannot be read ({getattr(e, 'strerror', None) or e});"
                           " the counterfactual prices at the model bound to roles.lead there")
-    model = resolve_lead_binding(text)
-    if model == _UNBOUND:
-        raise PricesError(f"delegation config {config}: roles.lead names no model (subscription.model or"
-                          " api.model); the counterfactual prices at the model bound to roles.lead")
+    found, note = tier_ladder.bindings(text)
+    model = found.get("lead")
+    if not model:
+        reason = note if found == {} and note else ("roles.lead names no model (subscription.model or api.model)"
+                                                    + (f"; {note}" if note else ""))
+        raise PricesError(f"delegation config {config}: {reason}; the counterfactual prices at the model bound to"
+                          " roles.lead")
     return model
 
 
@@ -267,7 +269,7 @@ def _print_report_body(db: sqlite3.Connection, tables: set, routed_start: str, u
 
 
 def _print_counterfactual(c: dict) -> None:
-    print(f"  top-tier model: {c['top_model']} (roles.lead in delegation.config.yaml)")
+    print(f"  coordinator model: {c['top_model']} (roles.lead in delegation.config.yaml)")
     for d in c["detail"]:
         top = "unpriced" if d["as_fable"] is None else f"${d['as_fable']:8.2f}"
         print(f"  {str(d['agent_type']):16} {d['model']:28} turns={d['turns']:4}"

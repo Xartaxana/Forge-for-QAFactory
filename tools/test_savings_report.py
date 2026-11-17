@@ -96,15 +96,36 @@ def test_a_binding_the_price_file_does_not_know_is_unpriced_never_zero(db, _lead
     assert c["unpriced_models"] == ["claude-fable-9"] and c["counterfactual_partial"] is True
 
 
-@pytest.mark.parametrize("text", ["contour: subscription\n", "roles: {}\n", "roles:\n  lead:\n    subscription:\n      model:\n",
-                                  "not: yaml: [broken\n"], ids=["no-roles", "empty-roles", "empty-model", "broken-yaml"])
-def test_an_unresolvable_binding_is_a_prices_error_naming_the_config_never_a_default(db, _lead_binding, text):
+@pytest.mark.parametrize("text, reason", [
+    ("contour: subscription\n", "no roles mapping"), ("roles: {}\n", "no coordination function"),
+    ("roles:\n  lead:\n    subscription:\n      model:\n", "no coordination function"),
+    ("roles:\n  critic:\n    subscription:\n      model: claude-opus-5-5\n", "roles.lead names no model"),
+    ("not: yaml: [broken\n", "not readable YAML"),
+    ("a: &a [*a, *a]\nroles:\n  lead:\n    subscription:\n      model: claude-opus-5-5\n", "alias"),
+], ids=["no-roles", "empty-roles", "empty-model", "lead-missing", "broken-yaml", "alias-bomb"])
+def test_an_unresolvable_binding_is_a_prices_error_naming_the_config_never_a_default(db, _lead_binding, text, reason):
     _lead_binding.write_text(text, encoding="utf-8")
-    with pytest.raises(PricesError, match="roles.lead names no model") as e:
+    with pytest.raises(PricesError, match=reason) as e:
         top_tier_model()
     assert str(_lead_binding) in str(e.value)
     with pytest.raises(PricesError):
         counterfactual_summary(db, "ts >= ?", ("2026-07-08",))
+
+
+_AFTER = ("roles:\n  lead:\n    subscription:\n      model: claude-opus-5-5\n  architect:\n    subscription:\n"
+          "      model: claude-fable-5-1\n  critic:\n    subscription:\n      model: claude-opus-5-5\n")
+
+
+@pytest.mark.parametrize("text, expected", [
+    (_AFTER, "claude-opus-5-5"),  # AFTER config (lead = opus, architect = fable): the coordinator is the lead binding
+    (_AFTER.replace("  architect:", "  reserve:"), "claude-opus-5-5"),  # the old reserve key is not read, the lead still is
+    (_LEAD_CONFIG.format(model=TOP), TOP),  # today's shape: lead = fable, no architect key
+], ids=["after-lead-opus", "reserve-key-ignored", "today-lead-fable"])
+def test_the_counterfactual_model_is_the_lead_binding_in_either_world(_lead_binding, text, expected):
+    # a config with no readable lead stays a PricesError (never DEFAULT_BINDINGS' fable as a price, FR-41): see the
+    # test above; here only configs that DO name the lead.
+    _lead_binding.write_text(text, encoding="utf-8")
+    assert top_tier_model() == expected
 
 
 def test_a_missing_config_is_a_prices_error_and_exit_2_before_the_first_report_line(tmp_path, capsys, monkeypatch):
