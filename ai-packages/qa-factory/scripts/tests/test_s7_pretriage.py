@@ -669,10 +669,11 @@ def build_run_block_codes_only_a_run_that_read_nothing() -> None:
         ("a declared reporter whose file is missing", dict(run_none, reporter="junit-xml"), ""),
         ("an inferred reporter", dict(run_none, reporter="pytest", reporter_inferred_from="cure-row"), ""),
         ("a report row exists (another test)", dict(run_none, results=[other]), ""),
+        ("a file contract, zero report rows (the by_file branch)", run_none, C.REPORT_UNREAD_CODE, {"file": "tests/test_u.py"}),
     ]
-    for label, summary, want in rows:
-        block = RS.build_run_block({"selected_instance_ids": ["t_u"], "instance_contracts": {"t_u": {"report_test_id": "mod::t_u"}}},
-                                   summary, "a1")
+    for label, summary, want, *own in rows:
+        block = RS.build_run_block({"selected_instance_ids": ["t_u"],
+                                    "instance_contracts": {"t_u": own[0] if own else {"report_test_id": "mod::t_u"}}}, summary, "a1")
         row = block["results"][0]
         check_eq(f"build_run_block - {label}: status not_run, reason_code {want!r}", (row["status"], row.get("reason_code", "")),
                  ("not_run", want))

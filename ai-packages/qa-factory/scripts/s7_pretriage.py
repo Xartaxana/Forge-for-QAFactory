@@ -353,7 +353,7 @@ def triageable_not_executed(task_root, *, awaiting: str = "") -> bool:
       2. S6 FINISHED: the controller's `stages.S6.status` is `completed` (read by `stage_status`), or `awaiting`
          is non-empty (S6's runner dispatch awaits its consumer; `stage_S7` already holds that word);
       3. every deciding automated row (`current_results`, join-failed ghosts excluded exactly as the reducer excludes them)
-         reads `passed`, or is `not_run` with `reason_code == C.REPORT_UNREAD_CODE` (7b-A);
+         reads `passed`, or is `C.is_unread_row` (7b-A);
       4. every current manual check reads `passed` or is a manual triage target of `contract.triage_targets` (a failure
          result, an `inconclusive`, an `unprepared` walk);
       5. at least one manual target, one observation or one `unread` target exists - otherwise there is nothing for a role
@@ -384,8 +384,7 @@ def triageable_not_executed(task_root, *, awaiting: str = "") -> bool:
             if C.result_status(row) != "passed":
                 # 7b-A: a `not_run` row the producer coded `report_unread` is the analyst's to read, not a halt; a `not_run`
                 # without the code stays False. Only a NAMED one is a target (rule 5)
-                if not (C.result_status(row) == "not_run"
-                        and str(row.get("reason_code") or "") == C.REPORT_UNREAD_CODE):
+                if not C.is_unread_row(row):
                     return False
             target = target or bool(C.triage_targets({"current_results": [row]})["unread"])
         for row in manual:

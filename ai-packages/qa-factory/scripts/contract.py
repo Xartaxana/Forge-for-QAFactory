@@ -4597,6 +4597,14 @@ def same_id(a, b) -> bool:
 REPORT_UNREAD_CODE = "report_unread"    # `run_suite.build_run_block` writes it, `triage_targets` reads it: ONE definition (AR-13)
 
 
+def is_unread_row(row) -> bool:
+    """The ONE reading of "the producer coded this row `report_unread`": a dict whose status is `not_run` and whose
+    `reason_code` is `REPORT_UNREAD_CODE`. Read by `triage_targets`, `unread_case_reading` and S7's
+    `triageable_not_executed` (rule 3), so the code is named in no other reader (AR-13)."""
+    return isinstance(row, dict) and result_status(row) == "not_run" \
+        and str(row.get("reason_code") or "") == REPORT_UNREAD_CODE
+
+
 def _result_names(row: dict) -> list:
     """The names a triage row answers a result row by: instance_id, test_instance_id, test_id, test - non-empty, in that
     order (the one list behind `triage_targets` and the unread loop of `triage_failures`, N3)."""
@@ -4652,8 +4660,7 @@ def triage_targets(report) -> dict:
         # U7 7b-A: a `not_run` row the producer coded `report_unread` (the run reported nothing it could read and exited 0)
         # is a target of the failure analyst's reading, kind `unread`; it is NOT in `names` (`triage_failures` makes it its own
         # kind). A code on any other status, or a nameless coded row (a note), adds nothing else.
-        if isinstance(row, dict) and result_status(row) == "not_run" \
-                and str(row.get("reason_code") or "") == REPORT_UNREAD_CODE:
+        if is_unread_row(row):
             names = _result_names(row)
             if names:
                 out["unread"].add(names[0])
@@ -4889,9 +4896,8 @@ def unread_case_reading(report, rows, case, cfg=None) -> str:
         for row in report.get("current_results") if isinstance(report.get("current_results"), list) else []:
             if not isinstance(row, dict) or not names_case(_result_row_keys(row, cfg), case, cfg):
                 continue
-            coded = result_status(row) == "not_run" and str(row.get("reason_code") or "") == REPORT_UNREAD_CODE
             names = _result_names(row)
-            if not coded:
+            if not is_unread_row(row):
                 return ""
             found.append(readings.get(names[0], "") if names else "")
         return _reading_of(found)

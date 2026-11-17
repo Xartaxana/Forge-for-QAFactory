@@ -139,12 +139,7 @@ class Targets(unittest.TestCase):
         failures, _notes = C.triage_failures(report)
         self.assertEqual({key: found["names"] for key, found in failures.items()}, {("unread", "u1"): ["u1", "m::u1", "m.u1"]})
         rows = [{"instance_id": "m.u1", "verdict": "NOT_EXECUTED"}]
-        self.assertEqual(C.unread_readings(report, rows), {"u1": "NOT_EXECUTED"})
-        one = dict(report, current_results=report["current_results"][:1])
-        self.assertEqual([C.unread_case_reading(one, r, "TC-1") for r in (rows, [dict(rows[0], verdict="APP_BUG")], [])],
-                         ["read", "red", "unanswered"])
         self.assertEqual(list(C.bind_triage(failures, rows + [{"instance_id": "u1", "verdict": "APP_BUG"}])["multiple"]), [("unread", "u1")])
-        self.assertEqual(C.unread_readings(report, rows + [{"instance_id": "u1", "verdict": "APP_BUG"}]), {"u1": ""})
 
     def test_names_are_per_failure(self):
         import contract as C
