@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """wave.py -- the one merge road of a wave (offload spec r2, §3.C3; mechanism M6).
 
-  python -B tools/wave.py merge <branch> --task t-NNN [--node <slug> <N> <id>] [--sha <tip>] [--piles-skip "<items> -- <reason>"] [--repo DIR]
+  python -B tools/wave.py merge <branch> --task t-NNN [--node <slug> <N> <id>] [--sha <tip>] [--piles-skip "<items> -- <reason>"] [--tests-over "<reason>"] [--repo DIR]
+
+--tests-over names the Lead's reason for a branch whose added test lines exceed its product lines (test_volume.py's
+classifier over `git diff --numstat origin/main...<tip>`); without it such a branch is refused before any push. With it
+the merge is always --no-ff and its message carries `tests-over: <reason>`. Reason: one line, 1 to 300 characters.
 
 --sha pins the accepted branch tip (full or a prefix of 7+ hex digits): another tip is refused before any push. The tool
 prints `pushed: <sha>` (the tip it merges) before the merge.
@@ -49,6 +53,7 @@ import journal_keys as jk  # noqa: E402
 import journal_lock as jl  # noqa: E402
 import piles  # noqa: E402
 import streams  # noqa: E402
+import test_volume as tv  # noqa: E402  (the ONE definition of test vs product lines)
 import worktree_sweep as ws  # noqa: E402
 
 LOCK_WAIT = 60.0                  # seconds on another wave's merge (module constant: a test moves it)
@@ -57,6 +62,7 @@ SWEEP_WAIT = 20.0                 # seconds on a running worktree sweep before a
 SHOW_PATHS = 5
 ATTEMPTS = 3
 MAIN = "main"
+REASON_MAX = 300                  # the longest --tests-over reason
 PIN_RE = re.compile(r"[0-9a-fA-F]{7,40}", re.ASCII)
 _NONFF = ("non-fast-forward", "fetch first", "failed to update ref", "(stale info)")
 
@@ -118,9 +124,13 @@ def _sha(data):
 
 
 class Wave:
-    def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print, pin=None, piles_skip=None):
+    def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print, pin=None, piles_skip=None,
+                 tests_over=None):
         self.branch, self.task, self.node, self.ci, self.out = branch, task, node, ci, out
         self.pin = pin
+        self.tests_over = tests_over      # the validated reason, or None
+        self.over_line = None             # set by check_volume: the reason, only when the branch is over the budget
+        self.volume_done = False
         self.piles_skip = piles_skip      # the validated text after "piles-skip:", or None
         self.root = jl.common_dir(repo).parent
         self.sha = None
@@ -173,11 +183,13 @@ class Wave:
         self.fetch()
         if self.branch != MAIN:
             self.check_pin_local()
+            self.check_volume_local()
             self.publish_branch()
         rc, sha, _e = git(self.root, "rev-parse", "--verify", "-q", "refs/remotes/origin/" + self.branch)
         if rc != 0 or self.branch == MAIN:
             raise Refuse("step 3: branch %s is not on origin (expected an existing branch other than main)" % self.branch)
         self.check_pin(sha)
+        self.check_volume(sha)
         self.branch_sha = sha
         self.say("pushed: %s" % sha)
         self.say("forge-check: %s" % self.ci(self.root, sha))
@@ -202,6 +214,48 @@ class Wave:
         rc, tip, _e = git(self.root, "rev-parse", "--verify", "-q", "refs/heads/" + self.branch)
         if rc == 0:
             self.check_pin(tip)
+
+    def check_volume_local(self):
+        """Same check on the local tip BEFORE publish_branch pushes it: a refusal leaves origin untouched."""
+        rc, tip, _e = git(self.root, "rev-parse", "--verify", "-q", "refs/heads/" + self.branch)
+        if rc == 0:
+            self.check_volume(tip)
+
+    def check_volume(self, tip):
+        """Test lines of the branch vs product lines (tools/test_volume.py's classifier and summer). Over the budget and
+        no --tests-over: refused before any push. Cannot be computed: one line, the merge goes on."""
+        if self.volume_done or self.branch == MAIN:
+            return
+        root = self.root
+        if git(root, "merge-base", "--is-ancestor", tip, "origin/" + MAIN)[0] == 0:
+            return                                                  # nothing to merge: no check
+        rc, text, err = git(root, "diff", "--numstat", "-M", "origin/%s...%s" % (MAIN, tip))
+        if rc != 0:
+            self.volume_done = True
+            self.say("test volume: not checked (git diff --numstat failed: %s)" % (err[:200] or "no message"))
+            return
+
+        def has_tests(path):
+            r, blob_text, _e = git(root, "show", "%s:%s" % (tip, path))
+            return r == 0 and tv.TEST_DEF_RE.search(blob_text) is not None
+        try:
+            t, p = tv.sum_numstat(text, has_tests)
+        except Exception as exc:
+            self.volume_done = True
+            self.say("test volume: not checked (%s: %s)" % (type(exc).__name__, exc))
+            return
+        self.volume_done = True
+        if t <= p:
+            if self.tests_over is not None:
+                self.say("test volume: within the budget (+%d test vs +%d product lines); --tests-over was not needed" % (t, p))
+            return
+        if self.tests_over is None:
+            raise Refuse(
+                "TEST VOLUME: the branch adds +%d test lines vs +%d product lines (docs/TESTING.md, budget / volume). "
+                'Way on: the builder cuts rows to the budget, weakest first, and reports them as "tests not written: '
+                '<row> -- over budget"; or the Lead names the reason: --tests-over "<reason>" (written into the merge '
+                "commit)." % (t, p))
+        self.over_line = self.tests_over
 
     def publish_branch(self):
         """Step 3a: the accepted branch reaches origin by this road. Nothing local -> step 3 judges; origin equal to or
@@ -244,11 +298,16 @@ class Wave:
 
     def merge(self, w):
         target = "origin/" + self.branch
-        if self.piles_skip is None and git(w, "merge", "--ff-only", target)[0] == 0:
+        if self.piles_skip is None and self.over_line is None and git(w, "merge", "--ff-only", target)[0] == 0:
             return
         msg = "wave: merge %s (%s)" % (self.branch, self.task)
+        lines = []
         if self.piles_skip is not None:
-            msg += "\n\npiles-skip: " + self.piles_skip
+            lines.append("piles-skip: " + self.piles_skip)
+        if self.over_line is not None:
+            lines.append("tests-over: " + self.over_line)
+        if lines:
+            msg += "\n\n" + "\n".join(lines)
         rc, _o, err = git(w, "merge", "--no-ff", "-m", msg, target)
         if rc == 0:
             return
@@ -534,6 +593,8 @@ class Wave:
         self.say("merge: %s" % self.sha)
         self.say("node: %s" % (" ".join(self.node) if self.node else "none"))
         self.say("branch: %s" % btext)
+        if self.over_line is not None:
+            self.say("tests-over: %s" % self.over_line)
         self.say(self.root_line(why))
         if self.piles_text:
             self.say("piles status not recorded (the merge is pushed without the status commit): %s" % self.piles_text)
@@ -576,6 +637,9 @@ def build_parser():
                    help='the door for the commit-time piles check: "<items> -- <reason>" becomes the line '
                         '"piles-skip: <items> -- <reason>" in the merge commit message (the merge is then always --no-ff; '
                         'items: %s)' % piles.ITEMS_HELP)
+    m.add_argument("--tests-over", default=None, metavar="REASON",
+                   help='the Lead\'s reason for a branch with more test lines than product lines (one line, up to '
+                        '%d characters); written as "tests-over: <reason>" in the merge commit (always --no-ff)' % REASON_MAX)
     m.add_argument("--repo", default=str(_TOOLS.parent))
     return p
 
@@ -612,8 +676,14 @@ def main(argv=None):
         if bad:
             print("refused: " + bad)
             return 2
+    over = None
+    if a.tests_over is not None:
+        over = a.tests_over.strip()
+        if not over or "\n" in over or "\r" in over or len(over) > REASON_MAX:
+            print("refused: --tests-over %r: expected one non-empty line of at most %d characters" % (over[:60], REASON_MAX))
+            return 2
     try:
-        wave = Wave(a.repo, a.branch, a.task, a.node, pin=a.sha, piles_skip=skip)
+        wave = Wave(a.repo, a.branch, a.task, a.node, pin=a.sha, piles_skip=skip, tests_over=over)
     except jl.LockError as exc:
         print("refused: %s" % exc)
         return 2

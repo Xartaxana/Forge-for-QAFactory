@@ -719,6 +719,44 @@ def test_sha_pin_is_checked_before_any_push_P4_Q2(env, pin, ok):
         assert ("!= accepted" in text and "re-accept the new tip" in text) if pin == "other" else "expected 7 to 40 hex" in text
 
 
+def vol_branch(e, name, t, p):
+    branch(e, name, {"tools/tests/t.py": "t\n" * t, "tools/p.py": "p\n" * p})
+
+
+@pytest.mark.parametrize("t,p,door,merged", [(5, 2, None, False), (5, 2, "why", True), (3, 3, None, True),
+                                             (0, 2, None, True), (2, 0, None, False)], ids="over no-door,over door,equal,zero tests,zero product".split(","))
+def test_test_volume_budget_and_door(env, t, p, door, merged):
+    vol_branch(env, "v1", t, p)
+    main0 = origin_main(env)
+    out = []
+    w = wave.Wave(env.root, "v1", "t-868", None, ci=lambda r, s: "x", out=out.append, tests_over=door)
+    rc, text = w.run(), "\n".join(out)
+    assert (rc == 0) == merged and (origin_main(env) != main0) == merged
+    if not merged:
+        assert rc == 2 and "TEST VOLUME: the branch adds +%d test lines vs +%d product lines" % (t, p) in text
+        assert g(env.origin, "rev-parse", "v1") == g(env.dev, "rev-parse", "v1") and "pushed:" not in text
+    elif door:
+        assert g(env.origin, "log", "-1", "--format=%B", "main").splitlines()[-1] == "tests-over: why" and "tests-over: why" in text
+        assert len(g(env.origin, "rev-list", "--merges", "main").split()) == 1
+
+
+@pytest.mark.parametrize("reason,ok", [("", 0), ("  ", 0), ("a\nb", 0), ("x" * 301, 0), ("x" * 300, 1)])
+def test_tests_over_input_battery_is_checked_before_the_lock(env, reason, ok, capsys):
+    vol_branch(env, "v2", 5, 2)
+    main0 = origin_main(env)
+    rc = wave.main(["merge", "v2", "--task", "t-868", "--tests-over", reason, "--repo", str(env.root)])
+    assert (rc == 0, origin_main(env) != main0) == (bool(ok), bool(ok))
+    assert ok or (rc == 2 and "refused: --tests-over" in capsys.readouterr().out)
+
+
+def test_a_numstat_that_cannot_be_computed_is_one_line_and_the_merge_goes_on(env, monkeypatch):
+    vol_branch(env, "v3", 5, 2)
+    real = wave.git
+    monkeypatch.setattr(wave, "git", lambda cwd, *a: (1, "", "boom") if "--numstat" in a else real(cwd, *a))
+    rc, out, _ = go(env, "v3")
+    assert rc == 0 and out.count("test volume: not checked (") == 1 and blob(env, "tools/p.py") is not None
+
+
 def test_a_local_tip_that_is_not_the_pin_is_not_pushed_P4_Q2(env):
     branch(env, "p2", {"f.txt": "x\n"})
     g(env.root, "fetch", "-q", "origin")
