@@ -20,26 +20,10 @@ from pathlib import Path
 
 import pytest
 
-def _gate_under_test():
-    """HYGIENE_GATE_PATH names a candidate gate not yet on its live path (loaded as `hygiene_gate`, so permission_audit's own
-    sibling import resolves to it); unset, the live tools/hygiene_gate.py. The environment read lives only in test modules."""
-    path = os.environ.get("HYGIENE_GATE_PATH")
-    if not path:
-        import hygiene_gate
-        return hygiene_gate
-    import importlib.util
-    path = Path(path).resolve()
-    loaded = sys.modules.get("hygiene_gate")
-    if loaded is not None and getattr(loaded, "__file__", None) and Path(loaded.__file__).resolve() == path:
-        return loaded
-    spec = importlib.util.spec_from_file_location("hygiene_gate", path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["hygiene_gate"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from conftest import load_under_test  # noqa: E402
 
-
-hygiene_gate = _gate_under_test()
+hygiene_gate = load_under_test("HYGIENE_GATE_PATH", "hygiene_gate")
 import permission_audit as pa  # noqa: E402
 
 
