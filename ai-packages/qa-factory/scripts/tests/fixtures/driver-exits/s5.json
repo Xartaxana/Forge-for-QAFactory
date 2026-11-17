@@ -4,120 +4,120 @@
  "routes": {},
  "joints": {
   "s5_precheck:*": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:expectation_change_gaps": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:empty_scope": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:quality": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:malformed_instance": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:handed_to_person": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:handed_unconfirmed": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:stale_run": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:change_disposition": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:probe_gap": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:probe_gap_unrecorded": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:evidence": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:blocked_by_env": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:review": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:novelty_question": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:obligation_binding": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:obligation_hash": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:assertion_identity": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:defect_location": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:change_basis": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:contradicts_requirement": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:sensitivity": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:product": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:stale_review": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:semantic_sensitivity": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:probe_level": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:probe_evidence": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:mechanical_green": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "acceptance:probe_mutation_kind": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "controller:code_review_receipts": {
    "reach": "unwalked",
@@ -216,8 +216,8 @@
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
   },
   "manifest_put:probe_owed": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "manifest_put:obligation_hash": {
    "reach": "unwalked",
@@ -322,22 +322,19 @@
  },
  "kinds_without_key": {
   "data_change": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group",
+   "reach": "story",
    "raised_at": [
     "driver_dispatch:data_change_person"
    ]
   },
   "walk_account": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group",
+   "reach": "story",
    "raised_at": [
     "driver_dispatch:walk_account_person"
    ]
   },
   "walk_supply": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group",
+   "reach": "story",
    "raised_at": [
     "driver_dispatch:walk_supply_person"
    ]
@@ -346,7 +343,7 @@
  "ratchet": {
   "live_only": 0,
   "after": 0,
-  "unwalked": 33,
+  "unwalked": 0,
   "hook_layer": 0,
   "raised_by": [
    "unwalked | joints/controller:code_review_receipts | L1c census catch-up, 2026-11-17",
@@ -397,7 +394,50 @@
    "unwalked | joints/validate_artifacts:check_manifest_invariants | L1c census catch-up, 2026-11-17",
    "unwalked | joints/validate_artifacts:check_manifest_v0 | L1c census catch-up, 2026-11-17",
    "unwalked | joints/validate_artifacts:check_marker_in_file | L1c census catch-up, 2026-11-17",
-   "unwalked | joints/validate_artifacts:check_self_fixes | L1c census catch-up, 2026-11-17"
+   "unwalked | joints/validate_artifacts:check_self_fixes | L1c census catch-up, 2026-11-17",
+   "live_only | joints/s5_precheck:* | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:expectation_change_gaps | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:empty_scope | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:quality | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:malformed_instance | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:handed_to_person | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:handed_unconfirmed | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:stale_run | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:change_disposition | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:probe_gap | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:probe_gap_unrecorded | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:evidence | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:blocked_by_env | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:review | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:novelty_question | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:obligation_binding | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:obligation_hash | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:assertion_identity | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:defect_location | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:change_basis | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:contradicts_requirement | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:sensitivity | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:product | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:stale_review | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:semantic_sensitivity | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:probe_level | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:probe_evidence | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:mechanical_green | N4:s5 t-1193, census row",
+   "live_only | joints/acceptance:probe_mutation_kind | N4:s5 t-1193, census row",
+   "live_only | joints/manifest_put:probe_owed | N4:s5 t-1193, census row",
+   "live_only | walk/code_close.stage/retry | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.stage/stop | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.stage/free words | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.stage/empty | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.factory_file/retry | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.factory_file/stop | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.factory_file/free words | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.factory_file/empty | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.behind/go on | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.behind/retry | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.behind/stop | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.behind/free words | N4:s5 t-1193, walk row",
+   "live_only | walk/code_close.behind/empty | N4:s5 t-1193, walk row"
   ]
  }
 }
