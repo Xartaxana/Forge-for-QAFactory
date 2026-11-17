@@ -57,8 +57,9 @@ EXPECTED_IDS = [
 # back to debt (B-283) - its acceptance `earlier['state'] == 'same_command'` sits in `_reporter_outcome`; 7 -> 8 debt rows.
 # C3-rr (t-1055, AR-20): the reuse goes through `gate_template.acceptable`, the row is converted again; 8 -> 7 debt rows.
 # C3-b1 (t-1051): live_check_demand converted (B-279; the question to the code critic); on the merged tree 8 -> 6 debt rows.
+# C3-b2 (t-1080, AR-20): test_identity converted (B-217; its reuse sites read the row through `gate_template.acceptable`); 6 -> 5 debt rows.
 EXPECTED_DEBT = {
-    "stand_identity": "B-257", "provenance_acceptance": "B-255", "test_identity": "B-217",
+    "stand_identity": "B-257", "provenance_acceptance": "B-255",
     "s5_window": "B-179",
     "baseline_identity": "B-281", "s5_stand_limits": "B-282"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
@@ -71,7 +72,8 @@ EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "st
                       "environment_property_cover",
                       # C3-rr (t-1055): the reuse goes through the predicate, so the row is converted again
                       "reporter_rehearsal_identity",
-                      "live_check_demand"]      # C3-b1 (t-1051): the question to the code critic, no predicate
+                      "live_check_demand",      # C3-b1 (t-1051): the question to the code critic, no predicate
+                      "test_identity"]          # C3-b2 (t-1080): the reuse sites accept through the predicate
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
 
@@ -249,7 +251,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "6 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "5 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -299,8 +301,13 @@ def part_live_registry() -> None:
     check("K-T1.2 every comparison the scan counts is attributed", all(i["rows"] and i["allowed"] for i in result["items"]))
     # S1 keeps its non-acceptance comparison as an `allow`, and the allow matches (K-T1.3 on the live data)
     allow = [e for r in registry["rows"] for s in r["sites"] for e in s.get("allow", [])]
-    check_eq("S1's data-seed shape check is the one allow entry today, the WHOLE comparison (F3)",
-             [e["compare"] for e in allow], ['seed.get("result") not in {"matched", "mismatched", "unknown"}'])
+    # C3-b2 (t-1080): the two display comparisons of `test_identity`'s accept sites join (a flag that picks the words shown, not an acceptance)
+    check_eq("the allow entries today are S1's data-seed shape check and two display flags of test_identity, each the WHOLE comparison (F3)",
+             [e["compare"] for e in allow], ['seed.get("result") not in {"matched", "mismatched", "unknown"}',
+                                              "hit['holds'] in ('instance_code', 'file_code')",
+                                              "('unknown', WHY_RUN_NO_IDENTITY)",
+                                              "('unknown', why or WHY_RUN_NOT_COMPARED)",
+                                              "how in ('instance_code', 'file_code')"])
 
     # NEG: the registry minus provenance_acceptance, in memory -> F-a findings naming the S-sites
     minus = copy.deepcopy(registry)
@@ -325,7 +332,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the six rows left after C3-R, its fix round and C3-b1", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the five rows left after C3-R, its fix round, C3-b1 and C3-b2", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -339,8 +346,9 @@ def part_live_registry() -> None:
     # t-1032 (A1): converted 20 -> 19, debt 7 -> 8 (`reporter_rehearsal_identity` back to debt)
     # C3-rr (t-1055, AR-20): converted 19 -> 20, debt 8 -> 7 (`reporter_rehearsal_identity` converted through `acceptable`)
     # C3-b1 (t-1051): converted 19 -> 20, debt 8 -> 7 (`live_check_demand`: the question to the code critic); merged: 19 -> 21, debt 8 -> 6
-    check_eq("K-T1.14 the registry file's rows split 21 converted / 6 debt / 6 exempt (C3-R converted six debt rows for good)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 21, "debt": 6, "exempt": 6})
+    # C3-b2 (t-1080, AR-20): converted 21 -> 22, debt 6 -> 5 (`test_identity`: the reuse sites accept through `acceptable`)
+    check_eq("K-T1.14 the registry file's rows split 22 converted / 5 debt / 6 exempt (C3-R converted six debt rows for good)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 22, "debt": 5, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -998,8 +1006,11 @@ D13_TRIPLES = [
     ("profile_contract.py", "rehearsal_view", "provenance_acceptance"),
     ("profile_contract.py", "stand_runs_other_build", "provenance_acceptance"),
     ("profile_contract.py", "validate_runtime_provenance", "provenance_acceptance"),
+    ("proof_level.py", "_evaluate", "test_identity"),      # C3-b2 (t-1080): `how in ('instance_code', 'file_code')`, the over-comments display flag, allowed
+    ("proof_level.py", "_run_freshness", "test_identity"),  # C3-b2 (t-1080): the two `('unknown', ...)` state returns, allowed (F-T1 (a) word `unknown`)
     ("proof_level.py", "already_probed", "test_identity"),
     ("proof_level.py", "novelty_of", "live_check_demand"),
+    ("proof_level.py", "same_test", "test_identity"),      # C3-b2 (t-1080): `verdict == 'same'` counts once the row's words gain `same`; `same_test` is a produce site
     ("run_suite.py", "build_run_block", "equivalence_metric"),
     ("run_suite.py", "selection_line", "equivalence_metric"),
     ("runtime_probe.py", "conclude", "stand_identity"),
@@ -1040,7 +1051,10 @@ D13_TRIPLES = [
 # the count falls by that one comparison.
 # C3-b1 (t-1051) moves no count (140 -> 140 on its base: no comparison added or removed).
 # Merged tree value 145 items / 49 triples (measured with GR.analyse on the merged tree).
-D13_ITEM_COUNT = 145
+# 145 -> 149 (C3-b2, t-1080, AR-20): card estimate +2/+2, measured +4 items / +3 triples (49 -> 52), cause: the F-T1 (a) word `unknown` makes the two
+# state returns of `_run_freshness` token sets. Triples added: `same_test` (`verdict == 'same'`), `_evaluate` (`how in ('instance_code', 'file_code')`),
+# `_run_freshness` (`('unknown', WHY_RUN_NO_IDENTITY)`, `('unknown', why or WHY_RUN_NOT_COMPARED)`); `already_probed` keeps its one counted comparison.
+D13_ITEM_COUNT = 149
 
 
 def part_site_attribution() -> None:

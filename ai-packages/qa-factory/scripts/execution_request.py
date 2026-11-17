@@ -21,6 +21,7 @@ from detector_verdict import refusal  # the one constructor of a refusal that te
 from record_schema import validate_record
 from execution_fingerprint import verify_files
 from hooklib import sorted_paths, story_closure
+from gate_template import acceptable, registry_problem  # the ONE predicate a reuse word is accepted through (the `test_identity` row, AR-13)
 
 PURPOSES = {"initial", "repair_verify", "red_probe", "diagnostic", "flaky_diagnostic",
             "build", "collect", "manual", "quality"}
@@ -2067,9 +2068,10 @@ def same_instance_bytes(now: dict, before: dict) -> bool:
     runs), decided by `proof_level.compare_identity` (the one comparison, AR-13): both code shas present
     -> they decide (a different code is NOT the same even when the content sha is equal, E2); else the
     content sha decides; a hand-written request or a job recorded before `instance_code_sha` carries only
-    the content one. "unknown" is False here; the two callers fold it on their own sides: `_match` (a false
-    "same" reuses the result of other bytes - it lies) and `_same_identity_for_count` (the flaky cap: a request with
-    no sha is counted by id there, the budget side). Accepted (F2): a classifier change moves the code sha,
+    the content one. "unknown" is False here; its one caller, `_same_identity_for_count` (the flaky cap: a request with
+    no sha is counted by id there, the budget side), folds it on its own side. `_match` does not call it: it reads
+    `proof_level.compare_identity` through the predicate (`gate_template.acceptable`, the `test_identity` row), where a
+    false "same" would reuse the result of other bytes - it lies. Accepted (F2): a classifier change moves the code sha,
     so earlier flaky reruns across such an update are not counted - the cap is exceeded at most once."""
     import proof_level
     return proof_level.compare_identity(now, before)[0] == "same"
@@ -2080,6 +2082,7 @@ def _match(job: dict, request: dict, instance_id: str, policy: dict, reset_at: s
     """(outcome, why, rank): the result this job holds of `instance_id` OVER THE SAME INPUTS as
     `request`, or "" with the FIRST difference, in this order: not a result, selector, a shared
     component (by name), instance bytes, stand identity not observed."""
+    import proof_level
     outcome, why = _job_outcome(job, instance_id, set(policy["result_purposes"]), reset_at, block_of)
     if not outcome:
         return "", why, _WHY_RANK["result"]
@@ -2096,9 +2099,14 @@ def _match(job: dict, request: dict, instance_id: str, policy: dict, reset_at: s
             if now.get(key) != was.get(key):
                 meaning = str((policy.get("shared_meaning") or {}).get(key) or "")
                 return "", f"{key} changed" + (f" ({meaning})" if meaning else ""), _WHY_RANK["shared"]
-        if policy.get("author_run_reading") != "per_story" and not same_instance_bytes(
-                (request.get("instance_contracts") or {}).get(instance_id),
-                (old.get("instance_contracts") or {}).get(instance_id)):
+        if policy.get("author_run_reading") != "per_story" and not acceptable(
+                proof_level.compare_identity((request.get("instance_contracts") or {}).get(instance_id),
+                                             (old.get("instance_contracts") or {}).get(instance_id))[0],
+                "test_identity.run_reuse"):
+            problem = registry_problem()
+            if problem:
+                return "", (f"the gate registry cannot be read ({problem}): a factory defect, "
+                            "the earlier run was not judged"), _WHY_RANK["bytes"]
             return "", ("instance bytes differ: the test, or something it depends on, was edited "
                         "since the earlier run"), _WHY_RANK["bytes"]
     if request.get("runtime_observed") is False:
