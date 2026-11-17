@@ -821,16 +821,25 @@ def apply_grounding(task_dir: Path, data: dict, key: str) -> list:
     return wrote
 
 
-def write_files(task_dir: Path, data, key: str) -> list:
+DISPATCH_WORD = "<dispatch>"      # in a `files` path or text: the id of the call's own dispatch, resolved here (the critic's findings file is one per dispatch)
+
+
+def write_files(task_dir: Path, data, key: str, dispatch: str = "") -> list:
     """The role's own files that no filler row and no tool writes (the S4 case critic's `work/test-cases/critic-findings.md` with its `## Roll-call`,
     `agents/qa-case-critic.md` "Tools"), as story data: `data` = `{"<path under work/>": "<the file's text>" | ["<line>", ...]}`. The text is the ROLE's word
     (its verdict, its rows); every number derived from it (`review.rollcall`, the roll-call claim) stays code's, computed by `handoff_check --fix` from this file.
+    `<dispatch>` in a path or a text is the call's dispatch id (`dispatch`); a call that names none is a `KitError` naming the key (never a file named `<dispatch>`).
     A path outside `work/` (or climbing out of it), a value that is not text or a list of lines, or an empty text: `KitError` naming the key. Returns the paths written."""
     if not isinstance(data, dict) or not data:
         raise KitError(f"{key}: `files` is {data!r}; expected an object of `<path under work/>` -> text (or a list of lines)")
     wrote = []
     for path, body in data.items():
         text = "\n".join(body) if isinstance(body, list) and all(isinstance(x, str) for x in body) else body
+        if DISPATCH_WORD in str(path) or (isinstance(text, str) and DISPATCH_WORD in text):
+            if not dispatch:
+                raise KitError(f"{key}: `files[{path!r}]` uses `{DISPATCH_WORD}` but the call names no dispatch")
+            path = str(path).replace(DISPATCH_WORD, dispatch)
+            text = text.replace(DISPATCH_WORD, dispatch) if isinstance(text, str) else text
         parts = str(path).replace("\\", "/").split("/")
         if parts[0] != "work" or len(parts) < 2 or any(p in ("", ".", "..") for p in parts):
             raise KitError(f"{key}: `files` names {path!r}; expected a path under work/ with no `..`")
@@ -841,6 +850,16 @@ def write_files(task_dir: Path, data, key: str) -> list:
         target.write_bytes((text.rstrip("\n") + "\n").encode("utf-8"))
         wrote.append("/".join(parts))
     return wrote
+
+
+def check_findings_file(task_dir: Path, dispatch: str, key: str) -> None:
+    """The code critic's own file of its dispatch must exist before the call goes on: the controller receipts the window on `work/test-code/critic-findings-<dispatch>.md`
+    (`story_step._role_receipts` -> `findings_path.resolve`, the product's one resolver, AR-13; `controller._code_review_problems` refuses the window without it). A story
+    whose `stub` writes none for this dispatch is a `KitError` naming the key to add (FR-59: never an empty file, never a window left unreceipted by omission)."""
+    import findings_path
+    if not findings_path.per_dispatch(dispatch) or not (task_dir / findings_path.per_dispatch(dispatch)).is_file():
+        raise KitError(f"{key}: the story's `stub` writes no findings file for {dispatch or 'this dispatch'}; expected `{key}.files[\"{findings_path.per_dispatch(DISPATCH_WORD)}\"]` "
+                       "(the critic's review text; the window is not receipted without it)")
 
 
 def _fill_form(row: dict, form: Path, contract, ctx, mine: dict, n: int, dispatch: str, task_dir: Path) -> None:
@@ -960,8 +979,9 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     # The role's own files, as the story's data, land BEFORE the critic's probe (a real critic writes its model file `work/probe-models/<dispatch>.json` before it
     # probes) and before `--fix` below, which derives from them. Invariant: `files` never overwrite a form - the form is filled after this block (`_fill_form`).
     if "files" in mine:
-        row["wrote"] += write_files(task_dir, mine["files"], f"{role}@{stage}")
+        row["wrote"] += write_files(task_dir, mine["files"], f"{role}@{stage}", dispatch)
     if kit and role == "qa-code-critic" and stage == "S5":      # the probe BEFORE the form: the form's `<instance>` rows are the records that exist (`world_list`), never invented ones
+        check_findings_file(task_dir, dispatch, f"{role}@{stage}")
         done = critic_branch(project, task_dir, kit, runner_row(kit["runner"]), dispatch, fragments=mine.get("manifest_fragments"))
         row["wrote"] += done["wrote"]
         row["live_only"] += done["live_only"]
@@ -1472,6 +1492,7 @@ def selftest_n2(tmp: Path) -> None:
                   "no command" in row.get("no_command", "") and row.get("ran") == [] and "decoy" not in json.dumps(row.get("ran")), json.dumps(row)[:600])
     # N2h-a: the code critic's probe at S5 - the real tool as a process per instance, before the form; the stops are named (edges 1-7)
     runner = runner_row(kit["runner"])
+    FINDINGS_ROW = {"work/test-code/critic-findings-<dispatch>.md": ["# Critic findings, S5", "", "Verdict: approve"]}      # the smallest story row the check accepts (FV3-20)
     project, task_dir = world("crit")
     code, text = form(project, task_dir, "S5", "qa-automator", "A5")
     check("N2h: handoff_init made the S5 automator form of the critic's world", code == 0, text)
@@ -1570,14 +1591,19 @@ def selftest_n2(tmp: Path) -> None:
     # the same through the stub as a process: the real tool runs in the world (this bare world opens no dispatch, so it refuses: rc!=0), the row names it, no record
     code, text = form(project, task_dir, "S5", "qa-code-critic", "C5")
     check("N2h: handoff_init made the S5 critic form", code == 0, text)
+    # FV3-20: a critic call whose story writes no findings file of its dispatch is a KitError naming the key (rc 3, nothing probed, the journal row says failed); one that writes it is the call below
     rc, answer, err = call(project, control, f"Artifacts dir: {task_dir}\nDispatch: C5.\n", "-p", "--agent", "qa-factory:qa-code-critic")
+    check_eq("FV3-20: a critic call with no findings text for its dispatch is rc 3, stderr names the key `qa-code-critic@S5.files[\"work/test-code/critic-findings-<dispatch>.md\"]`, no probe ran, no file was written",
+             (rc, "qa-code-critic@S5.files[\"work/test-code/critic-findings-<dispatch>.md\"]" in err, rows(task_dir)[-1].get("failed"), folder.exists(),
+              (task_dir / "work" / "test-code" / "critic-findings-C5.md").exists()), (3, True, True, False, False))
+    rc, answer, err = call(project, dict(control, stub={"qa-code-critic@S5": {"files": FINDINGS_ROW}}), f"Artifacts dir: {task_dir}\nDispatch: C5.\n", "-p", "--agent", "qa-factory:qa-code-critic")
     probed = rows(task_dir)[-1]
     check_eq("N2h: through the process the critic's call ran the real probe_by_code.py on the instance; its refusal is a live_only row, no record, the form names none",
              (rc, [(p["instance"], p["exit"] != 0) for p in probed.get("probes", [])], folder.exists(), "work/probes/test_the_case.json" in (task_dir / "work" / "handoffs" / "C5.yaml").read_text(encoding="utf-8")),
              (0, [("test_the_case", True)], False, False))
     # F7: the critic's own file (its model file) lands BEFORE the probe the same call runs: the real tool reads it, so the refusal is no longer `no model is stored`
     shutil.rmtree(folder, ignore_errors=True)
-    modeled = dict(control, stub={"qa-code-critic@S5": {"files": {"work/probe-models/C5.json": ['{"models": []}']}}})
+    modeled = dict(control, stub={"qa-code-critic@S5": {"files": dict(FINDINGS_ROW, **{"work/probe-models/C5.json": ['{"models": []}']})}})
     rc, answer, err = call(project, modeled, f"Artifacts dir: {task_dir}\nDispatch: C5.\n", "-p", "--agent", "qa-factory:qa-code-critic")
     probed = rows(task_dir)[-1]
     check_eq("N2h (F7): a `files` row of the critic is written before the probe: it is in `wrote` and the probe's tool read it (its text no longer says the file is absent)",
@@ -1640,7 +1666,7 @@ def selftest_n2(tmp: Path) -> None:
     import role_digest as RD
     check_eq("N2h-v: the story's qa-code-critic@S5 digest passes the product's digest check for scope [TC-1]", RD.check(frag_story["result_text"], ["TC-1"]), [])
     shutil.rmtree(folder, ignore_errors=True)
-    modeled = dict(control, stub={"qa-code-critic@S5": {"files": {"work/probe-models/C5.json": ['{"models": []}']}, "manifest_fragments": frag_story["manifest_fragments"]}})
+    modeled = dict(control, stub={"qa-code-critic@S5": {"files": dict(FINDINGS_ROW, **{"work/probe-models/C5.json": ['{"models": []}']}), "manifest_fragments": frag_story["manifest_fragments"]}})
     rc, answer, err = call(project, modeled, f"Artifacts dir: {task_dir}\nDispatch: C5.\n", "-p", "--agent", "qa-factory:qa-code-critic")
     probed = rows(task_dir)[-1]
     seen_window = probed.get("window_record") or {}
@@ -1930,6 +1956,38 @@ def selftest_n2c(tmp: Path) -> None:
     check_eq("N2d: the story's S4 critic file reads through the product's roll-call reader and derives `2 of 2 reviewed`",
              ([(r["plan_row"], r["ids"], r["reviewed"], r["verdict"]) for r in rows], CR.derive(rows)["digest"]),
              ([("TS-1", ["TC-1"], True, "approve"), ("TS-2", ["TC-2"], True, "approve")], "2 of 2 reviewed"))
+    # FV3-20: `<dispatch>` in a `files` path or text is the call's dispatch; the story's findings row is read by the product's own resolver and receipt road
+    got = write_files(out, {"work/test-code/critic-findings-<dispatch>.md": ["# for <dispatch>"]}, "k", "S5-qa-code-critic-9")
+    check_eq("FV3-20: `<dispatch>` in a path and in the text is resolved to the call's dispatch; the path written is named",
+             (got, (out / "work" / "test-code" / "critic-findings-S5-qa-code-critic-9.md").read_bytes()), (["work/test-code/critic-findings-S5-qa-code-critic-9.md"], b"# for S5-qa-code-critic-9\n"))
+    for name, args in (("a path with `<dispatch>` and no dispatch named", ({"work/x-<dispatch>.md": "t"}, "k", "")),
+                       ("a text with `<dispatch>` and no dispatch named", ({"work/x.md": "for <dispatch>"}, "k", ""))):
+        try:
+            write_files(out, *args)
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"FV3-20: `files` with {name} is a KitError naming the key and `<dispatch>`", got_text.startswith("k:") and "<dispatch>" in got_text, got_text)
+    try:
+        check_findings_file(out, "S5-qa-code-critic-8", "qa-code-critic@S5")
+        got_text = "no error"
+    except KitError as exc:
+        got_text = str(exc)
+    check("FV3-20: no findings file for the dispatch is a KitError naming the key to add, not an empty file", got_text.startswith("qa-code-critic@S5:") and
+          "qa-code-critic@S5.files[\"work/test-code/critic-findings-<dispatch>.md\"]" in got_text and not (out / "work" / "test-code" / "critic-findings-S5-qa-code-critic-8.md").exists(), got_text)
+    check_eq("FV3-20: the file written for S5-qa-code-critic-9 passes the check", check_findings_file(out, "S5-qa-code-critic-9", "qa-code-critic@S5"), None)
+    import findings_path
+    import story_step
+    story_findings = stub_control({"stub": story}, "qa-code-critic", "S5")["files"]
+    wrote_story = write_files(out, story_findings, "qa-code-critic@S5", "S5-qa-code-critic-1")
+    own_file = out / findings_path.per_dispatch("S5-qa-code-critic-1")
+    own_text = own_file.read_text(encoding="utf-8") if own_file.is_file() else ""
+    check_eq("FV3-20: the story's critic row writes the findings file of its dispatch at the product's path, and the product's receipt road (`story_step._role_receipts`) names it as evidence",
+             (findings_path.per_dispatch("S5-qa-code-critic-1") in wrote_story, story_step._role_receipts(out, "qa-code-critic", "S5-qa-code-critic-1")),
+             (True, ["work/test-code/critic-findings-S5-qa-code-critic-1.md"]))
+    check_eq("FV3-20: the review is an approval that names the instance and the case of the window (whole words, as the ledger's pointer reads them) and has no finding row",
+             (bool(re.search(r"(?<![\w-])TC-1(?![\w-])", own_text)), "test_the_case" in own_text, "Verdict: approve" in own_text.splitlines(), "<dispatch>" in own_text),
+             (True, True, True, False))
     # N2e: the automator's story fragments (`qa-automator@S5.manifest_fragments`) and its row of the story
     for name, bad in (("a string", "x"), ("an empty object in the list", [{}]), ("a non-object in the list", [3]), ("an object, not a list", {"then_bindings": []})):
         try:
