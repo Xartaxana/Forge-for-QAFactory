@@ -50,6 +50,7 @@ import time
 from pathlib import Path
 
 import gitcmd
+import journal_lock
 
 SNAPSHOT_DIR = Path("docs") / "tasks" / "compact-snapshots"
 JOURNAL_REL = Path("logs") / "routing-log.jsonl"
@@ -197,7 +198,7 @@ def stamp_narrative(path, now: datetime.datetime = None, walk=None):
         head = narrative_header_line(proc, now or datetime.datetime.now()).encode("utf-8")
         tmp = p.with_name(p.name + ".stamp-tmp")
         tmp.write_bytes(head + eol + bom + body)
-        os.replace(tmp, p)
+        journal_lock.replace_retrying(tmp, p)
         return 0, f"stamp: {p.name} stamped for session process {proc['pid']}"
     except Exception as exc:                                  # a refusal with the door, never a traceback
         return 2, f"stamp refused: {type(exc).__name__}: {one_line(exc, 160)} -- {STAMP_DOOR}"
