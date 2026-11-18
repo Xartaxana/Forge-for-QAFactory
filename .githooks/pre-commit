@@ -63,6 +63,9 @@ gate python tools/agents_md.py --check
 # files whose baseline rows differ (0.65-1.7 s measured, t-1449); a commit that grows a token falls back to
 # the whole scan (9-14 s), rare and by design.
 gate python tools/language_sites.py --check --staged
+# Pointer lint (FG7-52): a path, FR/P/rules range, gate number or TOC anchor of a MAIN document that names
+# nothing is refused; whole scan, about 1 s; the door is a row with a why in tools/pointer-lint-exempt.json.
+gate python tools/pointer_lint.py --check
 # Forge attribution (WARN only): new backlog rows / package files / journal events without a
 # feature are printed whole (offenders and doors) so the developer sees them at commit time;
 # --warn never blocks: whatever its exit code, the commit goes on (as the old `|| true`); a crash's

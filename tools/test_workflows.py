@@ -153,6 +153,7 @@ FORGE_CHECK_RUNS = [
     "python tools/factory_rules_index.py --check",                                  # :90
     "python tools/architecture_index.py --check",                                   # :91
     "python tools/agents_md.py --check",                                            # :92
+    "python tools/pointer_lint.py --check",                                         # FG7-52 (no .gitlab-ci.yml mirror)
     'python tools/piles.py check --base "$BASE"',                                   # :96-103; SL-2 (F-2 (a)): the range's piles, not --all
     'python tools/install_parity.py --check --skip-from-commit-message "$(git log -1 --format=%B $HEAD_SHA)"',   # :107, pull request
     "python tools/install_parity.py --check",                                       # :107, push and canon

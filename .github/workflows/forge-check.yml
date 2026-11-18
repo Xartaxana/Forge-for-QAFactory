@@ -94,6 +94,8 @@ jobs:
         run: python tools/architecture_index.py --check
       - if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
         run: python tools/agents_md.py --check
+      - if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
+        run: python tools/pointer_lint.py --check
       - name: piles frozen batches and backlog
         if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
         env:
