@@ -85,7 +85,7 @@ class AuditContractTests(unittest.TestCase):
             self.assertEqual(seen[name],S.TEST_TIMEOUTS.get(name,300),name)
         self.assertEqual(seen['test_infra_failure.py'],300)   # no TEST_TIMEOUTS row since the file was cut into parts (a8a9fb40): the default
         self.assertEqual(seen['test_audit_rules.py'],300)
-        for name in ('test_story_run_s7_live.py','test_no_move_seam.py'):
+        for name in ('test_story_run_s7_live.py',):                # selftest.py:143 holds 600; test_no_move_seam.py has no row since its cut, the loop above pins the default
             self.assertEqual(seen[name],600,name)             # t-2202: slow files that timed out or neared 300 s on a loaded runner
         self.assertFalse(hasattr(S,'SLOW_TEST_TIMEOUT_S'))    # no second table
         self.assertTrue({'test_words_doors_flight_launcher.py','test_story_run_words.py'}<=set(S.slow_tests()["files"]))

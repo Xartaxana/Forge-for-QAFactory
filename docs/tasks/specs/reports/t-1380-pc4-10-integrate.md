@@ -19,36 +19,18 @@ Commits: 12b43c87 (merge N15 + features.json), 1bb7a050 / eed60499 / d47438f2 (s
 - features.json: DONE. `test_words_doors_*.py`, `words_doors_common.py` added (no glob matched them). `story_run_s6_common.py` and `story_run_refusals_common.py` already match `story_run_*_common.py`.
 - Changelog fragment: `ai-packages/qa-factory/changelog.d/package-ci-4-PC4-10-n11-n13-n15-splits.md`.
 
-## Needed from integration / outside owns (not edited)
-- `scripts/tests/fixtures/driver-layers.json:1327-1328` (N15): rows `test_words_doors.py` `<module>` -> `words_doors_common.py`, `part_detector` -> `test_words_doors_detector.py`.
-- `scripts/tests/test_silent_passes.py:1345`: `STUB_FILES["test_story_run_refusals.py"]: 4` counts a file that is now a shim (0 stubs); the 4 stubs live in a part; canon-only judgement.
-- `scripts/tests/fixtures/mutations-c2-1s-fix-round.json:3` `"test": "tests/test_story_run_refusals.py"` -> `tests/test_story_run_refusals_t667_c21.py` (N11 report).
-- `design/state-exits.md:71,72,78,196` name the old files (prose).
-- `test_story_run_s0.py:1312,1588` imports git_fixture through the shim (N12).
+## Round 2 (Lead answers)
+- Background runs stopped: pids 10456, 37048, 38068, 8692 killed; no python process matching test_quarantine/k5mine remained (checked by process list). The quarantine check is NOT part of this witness (CI nightly).
+- Merge of origin/main: d0623a17 (N14 a154ffca inside), no conflict, no other change.
+- driver-layers.json:1327 -> words_doors_common.py, :1328 -> test_words_doors_detector.py. test_silent_passes.py:1345 STUB_FILES refusals 4 -> test_story_run_refusals_cc.py (measured: stub_problems counts 4 in cc, 0 in every other refusals file and in the shim). mutations-c2-1s-fix-round.json:3 -> tests/test_story_run_refusals_t667_c21.py. state-exits.md :71,72 -> test_story_run_s6_c16b.py, :78 -> test_story_run_s6_hf2_11b.py (holds acceptance_awaits), :196 -> test_story_run_refusals_resume.py (holds refusal_resumes). Commit 18733632 (+ the audit-contract line edit below).
+- test_current_audit_contract.py: the carrier selftest.py TEST_TIMEOUTS has no row for test_infra_failure.py nor test_no_move_seam.py (`grep infra_failure|no_move_seam selftest.py` finds only `:143 "test_story_run_s7_live.py": 600`), so both are pinned at the default 300: line 86 asserts 300 for test_infra_failure.py; line 88 keeps only s7_live at 600. The second stale pin (no_move_seam) showed in the witness round and was fixed the same way.
 
-## Not an item of mine, found
-- `test_current_audit_contract.py` fails on main already: `assertEqual(seen['test_infra_failure.py'],600)` (line ~85) but the 600 row of test_infra_failure.py was removed by a8a9fb40 (`git grep infra_failure 12a932a0 -- selftest.py` prints nothing; the same call finds `TEST_TIMEOUTS`). Left unfixed (a design choice of which row to pin).
-- Over 60 s provisional, named, not re-split: s6 manual 103.9, s6 t292 75.8, refusals core 61.5, words_doors flight_launcher 79.6.
-
-## Witness (one round, all edits in, 16 files in parallel; `python -B <abs path>`)
+## Witness round 2 (16 files in parallel, no quarantine run)
 ```
-test_story_run_s6_d1:              === 81/81 ok ===    exit=0
-test_story_run_s6_manual:          === 150/150 ok ===  exit=0
-test_story_run_s6_t292:            === 175/175 ok ===  exit=0
-test_story_run_s6_c16b:            === 92/92 ok ===    exit=0
-test_story_run_s6_hf2_11b:         === 241/241 ok ===  exit=0
-test_story_run_refusals_core:      === 263/263 ok ===  exit=0
-test_story_run_refusals_sources:   === 155/155 ok ===  exit=0
-test_story_run_refusals_resume:    === 117/117 ok ===  exit=0
-test_story_run_refusals_t667_c21:  === 169/169 ok ===  exit=0
-test_story_run_refusals_cc:        === 73/73 ok ===    exit=0
-test_story_run_refusals_c24_n5:    === 91/91 ok ===    exit=0
-test_words_doors_detector:         === 41/41 ok ===    exit=0
-test_words_doors_doors:            === 250/250 ok ===  exit=0
-test_words_doors_controller:       === 212/212 ok ===  exit=0
-test_words_doors_flight_launcher:  === 213/213 ok ===  exit=0
-test_current_audit_contract:       FAILED (failures=1)  AssertionError: 300 != 600 (seen['test_infra_failure.py'], pre-existing, see above)  exit=1
+test_story_run_s6_d1 81/81, manual 150/150, t292 175/175, c16b 92/92, hf2_11b 241/241: exit=0 each
+test_story_run_refusals_core 263/263, sources 155/155, resume 117/117, t667_c21 169/169, cc 73/73, c24_n5 91/91: exit=0 each
+test_words_doors_detector 41/41, doors 250/250, controller 212/212, flight_launcher 213/213: exit=0 each
+test_current_audit_contract: first run FAILED on test_no_move_seam.py (300 != 600); after the line-88 fix, rerun once: "Ran 4 tests ... OK"
 ```
-`python -B tools/test_quarantine.py check`: NOT COMPLETED. The full run (started 06:37) and a restricted K5 driver over the last 14 commits (scratchpad k5mine.py, started 07:19) were still running after 55 and 12 minutes (the per-commit import-edge scan is slow on this loaded machine; t-1376 saw the same: "timed out at 280 s"). No output, no violation seen, and no "no violation" witness either. Processes left running (named per RUNBOOK 9.8): python.exe pids 10456, 37048, 38068 (full checks) and 8692 (restricted). What was checked by hand: the three split-keep commit messages are the printed block verbatim (git log -3 shows the `keep-split:` first lines), the old row of each stays as a shim row, the parts and common modules are on disk in the same tree.
-
-Not run locally: test_conductor_doors.py, test_selftest_slow_tests.py, canon judges.
+Not run locally: test_conductor_doors.py, test_selftest_slow_tests.py, test_quarantine.py check, canon judges.
+Open: test_words_doors_flight_launcher 79.6 s, s6 manual 103.9, s6 t292 75.8, refusals core 61.5 provisional (named, not re-split).
