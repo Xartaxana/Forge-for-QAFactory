@@ -34,11 +34,11 @@ inputs:
     what: every case in scope at its pinned version
     required: true
 
-# Proof that the review read what it was handed. Row 0 is the author's form (prefilled by code; keep it), then one row per entry of its `inputs`, with the
+# Proof that the review read what it was handed. Row 0 is the author's form (prefilled), then one row per entry of its `inputs`, with the
 # version or the content it read - a review of a file that has since changed is not a review of this plan.
 inputs_read:
   - path: work/handoffs/<the author's dispatch>.yaml
-    version: <hash>
+    version: <hash, or omit>
   - path: <path exactly as the author listed it>
     version: <pinned case version, or the hash of the file read>
 

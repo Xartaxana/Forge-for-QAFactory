@@ -19,7 +19,7 @@ Your witness artifact (stages.json `witness`): `work/automation-manifest.json`.
 
 Contract `s5-critic-to-automator` (fill `work/handoffs/<dispatch>.yaml`; `handoff_check.py` reads it):
 
-- `inputs_read[].version` (required) - hash
+- `inputs_read[].version` (optional) - hash, or omit
 - `header.window` (required) - the case ids under review
 - `header.verdict` (required) - one of vocabulary.header_verdicts
 - `review.outcome` (required) - one of vocabulary.critic_verdicts
