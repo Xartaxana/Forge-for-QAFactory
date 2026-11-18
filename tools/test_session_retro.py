@@ -50,6 +50,17 @@ def test_counts(transcript):
     assert "retries after a refusal: 2" in sr.render(r, 15, 10)
 
 
+def test_rewritten_record_counts_once(tmp_path):
+    """FG7-83: the harness re-writes a record under the same uuid (E32); a SendMessage in it counts 1, and a
+    record without uuid is still counted each time."""
+    send = _tu("SendMessage", to="x", message="ping")
+    rows = [dict(send, uuid="u1")] * 3 + [send] * 2
+    p = tmp_path / "d.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in rows) + "\n{broken", encoding="utf-8")
+    r = sr.analyze(p)
+    assert dict(r["tools"])["SendMessage"] == 3 and r["unreadable"] == 1 and r["repeat_sends"] == [("ping", 3)]
+
+
 @pytest.mark.parametrize("argv,code", [(["--last", "0"], 2), (["--last", "-1"], 2), (["--top", "0"], 2)])
 def test_bad_numbers(argv, code):
     with pytest.raises(SystemExit) as e:
