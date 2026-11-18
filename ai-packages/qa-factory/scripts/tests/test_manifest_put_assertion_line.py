@@ -319,10 +319,12 @@ def test_a_role_sent_mark_is_dropped_and_rows_not_asked_keep_their_state(stand, 
     code, out, err = put(stand, node_row(typed, node_id_check={"status": "verified", "note": "mine"}, case_version_links=LINKS))
     assert code == 0 and "the value you sent was dropped" in out, (out, err)
     assert mark_of(stand, typed)["status"] == "not_verified", "no collect existed: the role's `verified` is gone"
-    put(stand, {"tests": [{"instance_id": "test_w", "file": MOD, "covers": [CASE], "status": "green", "generated_from": "x"}]})
-    assert mark_of(stand, "test_w") is None, "a writer row is not asked"
-    assert put(stand, {"tests": [{"instance_id": typed, "why": "patch"}]})[0] == 0
-    assert mark_of(stand, typed)["status"] == "not_verified", "a patch with no file leaves the mark"
+    assert put(stand, {"instance_id": "test_w", "file": MOD, "covers": [CASE], "status": "green", "generated_from": "x"})[0] == 0
+    writer = [r for r in stand.manifest()["tests"] if r.get("instance_id") == "test_w"]
+    assert len(writer) == 1 and "node_id_check" not in writer[0], ("a writer row is stored and not asked", writer)
+    assert put(stand, {"instance_id": typed, "why": "patch"})[0] == 0
+    patched = next(r for r in stand.manifest()["tests"] if r.get("instance_id") == typed)
+    assert patched.get("why") == "patch" and patched["node_id_check"]["status"] == "not_verified", ("a no-file patch keeps the mark", patched)
     with_pytest(stand)
     assert put(stand, {"instance_id": typed, "file": MOD, "status": "red", **resend})[0] == 0
     assert mark_of(stand, collected)["status"] == "verified", "FR-40: re-sent with its file once a collect answers"
