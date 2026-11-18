@@ -250,6 +250,20 @@ def rules() -> dict:
     return _RULES
 
 
+def _literal_fills(raw: str, ctx, tmpl) -> str:
+    """`raw` with the `fills` of its `literal_text` row written in (a FillContext key, or `form:<field>` = the contract's own plain
+    value); all or nothing: one token that does not resolve keeps the text as written."""
+    row = next((r for r in rules().get("literal_text", []) if r["_re"].search(raw)), None)
+    text = raw
+    for token, key in ((row or {}).get("fills") or {}).items():
+        if token in text:
+            value = tmpl.get(key[len("form:"):]) if key.startswith("form:") else getattr(ctx, key, "")
+            if not isinstance(value, str) or not value.strip() or HINT.search(value):
+                return raw
+            text = text.replace(token, value)
+    return text
+
+
 def _hint_of(raw: str) -> str:
     text = raw.strip()
     return text[1:-1].strip()           # `handoff.is_placeholder` has said it is `<...>` (or empty)
@@ -575,6 +589,10 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
             continue
         if item.kind == "literal":
             literal.append(item.path)
+            text = _literal_fills(item.raw, ctx, survey.tmpl)
+            if text != item.raw:            # t-1338 V1: `--task <T> --stage <S>` left as written names no task and is refused
+                ops.append((item.node, "set", text, item.path))
+                fills.append(Fill(item.path, item.raw, text, "literal"))
             continue
         if item.kind == "world":
             worlds.append(item)                             # written once per existing file, after every other field has its value

@@ -39,8 +39,10 @@ SNAP_ETALON = {
                 "json": (1, 224, "4616d0129be24e59fd6b3ee2edbf9c499f4da78e7e5482f4fb572a654d26ef70")},
     # FV3-32 (t-1312): the five cells that print a fields count were re-recorded (emptied optional lists leave fewer fields; no problem moved, the text cells of problems/applied/pending still match)
     # re-recorded at the X7-7 integration (35 to 58 fields) and again at t-1946 (the form gained the `rows_owed_when` block, t-1936 F4; the json cell was already at this value on c75ec3789, the text cell moved with the block)
-    "cut": {"text": (0, 2, "83920bb34ce64b28c215bc8976927b58ec0b8644fe46fdc1cbe56bbf02cccc36"),
-            "json": (0, 21, "f600f6c333725700b307f5cbd23ef250825562b52074cb64fc8c16f0b42d265d")},
+    # FV3-31 (t-1338): both cut cells re-recorded from the run's own text: the S5 critic form gained the author row 0 and its fixture
+    # now fills row 1 and `probes.records[0].record`; the cut is still the sole problem, the form complete (2 / 21 lines, exit 0)
+    "cut": {"text": (0, 2, "1956cf6f2a259a1b7caf9512521b3651ef09bafdd0831102971438e65e6c78af"),
+            "json": (0, 21, "d0e531a7a370d75427843e0c1cfa0cedda26b05ff52e3f4c77e2cfe76b7ff19e")},
 }
 
 
@@ -58,8 +60,10 @@ def _cut_form(art: Path) -> Path:
                         ("probes.runtime_provenance", "evidence/runtime-provenance-api.json"),
                         ("probes.records[0].instance", "test_one"),
                         ("probes.records[0].verdict", "intended_failure"),
+                        ("probes.records[0].record", "work/probes/test_one.json"),   # t-1338: the template's `<instance>` names no file
                         ("inputs_read[0].path", "work/handoffs/S5-qa-automator-1.yaml"),
-                        ("inputs_read[0].version", "manifest revision 1")):
+                        ("inputs_read[0].version", "manifest revision 1"),
+                        ("inputs_read[1].path", "work/automation-manifest.json")):    # FV3-31: row 0 the author's form, row 1 its input
         handoff.set_value(doc, path, value)
         doc = handoff.parse(doc.text())
     form.write_text(doc.text(), encoding="utf-8")

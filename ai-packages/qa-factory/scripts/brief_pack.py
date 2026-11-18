@@ -3679,6 +3679,28 @@ def notes_names(task_root: Path) -> list:
         return []
 
 
+def reviewed_author_of(state: dict, dispatch: dict, stage: str, author_role: str, part: str) -> tuple:
+    """FV3-31 (AR-13, the ONE walk; `advice_of` and `reviewed_dispatch` call it): `(id, met_self)` - the LATEST ACCEPTED dispatch of
+    `author_role` at `stage` created BEFORE `dispatch` (the walk stops at its id: `met_self` True; False when that id is never met),
+    of the S5 part `part` (`plan` or `window`, `controller.s5_part_of`), and for the part `window` sharing a case with its scope
+    (`probe_debt.bare_case_id`; the plan needs no overlap). `id` is "" when none matches. Errs only toward naming nothing; raises
+    what its imports raise (callers guard)."""
+    import dispatch_identity
+    from controller import s5_part_of
+    from probe_debt import bare_case_id          # the one normaliser of a scope's case id (the window readers share it)
+    mine = {bare_case_id(c) for c in (dispatch.get("scope") or [])}
+    found, met = "", False
+    for other in dispatch_identity.records((state.get("dispatches") if isinstance(state, dict) else None) or {}):
+        if other["id"] == str(dispatch.get("id") or ""):
+            met = True
+            break                       # only the dispatches created BEFORE this one
+        if (other.get("stage") == stage and other.get("role") == author_role and other.get("status") == "accepted"
+                and s5_part_of(other) == part
+                and (part == "plan" or mine & {bare_case_id(c) for c in (other.get("scope") or [])})):
+            found = other["id"]
+    return found, met
+
+
 def advice_of(task_root: Path, controller: dict, dispatch: dict) -> str:
     """The task-relative advice file the S5 code critic `dispatch` reads (t-1937 TR3-15; AR-13, the one reader): the file of the LATEST
     ACCEPTED automator window dispatch created before it whose scope shares a case with it (`work/advice-S5-<automator>.json`), never
@@ -3688,19 +3710,9 @@ def advice_of(task_root: Path, controller: dict, dispatch: dict) -> str:
     before, as today). Never raises."""
     old = "work/advice-S5.json"
     try:
-        import dispatch_identity
         import exit_gate
         import findings_path
-        from controller import s5_part_of
-        from probe_debt import bare_case_id          # the one normaliser of a scope's case id (the window readers share it)
-        mine = {bare_case_id(c) for c in (dispatch.get("scope") or [])}
-        found = ""
-        for other in dispatch_identity.records((controller.get("dispatches") if isinstance(controller, dict) else None) or {}):
-            if other["id"] == str(dispatch.get("id") or ""):
-                break                       # only the automators created BEFORE this critic
-            if (other.get("stage") == "S5" and other.get("role") == "qa-automator" and other.get("status") == "accepted"
-                    and s5_part_of(other) != "plan" and mine & {bare_case_id(c) for c in (other.get("scope") or [])}):
-                found = other["id"]
+        found, _met = reviewed_author_of(controller, dispatch, "S5", "qa-automator", "window")     # the ONE walk (AR-13)
         own = exit_gate.advice_rel("S5", found) if found else ""
         if own and (Path(task_root) / own).is_file():
             return own
@@ -3772,17 +3784,35 @@ def stage_critic_names(stage_def: dict, role: str, task_root: Path) -> list:
     return names
 
 
-def reviewed_dispatch(stage: str, role: str, state: dict, pipeline: dict) -> tuple:
+def reviewed_dispatch(stage: str, role: str, state: dict, pipeline: dict, dispatch: dict | None = None) -> tuple:
     """TR4-12 (2), AR-13: THE reader of "which dispatch does `role` review at `stage`": `(target stage, author's dispatch id, stage_critic)`.
     `("", "", False)` for a role that reviews nothing; `stage_critic` is True when the role judges its OWN stage's author (S4), where
     an empty id still gets the "none yet" brief line; for a consumer an empty id means nothing awaits it. The brief line and the form
-    prefill (`story_step._author_argv`) both ask it, so they never name different dispatches. Reads only."""
+    prefill (`story_step._author_argv`) both ask it, so they never name different dispatches. Reads only.
+    FV3-31: a stage row's `reviewed_by` (a role of the row that is neither `roles[0]` nor `acceptance_by`; anything else reads as
+    absent with one stderr line) names the role that reviews the author WITHOUT accepting the stage (S5's code critic; read here
+    and nowhere else). `dispatch` = the reviewing dispatch's record (with its `id`): that role is told the author
+    `reviewed_author_of` binds to THIS dispatch (its part, its window, created before it), `(stage, id, True)`; no record, an id not
+    met, or no match answers `("", "", False)` - never a guess, never the "none yet" line (other windows may have an author)."""
     import acceptance
     stages = _stages()
     own = stages.get(stage) or {}
     roles = [str(r) for r in own.get("roles") or []]
     if own.get("acceptance_by") == role and roles and roles[0] != role:
         return stage, str(acceptance.stage_author_dispatch(state, own) or ""), True
+    if "reviewed_by" in own:
+        by = own["reviewed_by"]
+        if not (isinstance(by, str) and by and by in roles[1:] and by != own.get("acceptance_by")):
+            print(f"brief_pack: reviewed_by of {stage} is {by!r}: not a reviewing role of the stage; read as absent", file=sys.stderr)
+        elif by == role:
+            if not (isinstance(dispatch, dict) and dispatch):
+                return "", "", False
+            try:
+                from controller import s5_part_of
+                found, met = reviewed_author_of(state, dispatch, stage, roles[0], s5_part_of(dispatch))
+            except Exception:  # noqa: BLE001 - an unreadable record names no author (FR-59)
+                return "", "", False
+            return (stage, str(found), True) if met and found else ("", "", False)
     target = next((sid for sid, sd in stages.items() if sd.get("acceptance_by") == role and sd.get("roles")
                    and role not in sd["roles"]), "")
     if not target:
@@ -3790,12 +3820,12 @@ def reviewed_dispatch(stage: str, role: str, state: dict, pipeline: dict) -> tup
     return target, str(acceptance.awaits_acceptance(state, target, pipeline) or ""), False
 
 
-def reviewed_dispatch_id(stage: str, role: str, state: dict, pipeline: dict) -> str:
+def reviewed_dispatch_id(stage: str, role: str, state: dict, pipeline: dict, dispatch: dict | None = None) -> str:
     """The id `reviewed_dispatch` names, `""` when there is none (the form keeps its placeholder, the brief says so)."""
-    return reviewed_dispatch(stage, role, state, pipeline)[1]
+    return reviewed_dispatch(stage, role, state, pipeline, dispatch)[1]
 
 
-def reviewed_dispatch_lines(stage: str, role: str, state: dict, pipeline: dict) -> list:
+def reviewed_dispatch_lines(stage: str, role: str, state: dict, pipeline: dict, dispatch: dict | None = None) -> list:
     """TR4-1 (FR-38, AR-10): the line that hands the role the path of the row of the author's dispatch it reviews, BEFORE the work, in
     the field it must fill (`inputs_read` of its form) - the same value `stage_done.py --acceptance` refuses a form without. [] for a role
     that reviews no author's dispatch. A stage critic (`acceptance_by` is a role of its own stage that is not the author) reviews the
@@ -3804,7 +3834,7 @@ def reviewed_dispatch_lines(stage: str, role: str, state: dict, pipeline: dict) 
     accepted dispatch of the current life; never `[0]` by hand), so with several author dispatches the ONE is named. No such dispatch yet:
     one line says so and who acts (never an empty value). A consumer with nothing awaiting it reviews nothing: []. Reads only."""
     stages = _stages()
-    target, author, critic = reviewed_dispatch(stage, role, state, pipeline)
+    target, author, critic = reviewed_dispatch(stage, role, state, pipeline, dispatch)
     if not target or (not author and not critic):
         return []
     author_role = str((stages.get(target) or {}).get("roles", [""])[0])
@@ -4595,7 +4625,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     if stage == "S4":
         head += s4_stand_lines(None, role, str(pipeline.get("environment") or ""))
         head += s4_case_budget_line(task_root, role)
-    head += reviewed_dispatch_lines(stage, role, controller, pipeline)      # TR4-1: the row path the stage check needs, before the work
+    head += reviewed_dispatch_lines(stage, role, controller, pipeline, dict(dispatch or {}, id=dispatch_id))      # TR4-1: the row path the stage check needs, before the work
     head += expectation_change_lines(task_root, role, dispatch_id)
     head += proof_required_lines(task_root, role, dispatch_id)
     head += base_log_lines(task_root, role, dispatch_id)
