@@ -1835,7 +1835,7 @@ def row_block(plan) -> list:
         out.append(f"  test-layers.json keep `{old}`: remove the row (the file is deleted); the `keep-split` / split-keep door carries it")
     for p in plan.parts:
         out.append(f'  test-layers.json keep: add `{p}.py` - inherit layer/why(+" (part of {old} split, TD-11c)")/named_by/'
-                   f'replaced_by from `{old}`; covers = inherited, then narrowed, plus "tests/{plan.common}.py" '
+                   f'replaced_by from `{old}` (each carrier named_by inherits must name `{p}.py` beside its siblings: name it there, FG7-81); covers = inherited, then narrowed, plus "tests/{plan.common}.py" '
                    f"(this part: {plan.part_checks.get(p, 0)} of {total} check-call sites)")
     out.append(f"  slow_tests.json: remove `{old}`; add each part, provisional seconds = round(old x part check sites / {total}, 1)")
     out.append(f"  selftest.py TEST_TIMEOUTS: remove the row of `{old}` if it has one (parts get no row)")
