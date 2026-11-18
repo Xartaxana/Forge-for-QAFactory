@@ -1,6 +1,6 @@
 # Переезд на GitHub — пачка 3: первый релиз из нового репозитория
 
-кучка: `github-move` | статус: в работе | взял: dev1, 05.11.2026 | ветка: `pile/github-move/batch-3` | MR: — | стенд: нужен (MyBooks, шаг E)
+кучка: `github-move` | статус: закрыта | взял: dev1, 05.11.2026 | ветка: `pile/github-move/batch-3` | MR: `0c04a83fd54073435930742ef7c0bb00f10ba73a` | стенд: нужен (MyBooks, шаг E)
 
 Правило готовности: пачка закрыта, когда каждый узел «принято», свидетели узлов — в журнале взявшего, живые доказательства (FR-33) сделаны или переданы строкой в кучку «живые прогоны».
 
@@ -29,7 +29,7 @@
 | GM3-1 | П1 | GM3-1: разбор 16 красных файлов полного selftest (список и первые строки отказа — `findings/20261105-pervyj-reliz-16-krasnyh-paketnyh-testov-na-main.md`): по каждому — запуск файла, причина, класс («тест отстал от кода» / «код сломан» / «данные реестра отстали»), файл и функция правки, трогает ли правка стадии, которые переписывает ветка эксперимента; итог — таблица в отчёте узла, по которой Lead пишет GM3-2 | scout | `docs/tasks/specs/reports/` (отчёт узла) | — | принято |
 | GM3-2 | П1 | GM3-2: починка по таблице GM3-1 — каждому файлу правка, названная в таблице; свидетель — сам файл зелёный; полный прогон — workflow `canon`; правка поведения роли доказывается живым прогоном (строка ниже) | designer → builder → critic | `ai-packages/qa-factory/` | GM3-1 | принято: b03c8e0 (t-011) |
 | GM3-3 | П1 | GM3-3: релиз 0.10.10 — подъём версии в манифестах (`.claude-plugin`, `.plugin`, `.kimi-plugin`, `.codex-plugin`), `INSTALL.md`, `README.md`; `changelog_assemble.py --version 0.10.10`; копия `ai-packages/qa-factory/` в `QAFactory/qa-factory/` с удалением исчезнувших файлов; `package-check.yml` в `.github/workflows/`; `release_fingerprint.py --write`, `git add -A`, `--check` последним; ветка `release/v0.10.10`, pull request открывает и сливает владелец, затем тег `v0.10.10` и GitHub Release с выдержкой CHANGELOG (RUNBOOK §4) | builder | `ai-packages/qa-factory/CHANGELOG.md`, `ai-packages/qa-factory/changelog.d/`, манифесты пакета; клон `QAFactory` | GM3-2 | принято (релиз вышел версией 0.11.0, не 0.10.10 — слово владельца 12.11.2026: PR `Xartaxana/QAFactory#1` слит `5e55e30`, тег `v0.11.0`, GitHub Release) |
-| GM3-4 | П1 | GM3-4: шаг E плана переезда — `forge-check`, `nightly`, `canon` зелёные на GitHub, `package-check` зелёный в `QAFactory`; плагин ставится из `Xartaxana/QAFactory` в чистый проект, SessionStart печатает версию 0.10.10; живой прогон на MyBooks — строка GM2 в «Живых доказательствах» `live-runs/2` | Lead | нет (строки доказательств) | GM3-3 | ожидает |
+| GM3-4 | П1 | GM3-4: шаг E плана переезда — `forge-check`, `nightly`, `canon` зелёные на GitHub, `package-check` зелёный в `QAFactory`; плагин ставится из `Xartaxana/QAFactory` в чистый проект, SessionStart печатает версию 0.10.10; живой прогон на MyBooks — строка GM2 в «Живых доказательствах» `live-runs/2` | Lead | нет (строки доказательств) | GM3-3 | принято (без правки: CI был зелёным после переезда; красный package-check тега v0.11.0 -- вопрос следующего релиза; живой прогон на MyBooks прошёл, его баги в работе; версия 0.10.10 заменена релизом 0.11.0 -- слово владельца 18.11.2026) |
 
 ## Ход
 
@@ -41,8 +41,8 @@
 
 | Что | Стенд / проект | Кто | Статус |
 |---|---|---|---|
-| Установка плагина 0.10.10 из `Xartaxana/QAFactory` в чистый проект, версия в SessionStart | чистый проект | Lead | ожидает релиза |
-| `package-check` зелёный на pull request релиза | CI `QAFactory` | Lead | ожидает релиза |
+| Установка плагина 0.10.10 из `Xartaxana/QAFactory` в чистый проект, версия в SessionStart | чистый проект | Lead | перенос: следующий релиз \| обоснование: 0.10.10 заменён релизом 0.11.0; живой прогон на MyBooks шёл на пакете из Xartaxana/QAFactory \| подтвердил: владелец, 18.11.2026 |
+| `package-check` зелёный на pull request релиза | CI `QAFactory` | Lead | сделано: 3ae4cdced86413f94f886006bca3557d8d7bd067 \| note: package-check run 43242799785 success on the Release 0.11.0 pull request |
 
 ## Остатки
 

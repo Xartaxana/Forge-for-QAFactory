@@ -479,7 +479,7 @@ def test_atomic_write_retries_permission_error_only(tmp_path, monkeypatch, errs,
         if len(seen) <= len(errs):
             raise errs[len(seen) - 1]
         real(a, b)
-    monkeypatch.setattr(wave.os, "replace", rep)
+    monkeypatch.setattr(os, "replace", rep)
     monkeypatch.setattr(jl, "REPLACE_RETRY_SECONDS", 0.05)       # the shared rule, shortened
     monkeypatch.setattr(jl, "REPLACE_PAUSE", 0.005)
     p = tmp_path / "j.jsonl"
@@ -717,7 +717,7 @@ def test_step_9_writes_are_atomic_a_reader_sees_a_whole_journal_Q5b(env, monkeyp
     def spy(src, dst):
         seen.append((Path(dst).read_bytes() if Path(dst).exists() else None, Path(src).read_bytes()))
         return real(src, dst)
-    monkeypatch.setattr(wave.os, "replace", spy)
+    monkeypatch.setattr(os, "replace", spy)
     rc, out, _ = go(env, "q1")
     assert rc == 0 and (env.root / REL).read_bytes() == L1 + L2
     # each replace: the destination still held a whole journal (never a truncated one), the new bytes were already complete

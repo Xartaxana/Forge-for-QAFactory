@@ -1253,6 +1253,11 @@ class _Walker:
             while k < len(words) and _ASSIGN_RE.match(words[k].text) and not words[k].text.startswith("-"):
                 k += 1
             cmdwords = words[k:]
+            while cmdwords and _cmd_name(cmdwords[0].text) in _WRAPPER_HEADS:   # `env [-i] [A=b] cmd`, `nohup cmd`: the cmd runs
+                j = 1
+                while j < len(cmdwords) and (cmdwords[j].text.startswith("-") or _ASSIGN_RE.match(cmdwords[j].text)):
+                    j += 1
+                cmdwords = cmdwords[j:]
             cmd = _cmd_name(cmdwords[0].text) if cmdwords else ""
             args = cmdwords[1:]
             self._cd_class(cmd, args, st, idx)
@@ -1273,7 +1278,7 @@ class _Walker:
             i = _git_globals(args)[2]
             if i < len(args) and args[i].text.lower() in COMMIT_GIT_VERBS:
                 self.sig["roads"].append("commit")
-        elif _PYTHON_PROGRAM_RE.fullmatch(cmd):
+        elif re.fullmatch(_PYTHON_NAME, cmd):
             rest, skip = [], False
             for w in args:
                 if skip:
@@ -1947,26 +1952,8 @@ def _clip(text: str) -> str:
     return text if len(text) <= SHOWN_TARGET_CHARS else "..." + text[-(SHOWN_TARGET_CHARS - 3):]
 
 
-_VERB_WORD_RE = re.compile(r"""\s+(?:-\S*\s+)*["']?([A-Za-z_-]+)""")
-
-
-def _worker_verdict_call(command: str) -> bool:
-    """True when ANY python program invocation in `command` is tools/journal_write.py with the first positional
-    `accept` or `reject` (a worker never writes a verdict, B4 (i)). Reuses dod_track's program recogniser (the one
-    form of `py -3`, `-X utf8`, quoted paths) and scans ALL its matches, so a second `;`/`&&`/`|` segment counts. The
-    import is lazy: a broken one raises into decide()'s visible fail-open, never into a silent pass or a refusal."""
-    import dod_track
-    for program, end in dod_track.python_program_spans(command):
-        if not dod_track.is_journal_writer_program(program):
-            continue
-        verb = _VERB_WORD_RE.match(command, end)
-        if verb and verb.group(1).lower() in WORKER_VERDICT_VERBS:
-            return True
-    return False
-
-
+_WRAPPER_HEADS = frozenset({"env", "nohup"})                 # heads the walker looks through (t-1473 F4)
 COMMIT_GIT_VERBS = ("commit", "merge")                      # FG7-89 (F5 b): the git roads a coordinator commits by
-_PYTHON_PROGRAM_RE = re.compile(r"(?:python[0-9.]*|py)", re.IGNORECASE)    # _cmd_name has already dropped `.exe`
 
 
 def _coordinator_read_trigger(sig: dict, payload: dict):
@@ -2005,7 +1992,7 @@ def _decide_command(tool_name: str, command: str, payload: dict):
         if shown:
             notes.append("journal target: " + shown[0][:120])
     agent_id = payload.get("agent_id")          # a subagent's payload carries it; the main thread's does not (P38)
-    if isinstance(agent_id, str) and agent_id and _worker_verdict_call(command):
+    if isinstance(agent_id, str) and agent_id and "verdict" in sig["roads"]:
         deny.append(MSG_WORKER_ACCEPT)
     for form in sig["rollback_forms"]:          # every shape is measured; the first one that hits a dirty tree refuses
         verdict = _measure_rollback(form, cwd)

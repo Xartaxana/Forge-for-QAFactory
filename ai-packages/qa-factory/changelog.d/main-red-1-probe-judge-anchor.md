@@ -1,0 +1,1 @@
+- code critic probe rule: the unreadable-probe-failure line in `execution-lifecycle.md` and its `qa-code-critic` slice reads `yours to judge (`--judge`); a product record adds `--product`` again, so the mandatory role rule finds its anchor
