@@ -14,13 +14,17 @@ OWN = str(HERE / "dispatch_new.py")  # real files: the launch hook's path check 
 OWN2, OWN3 = str(HERE / "dispatch_gate.py"), str(HERE / "dispatch_manifest.py")
 NEWFILE = str(HERE / "zz_not_yet_there.py")
 HAND = "C:\\r\\docs\\tasks\\handoffs\\t-1.md"
-BASE = ["--kind", "builder", "--task", "t-862", "--given", str(Path(__file__).resolve()), "--owns", OWN,
+# FG7-73: --feature is required (the hook refuses a task: line with no feature:): every argv below carries it (moved pins)
+BASE = ["--kind", "builder", "--task", "t-862", "--feature", "F19", "--given", str(Path(__file__).resolve()), "--owns", OWN,
         "--non-goals", "none here", "--handoff", HAND, "--edges", "E-1 x", "--dod", "python -m pytest x -q",
         "--siblings", "none -- single file"]
 
 
 def run(capsys, argv):
-    code = dispatch_new.main(argv)
+    try:
+        code = dispatch_new.main(argv)
+    except SystemExit as exc:  # argparse's refusal of a missing required flag
+        code = exc.code
     out = capsys.readouterr()
     return code, out.out, out.err
 
@@ -37,12 +41,12 @@ def swap(argv, flag, value):
 
 
 THREE_OWNS = swap(BASE, "--owns", None) + ["--owns", OWN, OWN2, OWN3]
-DESIGNER = ["--kind", "designer", "--task", "t-505", "--handoff", "C:\\r\\docs\\tasks\\specs\\x.md"]
+DESIGNER = ["--kind", "designer", "--task", "t-505", "--feature", "F19", "--handoff", "C:\\r\\docs\\tasks\\specs\\x.md"]
 
 # id, argv, exit, substrings of stdout, substrings of stderr
 CASES = [
     ("ok", BASE, 0, ["task: t-862", "owns:\n" + OWN + "\n", "DoD: `python -m pytest x -q`"], []),
-    ("ok-node-feature", BASE + ["--feature", "F19", "--node", "forge/5/F5-2"],
+    ("ok-node-feature", BASE + ["--node", "forge/5/F5-2"],
      0, ["node: forge/5/F5-2", "feature: F19"], []),
     ("E-C1-1-relative-owns", swap(BASE, "--owns", "tools/a.py"), 2, [], ["DISPATCH INCOMPLETE", "owns"]),
     ("E-C1-2-one-word-dod", swap(BASE, "--dod", "pytest"), 2, [], ["DISPATCH INCOMPLETE", "DoD"]),
@@ -56,8 +60,8 @@ CASES = [
     ("E-C1-5-missing-given", swap(BASE, "--given", str(HERE / "no_such_spec.md")), 2, [], ["DISPATCH PATHS MISSING", "(new)"]),
     ("C1-1-new-owns-unmarked", swap(BASE, "--owns", NEWFILE), 2, [], ["DISPATCH PATHS MISSING"]),
     ("C1-1-new-owns-marked", swap(BASE, "--owns", NEWFILE + " (new)"), 0, [NEWFILE + " (new)"], []),
-    ("C1-1-critic-handoff-outside", ["--kind", "critic", "--task", "t-505", "--handoff", "C:\\tmp\\x.md"], 2, [],
-     ["HANDOFF PATH"]),
+    ("C1-1-critic-handoff-outside", ["--kind", "critic", "--task", "t-505", "--feature", "F19", "--handoff", "C:\\tmp\\x.md"],
+     2, [], ["HANDOFF PATH"]),
     ("C1-2-empty-owns-item", THREE_OWNS[:-1] + [" "], 2, [], ["ARGUMENT REFUSED", "--owns", "empty"]),
     ("C1-2-empty-given-item", swap(BASE, "--given", ""), 2, [], ["ARGUMENT REFUSED", "--given", "empty"]),
     ("C1-3-designer-skip-case", THREE_OWNS + ["--designer", "Skip -- tiny"], 0, ["designer: Skip -- tiny"], []),
@@ -65,11 +69,12 @@ CASES = [
     ("E-C1-6-task-bad", swap(BASE, "--task", "t-12"), 2, [], ["ID REFUSED", "--task"]),
     ("E-C1-6-task-case", swap(BASE, "--task", "T-123"), 2, [], ["ID REFUSED"]),
     ("bad-node", BASE + ["--node", "forge/0/x"], 2, [], ["ID REFUSED", "--node"]),
-    ("bad-feature", BASE + ["--feature", "x1"], 2, [], ["ID REFUSED", "--feature"]),
+    ("bad-feature", swap(BASE, "--feature", "x1"), 2, [], ["ID REFUSED", "--feature"]),
+    ("feature-required", swap(BASE, "--feature", None), 2, [], ["required", "--feature"]),
     ("empty-edges", swap(BASE, "--edges", ""), 2, [], ["DISPATCH INCOMPLETE", "edges"]),
     ("bare-none-siblings", swap(BASE, "--siblings", "none"), 2, [], ["DISPATCH INCOMPLETE", "siblings"]),
     ("cyrillic-and-space-path", swap(BASE, "--owns", "C:\\r\\my dir\\\u0444.py"), 0, ["`C:\\r\\my dir\\\u0444.py`"], []),
-    ("critic-no-owns", ["--kind", "critic", "--task", "t-505", "--handoff", "C:\\r\\docs\\tasks\\specs\\reviews\\x.md"],
+    ("critic-no-owns", ["--kind", "critic", "--task", "t-505", "--feature", "F19", "--handoff", "C:\\r\\docs\\tasks\\specs\\reviews\\x.md"],
      0, ["task: t-505"], []),
     # F13 (FG7-58): a designer dispatch carries the Lead's `facts:` block; the generator asks the hook, so it refuses what the hook refuses
     ("facts-designer-ok", DESIGNER + ["--facts", "a file exists | ls x | x"], 0, ["facts:\na file exists | ls x | x\n"], []),
