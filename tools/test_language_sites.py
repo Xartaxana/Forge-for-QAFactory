@@ -312,7 +312,7 @@ def test_r_the_refusal_holds_the_three_doors_path_qualname_token(tmp_path, run):
     code, out = run(repo, "--check")
     assert code == 1
     for part in ("a new branch on a language, the baseline holds no row for it", SCRIPTS + "a.py in f: compare on `.py` (line 2)",
-                 "1. A data row", "2. The owner's word", "3. Not a language road", "docs/SIBLING_MAP.md axis 33",
+                 "1. A data row", "2. The owner's word", "3. Not a language road", "docs/SIBLING_MAP.md axis 34",
                  "word {who, date, quote, carrier}", "`own-code` or `floor` and a `reason`", "moved_from"):
         assert part in out, part
 
