@@ -888,7 +888,7 @@ def _scenarios(tests: Path, scripts: Path, door_modules: dict) -> dict:
 CANON_HEADER = "canon judges, do not run locally:"
 
 
-def _is_package_path(given: str, package: Path) -> bool:
+def _is_package_path(given: str, package: Path, root: Path) -> bool:
     """Package path = names the package marker, lies under `package`, or starts with one of its top-level entries."""
     text = str(given).replace("\\", "/")
     if "ai-packages/qa-factory/" in text:
@@ -901,7 +901,8 @@ def _is_package_path(given: str, package: Path) -> bool:
         except ValueError:
             return False
     first = text.removeprefix("./").split("/", 1)[0]
-    return bool(first) and (package / first).exists()
+    # a first segment found in neither tree stays a package path: a deleted top folder keeps today's answer
+    return bool(first) and ((package / first).exists() or not (root / first).exists())
 
 
 def _outside_hits(given: str, root: Path) -> tuple:
@@ -982,7 +983,7 @@ def witness_for(paths, package: Path | None = None, layers: dict | None = None, 
         lines.append(f"test-layers.json could not be read ({unreadable}): no keep row is consulted")
     run_files, canon_files, canon_lines = set(), set(), []
     for given in paths:
-        if not _is_package_path(given, package):
+        if not _is_package_path(given, package, root):
             # a forge test is never classified by the package canon data: every outside hit is run locally
             out_lines, out_files = _outside_hits(given, root)
             lines += out_lines

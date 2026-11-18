@@ -50,7 +50,7 @@ def story_dir(base: Path, files: dict) -> Path:
 def package_tree() -> Path:
     base = temp_dir("qa-witness-")
     for name, text in {"scripts/a.py": "import b\n", "scripts/b.py": "from c import x\n", "scripts/c.py": "x = 1\n",
-                       "scripts/z.py": "", "references/r.json": "{}", "scripts/tests/test_scenario_demo.py": "",
+                       "scripts/z.py": "", "scripts/tests/test_scenario_demo.py": "",
                        "scripts/tests/fixtures/stories/demo/story.json":
                            json.dumps({"walk": [{"stage": "S1", "door": {"kind": "exit_gate"}, "facets": ["accepted"]}]})}.items():
         (base / name).parent.mkdir(parents=True, exist_ok=True)
@@ -491,13 +491,16 @@ def main() -> None:
          outside(["tools/lone.py"], forge, no_keep), "no witness for tools/lone.py: no test_lone*.py beside it and no test beside it imports it; the batch canon judges it\nrun locally: 0 file(s)"),
         ("witness_for: a family goes to the longest owning stem", outside(["tools/a.py"], forge, no_keep),
          "tools/test_a_md.py (family of a)"),
-        ("witness_for: a longer stem keeps its own test", outside(["tools/a_b.py"], forge, no_keep), "tools/test_a_b.py (test_a_b.py beside it)"),
+        ("witness_for: a longer stem keeps its own test", outside(["tools/a_b.py"], forge, no_keep), "tools/test_a_b.py (test_a_b.py beside it)\nrun locally: 1 file(s)"),
         ("witness_for: a module nothing is named for is judged by its importers", outside(["tools/lib.py"], forge, no_keep),
          "tools/test_user.py (imports lib)"),
         ("witness_for: a test_* tool goes to its partner", outside(["tools/test_q.py"], forge, no_keep), "tools/test_test_q.py"),
         ("witness_for: a changed test is its own witness", outside(["tools/test_a.py"], forge, no_keep), "(the test itself)"),
         ("witness_for: a relative path whose first segment is a package folder stays a package path",
          outside(["scripts/c.py"], forge, no_keep), "test_scenario_demo.py"),
+        ("witness_for: a top folder in neither tree stays a package path and gets its keep answer",
+         outside(["templates/gone.md"], forge, {"absent": False, "keep": {"test_gate.py": {"layer": "gate_named", "covers": ["templates/gone.md"]}}}),
+         "templates/gone.md: keep test_gate.py"),
         ("witness_for: an unreadable test-layers.json is said and the outside answer still comes",
          outside(["tools/a.py"], forge, None, broken), "test-layers.json could not be read"),
         ("witness_for: a module in the import closure of a door names the scenario", witness(["scripts/c.py"]), "test_scenario_demo.py"),
