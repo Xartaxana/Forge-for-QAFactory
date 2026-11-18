@@ -296,6 +296,7 @@
   {"key": "ai-packages/qa-factory/scripts/s5_precheck.py|run|predicate-call|s5_precheck.read_python", "count": 1, "mechanism": "M8", "kind": "road", "since": "t-2065"},
   {"key": "ai-packages/qa-factory/scripts/selftest.py|<module>|regex|.py", "count": 4, "mechanism": "M8", "kind": "road", "since": "t-2065"},
   {"key": "ai-packages/qa-factory/scripts/selftest.py|<module>|table-key|.py", "count": 1, "mechanism": "M8", "kind": "road", "since": "t-2065"},
+  {"key": "ai-packages/qa-factory/scripts/selftest.py|_named_by_form|regex|.py", "count": 1, "mechanism": "OWN", "kind": "own-code", "since": "t-1453", "reason": "validates the shape of a named_by entry of the package's own test census (scripts/tests/test_*.py file names); the factory reading its own repo layout, not a project language branch"},
   {"key": "ai-packages/qa-factory/scripts/selftest.py|_quarantine_branch|name-call|.py", "count": 1, "mechanism": "M8", "kind": "road", "since": "t-2065"},
   {"key": "ai-packages/qa-factory/scripts/selftest.py|_test_outcome|predicate-call|selftest.ran_nothing", "count": 1, "mechanism": "M8", "kind": "road", "since": "t-2065"},
   {"key": "ai-packages/qa-factory/scripts/selftest.py|cmd_hygiene|name-call|.py", "count": 1, "mechanism": "M8", "kind": "road", "since": "t-2065"},
