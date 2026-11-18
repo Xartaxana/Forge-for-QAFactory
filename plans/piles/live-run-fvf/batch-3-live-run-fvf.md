@@ -37,7 +37,7 @@
 | FV3-7 | П1 | Строки обхода группы `s5` (§4 N4) | builder | то же для `s5` | FV3-3, FV3-4, FV3-5 | принято: 9418c560905701751db857caf94b14af9c193569 (t-1223) |
 | FV3-8 | П1 | Строки обхода группы `s6-s9` (§4 N4) | builder | то же для `s6-s9` | FV3-3, FV3-4, FV3-5 | принято: 9418c560905701751db857caf94b14af9c193569 (t-1224) |
 | FV3-9 | П1 | Строки ключей цен групп `s0`, `s1-s4` (F-P9) | builder | `…/stories/dry-1/exits/{s0,s1-s4}.json` | FV3-3 | принято: 9418c560905701751db857caf94b14af9c193569 (t-1226) |
-| FV3-10 | П1 | Перепись ключей вопросов: ключи сухой стори в `driven`, `PINNED_ELSEWHERE` сжимается (§4 N4c) | builder → critic | `scripts/tests/test_conductor_doors.py`, `scripts/tests/test-layers.json` (covers) | FV3-6…FV3-9 | ожидает |
+| FV3-10 | П1 | Перепись ключей вопросов: ключи сухой стори в `driven`, `PINNED_ELSEWHERE` сжимается (§4 N4c) | builder → critic | `scripts/tests/test_conductor_doors.py`, `scripts/tests/test-layers.json` (covers) | FV3-6…FV3-9 | принято: 18afa31eb584045b295d06459da63e0aeb8e5c69 (t-1511) |
 | FV3-11 | П2 | Вторая строка раннеров TS/Playwright (§4 N6) | builder → critic | `…/stories/dry-1/runners/ts-playwright/`, `.github/workflows/dry-story.yml`, `tools/test_workflows.py` | FV3-4, FV3-7 | ожидает |
 | FV3-12 | П2 | Типы сверх `default` (§4 N3t; A1; F-P11) | designer → builder | `…/stories/dry-<type>/`, `…/stories/dry-types.json`, `scripts/tests/test_scenario_dry_1.py` (`main`) | FV3-1, FV3-10 | ожидает |
 | FV3-13 | П2 | «Сказано до работы» в сухой истории (§4 N3a; A2) | builder → critic | `scripts/tests/dry_exits.py` (`told_before_work`), `scripts/tests/test_scenario_dry_1.py` (`_print_told`) | FV3-3, П1-в N0 | ожидает |
