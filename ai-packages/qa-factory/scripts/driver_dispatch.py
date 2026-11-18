@@ -14,6 +14,7 @@ from role_cli import PERSON_MARKER, REPAIR_MARKER
 import detector_verdict as DV
 import human_text
 import no_move as NM
+import stage_close
 import waiver
 from driver_core import HALT_RECORD_WHY, OpenWork, Person, Priced, Refusal, ReworkRefused, _now, _read_answer, _read_json, _sha, _write_json, finding_key
 from driver_runner import HANDOFF_FORM
@@ -2537,23 +2538,16 @@ class DriverDispatch:
         print("controller initialized")
 
     def code_only(self, stage: str, reason: str, evidence: list) -> str:
-        """The code-only receipt of `stage`; returns its id (the receipt a deferred record is tied to, C2-8 I4). The refusal for missing
-        evidence carries the title `code_only_evidence`, so `close_receipt` tells it from the controller's own refusal by the field."""
-        refs = []
-        for rel in evidence:
-            path = self.task_root / rel
-            if path.is_file():
-                refs.append({"path": rel, "sha256": _sha(path)})
-        if not refs:
-            raise Refusal(f"code-only {stage}: none of {evidence} exists to stand as evidence", title="code_only_evidence")
-        state = self.controller_state()
-        n = len([e for e in (state.get("dispatches") or {}) if str(e).startswith(f"{stage}-code-only")]) + 1
-        receipt = f"{stage}-code-only-{n}"
-        self.controller("code_only", input_data={"id": receipt, "stage": stage, "reason": reason,
-                                                 "evidence_refs": refs, "expected_revision": state.get("revision", 0),
-                                                 "idempotency_key": f"code_only:{stage}:{n}"})
+        """The code-only receipt of `stage`; returns its id (the receipt a deferred record is tied to, C2-8 I4). FV3-22: the request is
+        `stage_close.code_only_request` (the one builder, both roads); its refusal for missing evidence carries the title
+        `code_only_evidence`, so `close_receipt` tells it from the controller's own refusal by the field."""
+        try:
+            request = stage_close.code_only_request(self, stage, reason, evidence)
+        except stage_close.Refused as exc:
+            raise Refusal(str(exc), title=exc.title) from None
+        self.controller("code_only", input_data=request)
         self.progress_line()            # the stage is closed by code, not by a role
-        return receipt
+        return request["id"]
 
     def close_receipt(self, site: str, stage: str, reason: str, evidence: list) -> str:
         """`code_only` at a site of `CODE_CLOSE_SITES` (C2-8): the same call, a refusal it raises is marked `close` with the step that

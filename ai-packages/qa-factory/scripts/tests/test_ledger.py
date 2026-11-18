@@ -115,6 +115,7 @@ def coverage_gaps_are_not_reassured_over() -> None:
 
 
 def main() -> None:
+    an_unread_run_reads_as_checks_left_never_green()
     coverage_gaps_are_not_reassured_over()
     a_green_on_a_refused_base_is_not_verified()
     # --- the good set -------------------------------------------------------------------------
@@ -1511,6 +1512,43 @@ def two_areas_are_two_cases_in_the_ledger():
     check_eq("whole unconfirmed (E-B3): row `api/TC-6`, plan case `web/TC-6` -> none",
              L._whole_case_unconfirmed(unc("api/TC-6"), ["web/TC-6"]), [])
     check_eq("whole unconfirmed (E-B1): a blank row case names nothing", L._whole_case_unconfirmed(unc(""), ["web/TC-6"]), [])
+
+
+def an_unread_run_reads_as_checks_left_never_green():
+    """U7 7b-B (D1, D2, N2, N6, N11): a result row coded `report_unread` plus the analyst's NOT_EXECUTED is the checks left with the
+    person; a failure verdict keeps its red; no row, an unanswered case and an unconfirmed Then keep their old reading."""
+    U, X = L.REPORT_UNREAD_STATE, "not_executed:no result for this test in run-report.json"
+
+    def coded(i, case="TC-9", **over):
+        return dict({"case": case, "instance_id": i, "test_id": i, "status": "not_run", "reason_code": "report_unread"}, **over)
+
+    def tri(i, verdict, **over):
+        return dict({"instance_id": i, "test": i, "verdict": verdict}, **over)
+
+    entry = {"case": "TC-9", "instance_id": "i9", "file": "tests/x.py", "status": "green", "critic_verdict": "approved"}
+    for name, rows, triage, want in (
+            ("unread + NOT_EXECUTED", [coded("i9")], [tri("i9", "NOT_EXECUTED")], U),
+            ("unread + APP_BUG keeps its red", [coded("i9")], [tri("i9", "APP_BUG")], "failed:APP_BUG"),
+            ("unread, no analyst row", [coded("i9")], [], X),
+            ("NOT_EXECUTED on a row with no code stays failed:*", [coded("i9", reason_code="")], [tri("i9", "NOT_EXECUTED")], "failed:NOT_EXECUTED"),
+            ("N11: a fixed FLAKY on an unread row is not green", [coded("i9")], [tri("i9", "FLAKY", fix_result="fixed")], "not_verified_flaky"),
+            ("control: a fixed FLAKY on a read row is green", [coded("i9", status="passed", reason_code="")],
+             [tri("i9", "FLAKY", fix_result="fixed")], "passed_green")):
+        check_eq("test_state: " + name, L.test_state(entry, {"current_results": rows}, {"triage": triage})[0], want)
+
+    cases = ["TC-9", "TC-4"]
+    unc = {"unresolved": [{"case": "TC-9", "reason": L.EXPECTATION_UNCONFIRMED, "question": "Q1"}]}
+    for name, rows, triage, manifest, plan_cases, want in (
+            ("all read NOT_EXECUTED", [coded("i1"), coded("i2", "TC-4")], [tri("i1", "NOT_EXECUTED"), tri("i2", "NOT_EXECUTED")], {}, cases, U),
+            ("one read APP_BUG", [coded("i1"), coded("i2", "TC-4")], [tri("i1", "NOT_EXECUTED"), tri("i2", "APP_BUG")], {}, cases, "failed:APP_BUG"),
+            ("unanswered keeps skipped", [coded("i1"), coded("i2", "TC-4")], [tri("i1", "NOT_EXECUTED")], {}, cases, "skipped:inconclusive run"),
+            ("partial beside", [coded("i1"), {"case": "TC-4", "instance_id": "i2", "status": "partial"}], [tri("i1", "NOT_EXECUTED")], {}, cases, "partial"),
+            ("N2: red on api/TC-4, read on web/TC-4", [coded("i1", "api/TC-4", status="failed", reason_code=""), coded("i2", "web/TC-4")],
+             [tri("i2", "NOT_EXECUTED")], {}, ["web/TC-4"], U),
+            ("N6: read + an unconfirmed Then", [coded("i1")], [tri("i1", "NOT_EXECUTED")], unc, ["TC-9"], L.NOT_VERIFIED_UNCONFIRMED)):
+        got = L.plan_row_state({"ts": "TS-1", "disposition": "automate", "reason": ""}, manifest, {"current_results": rows},
+                               {"triage": triage}, {"TS-1": plan_cases})[0]
+        check_eq("plan_row_state: " + name, got, want)
 
 
 if __name__ == "__main__":

@@ -2439,6 +2439,13 @@ def hf2_11b_stale_runs_go_to_the_runner_and_the_proofs_follow() -> None:
         eq("K3 re-entry before the consumer's record: refused, naming the record; no proof, no reduction, no close",
            (refused.startswith("S6 cannot be closed at s6_reentry: no accept record of qa-failure-analyst stands for S6-qa-runner-1"),
             moves, sites), (True, [], []))
+        # FV3-22 E-M2 (FR-2): the person's-word door the refusal prints is one `waiver.py` can run - it carries its words file
+        # (`waiver.py` refuses `--stage/--block` without `--decision` or `--words-file`), built by `stage_close.person_word_door`, the one renderer
+        import acceptance
+        import person_words
+        door = person_words.door(f'waiver.py --task {driver.task} --stage S6 --block "{acceptance.STAGE_ACCEPTANCE_PHRASE}"')
+        eq("K3 the same refusal ends with the person's-word door WITH its words file",
+           (refused.endswith(f"(`{door}`)."), " --words-file " in door), (True, True))
         record_failure_analyst_accept(driver, "S6-qa-runner-1")      # the analyst's verdict now stands for the runner's dispatch
         driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=authored, mark="S6-qa-runner-1")
         with D1Evidence(d1_answer(two)) as evidence, Staleness(fresh_runs):
