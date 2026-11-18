@@ -35,6 +35,9 @@ DONE_SUBTASK_STATUSES = {"done", "closed", "resolved", "completed"}
 # the existing vocabulary on purpose: `not_executed` is exactly what happened and the suffix says why, so a reader of
 # an older ledger and a reader of this one mean the same thing by the same word. `check_delivery` re-exports it.
 HANDED_STATE = "not_executed:handed_to_person"
+# U7 7b-B: the state of a test (or plan row) whose run results code could not read (`C.REPORT_UNREAD_CODE`) and whose log the failure
+# analyst read as NOT_EXECUTED. Its kind is `run_unread` in `references/delivery-verdict-kinds.json` (`after_checks`, owner factory).
+REPORT_UNREAD_STATE = "not_executed:report_unread"
 # HF2-3 (3c1): the ledger state of a case whose OWN runs are green while a Then of it stands behind another case's red
 # assert in the same test (a `blocked_by_check` row, or a covered Then of a test that stopped at that red). Inside the
 # vocabulary like HANDED_STATE; its kind is `blocked_by_check` in `references/delivery-verdict-kinds.json`.
@@ -816,7 +819,11 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
             return (f"env_blocked:{_env_owner(report)}", ", ".join(cases))
         return ("not_executed:no result recorded for this row's cases", ", ".join(cases))
 
-    failed = [c for c, r in outcomes if r in ("failed", "fail")]
+    # U7 7b-B (D2): a coded `not_run` case (the run's results code could not read) whose analyst verdict is a failure is red -
+    # `_verdict_for_cases` then reads the bound row's verdict; `unread_reading` is "" for every other case (no new reading here).
+    triage_rows = C.triage_rows(triage)
+    unread = {c: C.unread_case_reading(report, triage_rows, c, cfg_u) for c, r in outcomes if r == "not_run"}
+    failed = [c for c, r in outcomes if r in ("failed", "fail") or unread.get(c) == "red"]
     if failed:
         verdict = _verdict_for_cases(failed, manifest, triage, report)
         return (f"failed:{verdict}", ", ".join(failed))
@@ -854,6 +861,13 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
     if pending or whole_unconfirmed:
         parts = ([unconfirmed_detail(pending)] if pending else []) + _whole_case_unconfirmed(manifest, cases)
         return (NOT_VERIFIED_UNCONFIRMED, "; ".join(parts))
+    # U7 7b-B (D2, N6): every instance of a coded `not_run` case was read by the analyst as NOT_EXECUTED - the checks are left
+    # with the person (`run_unread`), not a factory refusal. POSITION INVARIANT: AFTER every failure, flaky, partial, error,
+    # unknown-word and unconfirmed-expectation word (none is hidden), BEFORE `skipped`; `passed_green` stays unreachable for it. A case
+    # whose reading is "unanswered" (or any other skipped-class sibling) keeps `skipped:inconclusive run`: only an all-read set moves.
+    read = [c for c, r in outcomes if r == "not_run" and unread.get(c) == "read"]
+    if read and all(c in read for c, r in outcomes if r in ("skipped", "inconclusive", "not_run", "blocked")):
+        return (REPORT_UNREAD_STATE, ", ".join(read))
     skipped = [c for c, r in outcomes if r in ("skipped", "inconclusive", "not_run", "blocked")]
     if skipped:
         return (f"skipped:{ 'inconclusive run' }", ", ".join(skipped))
@@ -1171,7 +1185,14 @@ def test_state(entry: dict, report: dict, triage: dict, artifacts: Path | None =
     current_row, row = _run_and_triage_rows(entry, report, triage, cfg, manifest)
     if row is not None:
         verdict = str(row.get("verdict") or "untriaged")
-        if verdict == "FLAKY" and row.get("fix_result") != "fixed":
+        # U7 7b-B (D1): the run's results code could not read this test; the analyst read its log. NOT_EXECUTED there is the
+        # checks left with the person. N11: a FLAKY row's re-runs were unread too, so "confirmed by re-runs" is untrue - it reads
+        # like an unfixed flake. INVARIANT: no branch below reads green for a row whose result code never read; every failure
+        # verdict keeps its red.
+        unread = C.is_unread_row(current_row)
+        if unread and verdict == "NOT_EXECUTED":
+            return (REPORT_UNREAD_STATE, display)
+        if verdict == "FLAKY" and (row.get("fix_result") != "fixed" or unread):
             return ("not_verified_flaky", f"{display} — mechanism {row.get('mechanism') or 'unnamed'}")
         if verdict == "FLAKY":
             if is_rejected(entry):    # RD1-9a: a fixed flake does not outvote the critic's rejection (FR-18)
