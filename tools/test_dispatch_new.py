@@ -45,7 +45,7 @@ DESIGNER = ["--kind", "designer", "--task", "t-505", "--feature", "F19", "--hand
 
 # id, argv, exit, substrings of stdout, substrings of stderr
 CASES = [
-    ("ok", BASE, 0, ["task: t-862", "owns:\n" + OWN + "\n", "DoD: `python -m pytest x -q`"], []),
+    ("ok", BASE, 0, ["task: t-862", "owns:\n" + OWN + "\n", "DoD: `python -m pytest x -q"], []),
     ("ok-node-feature", BASE + ["--node", "forge/5/F5-2"],
      0, ["node: forge/5/F5-2", "feature: F19"], []),
     ("E-C1-1-relative-owns", swap(BASE, "--owns", "tools/a.py"), 2, [], ["DISPATCH INCOMPLETE", "owns"]),
@@ -238,3 +238,64 @@ def test_printed_text_passes_check_and_ids_read_back(capsys, argv):
         asked.append(argv[i])
         i += 1
     assert [p.path for p in dm.owned_paths(dm.section_cut(out))] == [a.removesuffix(" (new)") for a in asked]
+
+
+# FG7-93: the registry_preflight call of the owned files rides in the DoD span of a builder dispatch
+PRE = "python -B tools/registry_preflight.py check"
+SKIP_D = ["--designer", "skip -- tiny"]
+many = [str(HERE / ("zz_many_%d.py" % i)) + " (new)" for i in range(30)]
+# id, argv, expected DoD line (None: not asserted), substring that must be absent from stdout
+PREFLIGHT = [
+    ("builder-owns-tools", BASE, "DoD: `python -m pytest x -q ; then " + PRE + " lint --paths tools/dispatch_new.py`", ""),
+    ("kind-scout-nothing", swap(BASE, "--kind", "scout"), None, "registry_preflight"),  # full headers: reaches the kind guard
+    # G1: the appended --paths drops owned test_*.py names (the DOD-RUN check would count them as runs); no lint path: no lint id
+    ("S1-tests-dropped-from-paths", swap(BASE, "--owns", None) + ["--owns"] + [str(HERE / ("test_%s.py" % n)) for n in (
+         "dispatch_gate", "dispatch_manifest", "dispatch_new", "registry_preflight")] + [str(HERE / "registry_preflight.py")]
+     + SKIP_D, "DoD: `python -m pytest x -q ; then " + PRE + " lint --paths tools/registry_preflight.py`\n", "--paths tools/test_"),
+    ("S2-canon-test-only-no-lint", swap(BASE, "--owns", str(HERE.parent / "ai-packages/qa-factory/scripts/tests/test_story_step.py")),
+     "DoD: `python -m pytest x -q`\n", "registry_preflight"),
+    ("dod-runs-preflight-test", swap(swap(BASE, "--dod", "python -m pytest tools/test_registry_preflight.py -q"), "--owns",
+                                     str(HERE / "registry_preflight.py")), " ; then " + PRE + " lint --paths tools/registry_preflight.py", ""),
+    ("no-row-byte-equal", swap(BASE, "--owns", str(HERE.parent / "docs" / "TESTING.md")), "DoD: `python -m pytest x -q`\n",
+     "registry_preflight"),
+    ("outside-repo-skipped", swap(BASE, "--owns", "C:/r/x.py (new)"), "DoD: `python -m pytest x -q`\n", "registry_preflight"),
+    ("dod-already-has-it", swap(BASE, "--dod", PRE + " lint"), "DoD: `" + PRE + " lint`\n", " ; then "),
+    ("path-with-spaces", swap(BASE, "--owns", str(HERE / "my dir" / "a.py") + " (new)"), " ; then " + PRE + " lint --paths '", ""),
+    ("thirty-owns", swap(BASE, "--owns", None) + ["--owns"] + many + SKIP_D, " ; then " + PRE, ""),
+]
+
+
+@pytest.mark.parametrize("argv,dod,absent", [c[1:] for c in PREFLIGHT], ids=[c[0] for c in PREFLIGHT])
+def test_dod_carries_the_preflight(capsys, argv, dod, absent):
+    code, out, err = run(capsys, argv)
+    assert code == 0, err
+    if dod:
+        assert dod in out
+    if absent:
+        assert absent not in out
+    if "--owns" in argv and len(argv) > 40:
+        assert out.count(PRE) == 1
+
+
+@pytest.mark.parametrize("how", ["raises", "unimportable"])
+def test_preflight_gap_is_visible(capsys, monkeypatch, how):
+    import registry_preflight
+    if how == "raises":
+        monkeypatch.setattr(registry_preflight, "command_for", lambda *a, **k: 1 / 0)
+        cls = "ZeroDivisionError"
+    else:
+        monkeypatch.setitem(sys.modules, "registry_preflight", None)
+        cls = "ModuleNotFoundError"
+    code, out, err = run(capsys, BASE)
+    assert code == 0, err
+    assert "DoD: `python -m pytest x -q ; then registry preflight: not computed (%s)`" % cls in out
+
+
+def test_refused_longer_span_falls_back_to_gap_text(capsys, monkeypatch):
+    """Last resort: a call the manifest check refuses (here 4 test files) leaves the typed DoD plus the visible gap text."""
+    import registry_preflight
+    monkeypatch.setattr(registry_preflight, "command_for", lambda *a, **k: "python -m pytest " + " ".join(
+        "t/test_%d.py" % i for i in range(4)))
+    code, out, err = run(capsys, BASE)
+    assert code == 0, err
+    assert "DoD: `python -m pytest x -q ; then registry preflight: not appended (" in out and "t/test_0.py" not in out

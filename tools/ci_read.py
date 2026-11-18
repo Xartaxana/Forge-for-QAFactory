@@ -19,6 +19,14 @@ pull a whole job log into its context (B-466, t-575; GitHub backend GM1-4, t-188
       A pair without "=", an empty KEY, a KEY twice or --var ref=... is refused (exit 2) before any request; a KEY
       the workflow does not declare is GitHub's 422, printed as a refusal of the inputs (exit 1).
 
+  python tools/ci_read.py main-red [show|refresh]       main's red list (FG7-94): no subcommand = the SessionStart line, or `main green at <sha8>`;
+      show = the red jobs with the merges that could have brought them; refresh = read CI of main's last tips now
+  python tools/ci_read.py main-red fixer <t-NNN> | fixer --done <t-NNN>      one fixer at a time (refused: another open, or main not red)
+  python tools/ci_read.py main-red flaky add "<id>" --why "<text>" | flaky done "<id>" --by <t-NNN>      the known-flaky queue
+      Carrier: <git common dir>/main-red/state.json, written only by main_red_write (lock main-red). A bad task id or flaky id
+      is refused (exit 2) before the lock; a busy lock is exit 1 `retry`. Push runs of forge-check.yml and canon.yml on main
+      are read (a dispatch run or quarantine-watch never counts); cancelled is never red, unknown is never green.
+
 WHICH repository: the `origin` remote of this tree. The URL is parsed (scp form `user@host:o/r`, else a URL; host
 lower-case, userinfo dropped; the path is exactly `owner/repo`, with `.git` and a trailing `/` removed): host
 github.com -> GitHub o/r; the host of tools/ci_read_gitlab.HOST -> that GitLab backend (a module deleted at the move);
@@ -39,12 +47,15 @@ before a member is read); one byte over is a refusal, exit 1. Output lines carry
 sanitize() (ci_read_common); the tool's own words keep their punctuation. Exit codes: 0 ok, 1 HTTP/network error or a
 refused answer, 2 missing token, a refused config, a refused argument or no usable origin."""
 
+import argparse
+import calendar
 import contextlib
 import io
 import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -56,8 +67,10 @@ _TOOLS = Path(__file__).resolve().parent
 if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
+import ascii_line  # noqa: E402
 import ci_read_common as common  # noqa: E402
 import gitcmd  # noqa: E402
+import journal_lock as jl  # noqa: E402
 from ci_read_common import (  # noqa: E402
     TIMEOUT_SECONDS, Failure, Refusal, _emit_tail, emit, emit_own, sanitize)
 
@@ -76,6 +89,24 @@ WORKFLOW_RE = re.compile(r"^[\w.-]+\.ya?ml$", re.ASCII)   # it goes into a URL p
 REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$", re.ASCII)      # ASCII \w: GitHub names are ASCII, and it goes into a URL
 _SCP_RE = re.compile(r"^[^@/]+@([^:/]+):(.+)$")
 build_parser = common.build_parser
+MAIN_WORKFLOWS = ("forge-check.yml", "canon.yml")     # the allow-list of push runs on main (quarantine-watch never counts, E8)
+MAIN_WINDOW = 30                  # first-parent tips of origin/main read per refresh
+GRACE_NEW_S = 120                 # a tip younger than this is pending whatever CI says
+NONE_UNKNOWN_S = 900              # no run at all after this: unknown
+PENDING_STALE_S = 5400            # still pending after 90 min (> the measured canon max of 73): unknown
+HISTORY_MAX = 50
+NAME_MAX = 60                     # a job name / subject / branch from the remote
+LINE_MAX = 300                    # the SessionStart line
+FLAKY_ID_MAX = 200
+LAUNCH_MIN_S = 300                # a detached refresh is not launched twice within this
+LOCK_WAIT = 10.0
+STATE_DIRNAME = "main-red"
+TASK_RE = re.compile(r"t-[0-9]{3,9}[a-z]{0,2}")
+FLAKY_RE = re.compile(r"[\x20-\x7e]{1,%d}" % FLAKY_ID_MAX)
+_PENDING = ("queued", "in_progress", "waiting", "requested", "pending")
+_VERDICT = {"success": "success", "failure": "failure", "timed_out": "failure", "startup_failure": "failure",
+            "cancelled": "cancelled", "skipped": "skipped"}
+_RANK = ("failure", "pending", "unknown", "cancelled", "skipped", "success")     # the worse verdict wins on one name
 
 
 def _repo_name(text):
@@ -236,6 +267,18 @@ def _canon_run_exists(base: str, token: str, ref: str) -> bool:
     return True
 
 
+def _verdict(row: dict) -> str:
+    """success | failure | cancelled | skipped | pending | unknown of one run or job row (FG7-94 D2; _state_word stays as it is)."""
+    done = row.get("conclusion")
+    if not done:
+        return "pending" if row.get("status") in _PENDING else "unknown"
+    return _VERDICT.get(done, "unknown")
+
+
+def _key(row: dict):
+    return (str(row.get("created_at") or ""), row.get("id") if isinstance(row.get("id"), int) else 0)
+
+
 def make_commands(repo: str, root=None) -> dict:
     base = "%s/repos/%s" % (API, repo)
 
@@ -392,8 +435,39 @@ def make_commands(repo: str, root=None) -> dict:
         failed = [str(j.get("name")) for j in jobs if _state_word(j) == "failure"] if state == "failure" else []
         return state, failed
 
+    def cmd_push_jobs(args, token):
+        """DATA: (word, {workflow: run_id}, {job: verdict}) of the PUSH runs on main at `args.sha` (see main_push_jobs)."""
+        q = urllib.parse.quote(args.sha, safe="")
+        rows = _rows(_open("%s/actions/runs?head_sha=%s&event=push&branch=main&per_page=20" % (base, q), token)[1],
+                     "workflow_runs")
+        kept = {}
+        for r in rows:       # newest per workflow; a dispatch run, another head, another workflow never counts (E7, E8)
+            wf = str(r.get("path") or "").split("@")[0].rsplit("/", 1)[-1]
+            if (str(r.get("head_sha") or "") == args.sha and r.get("event") == "push" and r.get("head_branch") == "main"
+                    and wf in MAIN_WORKFLOWS and (wf not in kept or _key(r) > _key(kept[wf]))):
+                kept[wf] = r
+        if not kept:
+            return "none", {}, {}
+        jobs = {}
+
+        def put(name, verdict):
+            name = ascii_line.clip(name, NAME_MAX)
+            if name not in jobs or _RANK.index(verdict) < _RANK.index(jobs[name]):
+                jobs[name] = verdict
+        for wf, r in kept.items():
+            if r.get("conclusion") == "startup_failure":          # a broken workflow file on main (E9)
+                put("%s: startup_failure" % wf, "failure")
+                continue
+            listed = _rows(_open("%s/actions/runs/%s/jobs?per_page=100" % (base, urllib.parse.quote(str(r.get("id")), safe="")),
+                                 token)[1], "jobs")
+            for j in listed:
+                put(str(j.get("name")), _verdict(j))
+            if r.get("status") != "completed" or not listed:
+                put("%s: run" % wf, _verdict(r))
+        return "read", {wf: r.get("id") for wf, r in kept.items()}, jobs
+
     return {"pipelines": cmd_pipelines, "jobs": cmd_jobs, "log": cmd_log, "artifact": cmd_artifact,
-            "start": cmd_start, "why": cmd_why, "run_state": cmd_run_state}
+            "start": cmd_start, "why": cmd_why, "run_state": cmd_run_state, "push_jobs": cmd_push_jobs}
 
 
 def _check(args) -> None:
@@ -450,7 +524,448 @@ def run_state(root, sha):
         return "unknown", []
 
 
+def main_push_jobs(root, sha):
+    """(word, {workflow: run_id}, {job: verdict}) of the PUSH runs of MAIN_WORKFLOWS on main at `sha`, as DATA, built like
+    run_state (same backend, token door, request function). word: none (no kept run) | read | unknown (any transport, parse
+    or token failure). Never raises, never prints. The error direction is toward unknown/pending, never toward green."""
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            backend = backend_for(root)
+            name, _source = backend.token_env_name()
+        command, token = backend.commands.get("push_jobs"), os.environ.get(name)
+        if command is None or not token:
+            return "unknown", {}, {}
+        word, runs, jobs = command(SimpleNamespace(sha=str(sha)), token)
+        return word, dict(runs), dict(jobs)
+    except Exception:  # noqa: BLE001 -- information only: whatever fails is `unknown`
+        return "unknown", {}, {}
+
+
+# ---- main's red list (FG7-94): the carrier, its one writer, the fold, the line, the launch, the CLI
+class MainRedRefusal(Exception):
+    """A mutation refused by its own rule (the carrier stays as it was)."""
+
+
+def _iso(t):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+
+
+def _epoch(text):
+    try:
+        return calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, OverflowError):
+        return 0
+
+
+def _s8(sha):
+    return str(sha or "")[:8]
+
+
+def _fresh():
+    return {"version": 1, "head": None, "read_at": None, "error": None, "tips": {}, "order": [], "red": {},
+            "fixer": None, "flaky": [], "history": []}
+
+
+def _valid(st):
+    shape = (("tips", dict), ("order", list), ("red", dict), ("flaky", list), ("history", list))
+    return (isinstance(st, dict) and st.get("version") == 1 and all(isinstance(st.get(k), t) for k, t in shape)
+            and (st.get("fixer") is None or isinstance(st.get("fixer"), dict))
+            and all(isinstance(t, dict) for t in st["tips"].values()) and all(isinstance(r, dict) for r in st["red"].values()))
+
+
+def _state_path(root):
+    return jl.common_dir(root) / STATE_DIRNAME / "state.json"
+
+
+def main_red_read(root, path=None):
+    """(state, None) | (None, why); why is `never read` or `state unreadable (<Exc>)`. No lock: the file is replaced whole."""
+    try:
+        path = path or _state_path(root)
+        state = json.loads(path.read_text(encoding="utf-8"))
+        if not _valid(state):
+            raise ValueError("wrong shape")
+        return state, None
+    except FileNotFoundError:
+        return None, "never read"
+    except Exception as exc:  # noqa: BLE001 -- a corrupt file is never green
+        return None, "state unreadable (%s)" % type(exc).__name__
+
+
+def main_red_write(root, mutate):
+    """THE one writer of the carrier: read, `mutate(state)`, replace from a temp file beside it, under lock main-red. A corrupt
+    or wrong-shaped file is renamed aside and the mutation starts fresh (E11). Returns (state, notes). Raises LockBusy / LockError
+    / whatever `mutate` raises (then nothing is written)."""
+    path = _state_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    notes = []
+    with jl.machine_lock("main-red", LOCK_WAIT, repo=root):
+        state, why = main_red_read(root, path)
+        if state is None and path.exists():
+            aside = "state.json.corrupt-" + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+            os.replace(path, path.parent / aside)
+            notes.append("state was unreadable (%s); kept as %s, started fresh" % (why, aside))
+        state = state or _fresh()
+        mutate(state)
+        state["history"] = state["history"][-HISTORY_MAX:]
+        tmp = path.parent / ("state.json.tmp-%d" % os.getpid())
+        tmp.write_text(json.dumps(state, indent=1, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+    return state, notes
+
+
+def _hist(st, text, now=None):
+    st["history"].append({"at": _iso(time.time() if now is None else now), "text": ascii_line.clip(text, 200)})
+
+
+def _new_tip(task, branch, kind, subject, when):
+    return {"task": task, "branch": branch, "kind": kind, "subject": ascii_line.clip(subject or "", NAME_MAX),
+            "pushed_at": _iso(when), "runs": {}, "jobs": {}, "state": "pending", "final": False}
+
+
+def main_red_record(root, sha, task=None, branch=None, kind="merge", preflight=None, now=None):
+    """wave's call after a push to main: the tip joins the carrier (pending until a refresh reads it). Returns an error text
+    or None; never raises. `preflight`: names of FG7-92 registry checks that were red before the merge (a prediction, shown
+    by `show`, never opening MAIN RED)."""
+    try:
+        def mutate(st):
+            tip = st["tips"].get(sha) or _new_tip(task, branch, kind, "", time.time() if now is None else now)
+            tip.update(task=task, branch=ascii_line.clip(branch or "", NAME_MAX) or None, kind=kind)
+            if preflight:
+                tip["preflight"] = [ascii_line.clip(p, NAME_MAX) for p in list(preflight)[:10]]
+            st["tips"][sha] = tip
+            if sha not in st["order"]:
+                st["order"].append(sha)
+            st["order"] = st["order"][-MAIN_WINDOW:]
+        main_red_write(root, mutate)
+        return None
+    except Exception as exc:  # noqa: BLE001 -- wave never fails on this
+        return ascii_line.clip("%s: %s" % (type(exc).__name__, exc), 120)
+
+
+def main_red_tip_state(word, runs, jobs, age):
+    """pending | unknown | red | green | superseded of one tip (D4). Pending outranks red: a red tip is final only when no run is open."""
+    if word == "unknown":
+        return "unknown"
+    if age < GRACE_NEW_S:
+        return "pending"
+    if word == "none":
+        return "unknown" if age > NONE_UNKNOWN_S else "pending"
+    if any(v == "pending" for v in jobs.values()):
+        return "unknown" if age > PENDING_STALE_S else "pending"
+    if any(v == "failure" for v in jobs.values()):
+        return "red"
+    if "forge-check.yml" in runs and all(v in ("success", "skipped") for v in jobs.values()):
+        return "green"
+    return "superseded"
+
+
+def main_red_fold(order, tips, prior_red):
+    """(red, events) over `order` (oldest first), pure. Per job: only tips with a FINAL verdict success/failure speak. Latest
+    failure opens it (first_red = start of the trailing failure streak, last_green before it, range = tips after last_green up
+    to first_red, tips without a verdict named); latest success closes it; no verdict in the window keeps a prior red as it was;
+    a prior red whose job is absent at a green head closes as `gone`. events: (job, closed|gone, sha)."""
+    red, events = {}, []
+    pos = {sha: i for i, sha in enumerate(order)}
+    final = [s for s in order if tips.get(s, {}).get("final")]
+    for job in sorted(set(prior_red) | {j for s in final for j in tips[s].get("jobs", {})}):
+        seq = [(s, tips[s]["jobs"][job]) for s in final if tips[s].get("jobs", {}).get(job) in ("success", "failure")]
+        if not seq:
+            if job in prior_red:
+                red[job] = prior_red[job]
+            continue
+        if seq[-1][1] == "success":
+            if job in prior_red:
+                events.append((job, "closed", seq[-1][0]))
+            continue
+        i = len(seq) - 1
+        while i > 0 and seq[i - 1][1] == "failure":
+            i -= 1
+        first, green = seq[i][0], (seq[i - 1][0] if i else None)
+        prior = prior_red.get(job)
+        if prior and not green and prior.get("first_red") not in pos:       # the streak began before the window: keep its start
+            red[job] = prior
+            continue
+        span = order[(pos[green] + 1 if green else 0):pos[first] + 1]
+        rng = [{"sha": s, "task": tips[s].get("task"), "label": tips[s].get("branch") or tips[s].get("subject") or ""} for s in span]
+        red[job] = {"first_red": first, "last_green": green, "range": rng, "opened_at": (prior or {}).get("opened_at")}
+    head = tips.get(order[-1]) if order else None
+    if head and head.get("state") == "green":
+        for job in [j for j in red if j not in head.get("jobs", {})]:
+            events.append((job, "gone", order[-1]))
+            del red[job]
+    return red, events
+
+
+def main_red_refresh(root, now=None):
+    """(exit code, text): fetch origin main (30 s; failure -> the local ref, error recorded), read CI of the window's tips that
+    are not final, fold, write. A busy lock is exit 0 `another refresh is running`."""
+    now = time.time() if now is None else now
+    error = None
+    if gitcmd.git(root, "fetch", "origin", "main", timeout=30)[0] != 0:
+        error = "fetch failed; the local origin/main was read"
+    rc, out = gitcmd.git(root, "log", "--first-parent", "-n", str(MAIN_WINDOW), "--format=%H%x09%ct%x09%s", "origin/main")
+    rows = [ln.split("\t", 2) for ln in gitcmd.as_text(out).splitlines() if ln.count("\t") >= 2] if rc == 0 else []
+    if not rows:
+        return 1, "origin/main does not resolve here"
+    prior = main_red_read(root)[0] or _fresh()
+    reads = {sha: main_push_jobs(root, sha) for sha, _ct, _s in rows if not prior["tips"].get(sha, {}).get("final")}
+    if any(r[0] == "unknown" for r in reads.values()):
+        error = error or "CI read failed"
+
+    def mutate(st):
+        order, tips = [r[0] for r in reversed(rows)], {}
+        newest = int(rows[0][1])
+        late = sorted((t["pushed_at"], sha) for sha, t in st["tips"].items()      # recorded by wave while the CI was being read (F1)
+                      if sha not in order and _epoch(t.get("pushed_at")) >= newest)
+        order += [sha for _at, sha in late]
+        for sha, ct, subject in reversed(rows):
+            tip = st["tips"].get(sha) or _new_tip(None, None, "direct", subject, int(ct))
+            tip["subject"] = tip.get("subject") or ascii_line.clip(subject, NAME_MAX)
+            if not tip.get("final") and sha in reads:
+                word, runs, jobs = reads[sha]
+                age = now - _epoch(tip["pushed_at"])
+                tip.update(runs=runs, jobs=jobs, state=main_red_tip_state(word, runs, jobs, age))
+                tip["final"] = tip["state"] in ("green", "red", "superseded")
+                tip["why"] = ("CI read failed" if word == "unknown" else "no run after 15 min" if word == "none"
+                              else "no verdict after 90 min") if tip["state"] == "unknown" else None      # F2: the reason lives on the tip
+            tips[sha] = tip
+        for sha in order[len(rows):]:
+            tips[sha] = st["tips"][sha]
+        was = st["red"]
+        st["red"], events = main_red_fold(order, tips, was)
+        fixer = (st["fixer"] or {}).get("task")
+        for job, red in st["red"].items():
+            if job not in was:
+                red["opened_at"] = _iso(now)
+                _hist(st, "opened %s, first red %s" % (job, _s8(red["first_red"])), now)
+        for job, kind, sha in events:
+            task = tips[sha].get("task")
+            by = " (fixed by fixer)" if kind == "closed" and fixer and task == fixer else ""
+            _hist(st, "%s %s at %s (%s)%s" % (job, "closed" if kind == "closed" else "gone", _s8(sha), task or "direct", by), now)
+        st.update(tips=tips, order=order, head=order[-1], read_at=_iso(now), error=error)
+    try:
+        state, notes = main_red_write(root, mutate)
+    except jl.LockBusy:
+        return 0, "another refresh is running"
+    except jl.LockError as exc:
+        return 1, "cannot write the carrier (%s)" % type(exc).__name__
+    head = state["tips"][state["head"]]["state"]
+    return 0, "; ".join(notes + ["refreshed: head %s %s, %d red" % (_s8(state["head"]), head, len(state["red"]))])
+
+
+def _origin(root):
+    rc, out = gitcmd.git(root, "rev-parse", "--verify", "-q", "refs/remotes/origin/main", timeout=5)
+    return gitcmd.as_text(out).strip() if rc == 0 else ""
+
+
+def _unknown(sha, why):
+    return "MAIN CI unknown at %s: %s; refresh: python -B tools/ci_read.py main-red refresh" % (_s8(sha), why)
+
+
+def main_red_line(root, now=None):
+    """The ONE formatter of main's state (SessionStart and the CLI): a str of at most LINE_MAX ASCII chars, or None (silence
+    means green with no fixer, or no origin/main here). One file read and at most two local git calls; no network (D5)."""
+    now = time.time() if now is None else now
+    origin = _origin(root)
+    if not origin:
+        return None
+    state, why = main_red_read(root)
+    if state is None:
+        return _unknown(origin, why)
+    head, tips = state.get("head"), state["tips"]
+    if head not in tips or (head != origin and gitcmd.git(root, "merge-base", "--is-ancestor", origin, head, timeout=5)[0] != 0):
+        head = None
+    age = 0
+    if head is None:
+        hs, hsha, hwhy = "unknown", origin, "not read yet"
+    else:
+        tip = tips[head]
+        hs, hsha, hwhy = tip.get("state", "unknown"), head, None
+        age = now - _epoch(tip.get("pushed_at"))
+        if hs == "pending" and not tip.get("runs") and age > NONE_UNKNOWN_S:
+            hs, hwhy = "unknown", "no run after 15 min"
+        elif hs == "pending" and age > PENDING_STALE_S:
+            hs, hwhy = "unknown", "no verdict after 90 min"
+        elif hs == "superseded":
+            hs, hwhy = "unknown", "run cancelled"
+        elif hs == "unknown":
+            hwhy = tip.get("why") or "no verdict after 90 min"
+    fixer = ascii_line.clip((state["fixer"] or {}).get("task") or "", 20) if state["fixer"] else ""
+    n_flaky, h8 = len(state["flaky"]), _s8(hsha)
+    if state["red"]:
+        pos = {s: i for i, s in enumerate(state["order"])}
+        reds = sorted(state["red"].items(), key=lambda kv: pos.get(kv[1].get("first_red"), -1))
+        since = _s8(reds[0][1].get("first_red"))
+        for k in (3, 2, 1):
+            parts = []
+            for job, red in reds[:k]:
+                tasks = list(dict.fromkeys(ascii_line.clip(r.get("task") or "direct", 20) for r in red.get("range", [])))   # one wave = one task (F6)
+                shown = ", ".join(tasks[:2]) + (" +%d" % (len(tasks) - 2) if len(tasks) > 2 else "")
+                parts.append("%s [%s]" % (ascii_line.clip(job, NAME_MAX), shown))
+            line = "MAIN RED since %s: %s%s; head %s %s; fixer %s%s" % (
+                since, ", ".join(parts), " +%d more" % (len(reds) - k) if len(reds) > k else "", h8, hs, fixer or "none",
+                "; flaky %d" % n_flaky if n_flaky else "")
+            if len(line) <= LINE_MAX:
+                break
+        return ascii_line.clip(line, LINE_MAX)
+    if hs == "green":
+        if fixer:
+            base = "MAIN GREEN at %s; fixer %s on the flaky queue" % (h8, fixer)
+            return base + (": %d left" % n_flaky if n_flaky else
+                           "; nothing left, close: python -B tools/ci_read.py main-red fixer --done %s" % fixer)
+        return "MAIN GREEN, flaky queue %d: no fixer" % n_flaky if n_flaky else None
+    if hs == "pending":
+        last = next((s for s in reversed(state["order"]) if tips.get(s, {}).get("state") == "green"), None)
+        return "MAIN CI pending at %s (%d min); last green %s" % (h8, max(0, int(age // 60)), _s8(last) if last else "none")
+    return _unknown(hsha, hwhy)
+
+
+def main_red_launch(root, trigger, spawn=None, now=None):
+    """started | throttled | no-origin | failed: a detached `main-red refresh`, never waited for. Skipped when origin/main does
+    not resolve or the last launch is younger than LAUNCH_MIN_S. Never raises."""
+    now = time.time() if now is None else now
+    try:
+        if not _origin(root):
+            return "no-origin"
+        stamp = _state_path(root).parent / "launch"
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if now - float(stamp.read_text(encoding="utf-8")) < LAUNCH_MIN_S:
+                return "throttled"
+        except (OSError, ValueError):
+            pass
+        stamp.write_text(str(now), encoding="utf-8")
+        import worktree_sweep  # noqa: PLC0415 -- the ONE place a background process is made
+        (spawn or worktree_sweep.spawn_detached)([sys.executable, "-B", str(Path(__file__).resolve()), "main-red", "--repo", str(root), "refresh"],
+                                   root, jl._git_env())
+        return "started"
+    except Exception:  # noqa: BLE001 -- the trigger (SessionStart, wave) must not fail on this
+        return "failed"
+
+
+def _refuse(text, code=1):
+    print("main-red: " + text)
+    return code
+
+
+def _show(root):
+    state, why = main_red_read(root)
+    if state is None:
+        return _refuse("no state (%s); refresh: python -B tools/ci_read.py main-red refresh" % why)
+    tips, order = state["tips"], state["order"]
+    print("head %s %s; fixer %s; flaky %d" % (_s8(state["head"]), tips.get(state["head"], {}).get("state", "unknown"),
+                                              (state["fixer"] or {}).get("task", "none"), len(state["flaky"])))
+    for job, red in state["red"].items():
+        green = red.get("last_green")
+        print("RED %s: first red %s, last green %s" % (job, _s8(red["first_red"]),
+                                                       _s8(green) if green else "none (before %s)" % _s8(order[0] if order else "")))
+        for r in red.get("range", [])[:5]:
+            print("  %s %s %s" % (_s8(r["sha"]), r.get("task") or "direct", r.get("label") or "-"))
+        if len(red.get("range", [])) > 5:
+            print("  +%d more" % (len(red["range"]) - 5))
+        first = tips.get(red["first_red"], {})
+        print("  runs: %s" % (", ".join("%s=%s" % kv for kv in first.get("runs", {}).items()) or "-"))
+        for r in red.get("range", []):
+            if tips.get(r["sha"], {}).get("preflight"):
+                print("  preflight red before %s: %s" % (_s8(r["sha"]), ", ".join(tips[r["sha"]]["preflight"])))
+    for item in state["flaky"]:
+        print("flaky %s: %s" % (item.get("id"), item.get("why")))
+    for event in state["history"][-5:]:
+        print("history %s %s" % (event.get("at"), event.get("text")))
+    return 0
+
+
+def _mutation(root, text, mutate):
+    try:
+        main_red_write(root, mutate)
+    except MainRedRefusal as exc:
+        return _refuse(str(exc))
+    except jl.LockBusy:
+        return _refuse("retry: another writer holds the lock")
+    except (jl.LockError, OSError) as exc:
+        return _refuse("cannot write the carrier (%s)" % type(exc).__name__)
+    print(text)
+    return 0
+
+
+def main_red_cli(argv):
+    p = argparse.ArgumentParser(prog="ci_read.py main-red", description="main's red list and its one fixer")
+    p.add_argument("--repo", default=str(ROOT))
+    sub = p.add_subparsers(dest="sub")
+    sub.add_parser("show")
+    sub.add_parser("refresh")
+    f = sub.add_parser("fixer")
+    f.add_argument("task", nargs="?")
+    f.add_argument("--done", metavar="TASK")
+    fl = sub.add_parser("flaky")
+    fl.add_argument("op", choices=("add", "done"))
+    fl.add_argument("id")
+    fl.add_argument("--why")
+    fl.add_argument("--by")
+    a = p.parse_args(argv)
+    root = a.repo
+    if a.sub is None:
+        line = main_red_line(root)
+        if line is None and _origin(root):
+            line = "main green at %s" % _s8(_origin(root))
+        print(line or "main-red: no origin/main in this root")
+        return 0
+    if a.sub == "show":
+        return _show(root)
+    if a.sub == "refresh":
+        code, text = main_red_refresh(root)
+        print(text)
+        return code
+    if a.sub == "fixer":
+        return _cmd_fixer(root, a)
+    return _cmd_flaky(root, a)
+
+
+def _cmd_fixer(root, a):
+    task = a.done or a.task
+    if (a.done is None) == (a.task is None) or not TASK_RE.fullmatch(task or ""):
+        return _refuse("fixer expects one task id t-NNN (3-9 digits, optional letters) or --done t-NNN", 2)
+
+    def mutate(st):
+        cur = (st["fixer"] or {}).get("task")
+        if a.done is None:
+            if cur:
+                raise MainRedRefusal("fixer %s is open" % cur)
+            if not st["red"]:
+                raise MainRedRefusal("main is not red")
+            st["fixer"] = {"task": task, "since": _iso(time.time())}
+        else:
+            if cur != task:
+                raise MainRedRefusal("fixer %s is open" % cur if cur else "no fixer is open")
+            st["fixer"] = None
+        _hist(st, "fixer %s %s" % (task, "set" if a.done is None else "done"))
+    return _mutation(root, "fixer %s %s" % (task, "set" if a.done is None else "done"), mutate)
+
+
+def _cmd_flaky(root, a):
+    if not FLAKY_RE.fullmatch(a.id) or (a.why is not None and not FLAKY_RE.fullmatch(a.why)):
+        return _refuse("flaky id and --why are 1..%d printable ASCII characters, one line" % FLAKY_ID_MAX, 2)
+    if (a.op == "add" and a.why is None) or (a.op == "done" and not TASK_RE.fullmatch(a.by or "")):
+        return _refuse("flaky add needs --why <text>; flaky done needs --by t-NNN", 2)
+
+    def mutate(st):
+        ids = [x.get("id") for x in st["flaky"]]
+        if a.op == "add":
+            if a.id in ids:
+                raise MainRedRefusal("already on the flaky queue")
+            st["flaky"].append({"id": a.id, "why": a.why, "added": _iso(time.time())})
+        else:
+            if a.id not in ids:
+                raise MainRedRefusal("not on the flaky queue")
+            st["flaky"] = [x for x in st["flaky"] if x.get("id") != a.id]
+        _hist(st, "flaky %s %s%s" % (a.op, a.id, " by " + a.by if a.op == "done" else ""))
+    return _mutation(root, "flaky %s %s" % (a.op, a.id), mutate)
+
+
 def main(argv=None) -> int:
+    args = sys.argv[1:] if argv is None else list(argv)
+    if args and args[0] == "main-red":
+        return main_red_cli(args[1:])
     return common.run(argv, lambda: backend_for(ROOT))
 
 

@@ -120,7 +120,19 @@ def registry_preflight_lines(w):
         w.say("registry preflight: cannot judge (branch %s not found)" % w.branch)
         return
     import registry_preflight  # noqa: PLC0415
-    registry_preflight.preflight(w.root, "origin/" + MAIN, tip, out=w.say)
+    rep = registry_preflight.preflight(w.root, "origin/" + MAIN, tip, out=w.say)
+    return [r[0] for r in getattr(rep, "rows", []) if r[1] == "red"]      # FG7-94 F8: stored on the tip record, never a refusal
+
+
+def main_red_record(root, sha, **kw):
+    """FG7-94 D6: the pushed tip joins main's red list (ci_read.main_red_record: an error text or None, never raises)."""
+    import ci_read  # noqa: PLC0415
+    return ci_read.main_red_record(root, sha, **kw)
+
+
+def main_red_launch(root, trigger):
+    import ci_read  # noqa: PLC0415
+    return ci_read.main_red_launch(root, trigger)
 
 
 def journal_rel(root):
@@ -147,8 +159,10 @@ def _sha(data):
 class Wave:
     def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print, pin=None, piles_skip=None,
                  tests_over=None, leftover_ok=None,
-                 preflight=None):
+                 preflight=None, record=None, launch=None):
         self.preflight = preflight or registry_preflight_lines     # a seam like ci=: a test passes a silent stub
+        self.record, self.launch = record or main_red_record, launch or main_red_launch     # seams like ci=
+        self.preflight_reds, self.recorded = [], False
         self.leftover_ok = leftover_ok    # the validated reason, or None
         self.leftover_line = "leftover: none"
         self.branch, self.task, self.node, self.ci, self.out = branch, task, node, ci, out
@@ -170,6 +184,16 @@ class Wave:
     # ---- helpers
     def say(self, text):
         self.out(text)
+
+    def record_tip(self, sha, kind):
+        """After a push to main succeeded: the tip joins main's red list. A failure is one line; the exit never changes (E19)."""
+        self.recorded = True
+        try:
+            why = self.record(self.root, sha, task=self.task, branch=self.branch, kind=kind, preflight=self.preflight_reds or None)
+        except Exception as exc:  # noqa: BLE001
+            why = "%s: %s" % (type(exc).__name__, str(exc)[:120])
+        if why:
+            self.say("main ci: tip not recorded (%s)" % why)
 
     def fetch(self, step="step 2"):
         rc, _o, err = git(self.root, "fetch", "origin")
@@ -342,10 +366,12 @@ class Wave:
                 self.fetch("step 7")
             w = self.add_worktree()
             try:
+                merged = False
                 if git(w, "merge-base", "--is-ancestor", branch_sha, "HEAD")[0] == 0:
                     self.say("nothing to merge")
                     self.sha = branch_sha
                 else:
+                    merged = True
                     self.merge(w)
                     self.sha = git(w, "rev-parse", "HEAD")[1]
                 if self.node:
@@ -354,6 +380,11 @@ class Wave:
                     return
                 if self.push(w, "step 7") == "ok":
                     self.pushed = True
+                    top = git(w, "rev-parse", "HEAD")[1]
+                    if top == self.sha or merged:
+                        self.record_tip(self.sha, "merge")
+                    if top != self.sha:
+                        self.record_tip(top, "piles")
                     return
             finally:
                 self.drop(w)
@@ -457,6 +488,7 @@ class Wave:
                     self.say("journal not committed: %s" % text)
                     return
                 if self.push(w, "step 8") == "ok":
+                    self.record_tip(git(w, "rev-parse", "HEAD")[1], "journal")
                     return
             except Refuse as exc:
                 self.say("journal not committed: %s" % exc)
@@ -726,7 +758,8 @@ class Wave:
         if bad:
             return self.refuse(Refuse(bad))
         try:                    # BEFORE the lock: the lock-held work is unchanged and the preflight never refuses (FG7-92)
-            self.preflight(self)
+            reds = self.preflight(self)
+            self.preflight_reds = list(reds) if isinstance(reds, (list, tuple)) else []
         except Exception as exc:
             self.say("registry preflight: cannot judge (%s: %s)" % (type(exc).__name__, str(exc)[:200]))
         try:
@@ -739,6 +772,12 @@ class Wave:
             return self.refuse(Refuse("the main-merge lock cannot be taken: %s" % exc))
         except Refuse as exc:
             return self.refuse(exc)
+        finally:                # AFTER main-merge is released; only when something was pushed; never waits (D6)
+            if self.recorded:
+                try:
+                    self.launch(self.root, "wave")
+                except Exception:  # noqa: BLE001
+                    pass
 
     def refuse(self, exc):
         if str(exc):

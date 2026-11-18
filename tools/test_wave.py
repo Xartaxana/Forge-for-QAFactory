@@ -937,3 +937,47 @@ def test_leftover_of_the_branch_worktree_refuses_or_is_salvaged_FG7_67(env, monk
         assert origin_main(env) == before and "pushed:" not in out and out.count("\n  n") <= 20   # nothing before fetch/push
     if flag and "salvaged" in out:
         assert g(env.root, "for-each-ref", "refs/worktree-sweep/salvage/lo") != ""
+
+
+# ---- FG7-94 D6: the pushed tip joins main's red list; the refresh is launched after the lock is released -----------
+
+@pytest.fixture(autouse=True)
+def no_main_red(monkeypatch):
+    """Every wave of this file records nothing and launches nothing, unless a test passes its own seams."""
+    monkeypatch.setattr(wave, "main_red_record", lambda root, sha, **kw: None)
+    monkeypatch.setattr(wave, "main_red_launch", lambda root, trigger: None)
+
+
+@pytest.mark.parametrize("how", ["ok", "error-text", "raises", "refused-branch", "refused-push"])
+def test_main_red_record_after_push_and_launch_after_lock(env, how):
+    calls, free = [], []
+
+    def record(root, sha, **kw):
+        calls.append((sha, kw["kind"], kw["task"], kw["branch"], kw["preflight"]))
+        if how == "raises":
+            raise RuntimeError("boom")
+        return "disk full" if how == "error-text" else None
+
+    def launch(root, trigger):
+        try:                          # the lock is free when launch runs: the wave never waits on it, nor holds main-merge
+            with jl.machine_lock("main-merge", 0.2, repo=root):
+                free.append(trigger)
+        except jl.LockBusy:
+            free.append("BUSY")
+    name = "nope" if how == "refused-branch" else "mr1"
+    if how != "refused-branch":
+        branch(env, name, {"f.txt": "x\n"})
+    if how == "refused-push":
+        hook = env.origin / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+    out = []
+    w = wave.Wave(env.root, name, "t-868", None, ci=lambda r, s: "success", out=out.append, preflight=lambda w: ["census"],
+                  record=record, launch=launch)
+    rc, text = w.run(), "\n".join(out)
+    if how in ("refused-branch", "refused-push"):
+        assert rc == 2 and calls == [] and free == []                  # nothing pushed: nothing recorded, nothing launched
+        return
+    assert rc == 0 and free == ["wave"] and [c[1:] for c in calls] == [("merge", "t-868", "mr1", ["census"])]
+    assert calls[0][0] == origin_main(env)
+    assert text.count("main ci: tip not recorded") == (how != "ok") and (how == "ok" or "main ci: tip not recorded (" in text)
