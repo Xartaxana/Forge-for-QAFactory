@@ -181,6 +181,12 @@ FEATURE_REFUSED_TEXT = (
     "code fences and quotes, so its journal line would carry no feature. Door: add the line feature: Fnn (python -B "
     "tools/dispatch_new.py --feature Fnn prints it); to send it anyway on purpose, add a line: manifest-skip: feature -- <reason>."
 )
+_READERS_RE = re.compile(r"readers:[ \t]*(?:\d+ outside owns\b|unknown[ \t]*(?:--|—)[ \t]*\S)")  # .match: anchored at line start; a reason is required, as for manifest-skip
+READERS_NOTE = (
+    "READERS NOTE: this writing dispatch carries no readers: line -- run python -B tools/owns_readers.py "
+    "--paths <owns> (dispatch_new.py prints it) and keep its block, or write 'readers: unknown -- <reason>' "
+    "when it cannot run."
+)
 MAX_DOD_TEST_FILES = 3  # distinct test_*.py a builder's DoD may name (FG7-63, R3)
 
 HEADER_KEY_LIMIT = 160  # characters between the key and the colon
@@ -1140,7 +1146,15 @@ def check_cut(cut, is_builder: bool):
             return 2, dod_message, "", True
         if dod_note:
             skip_notes.append(dod_note)
+    if not _has_readers_line(cut):  # a NOTE only, never a refusal (spec facts by code, S2)
+        skip_notes.append(READERS_NOTE)
     return 0, "", "\n".join(skip_notes), True
+
+
+def _has_readers_line(cut: DispatchCut) -> bool:
+    """True when an UNQUOTED line is the readers block header of tools/owns_readers.py (or a hand-typed
+    `readers: unknown -- <reason>`); a fenced or blockquoted line does not count."""
+    return any(not cut.quoted[i] and _READERS_RE.match(line) for i, line in enumerate(cut.lines))
 
 
 def check(payload):
