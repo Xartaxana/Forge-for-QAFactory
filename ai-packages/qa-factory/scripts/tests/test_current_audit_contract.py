@@ -83,7 +83,7 @@ class AuditContractTests(unittest.TestCase):
                 S._test_outcome(tests/name)
         for name in names:
             self.assertEqual(seen[name],S.TEST_TIMEOUTS.get(name,300),name)
-        self.assertEqual(seen['test_infra_failure.py'],600)   # a row that exists upstream
+        self.assertEqual(seen['test_infra_failure.py'],300)   # no TEST_TIMEOUTS row since the file was cut into parts (a8a9fb40): the default
         self.assertEqual(seen['test_audit_rules.py'],300)
         for name in ('test_story_run_s7_live.py','test_no_move_seam.py'):
             self.assertEqual(seen[name],600,name)             # t-2202: slow files that timed out or neared 300 s on a loaded runner
