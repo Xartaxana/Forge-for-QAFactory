@@ -1189,7 +1189,7 @@ def test_k6_the_hook_text_names_only_covered_tools_and_the_module_imports_stay_i
     imported = {a.name.split(".")[0] for n in ast.walk(ast.parse(SOURCE)) if isinstance(n, ast.Import) for a in n.names}
     imported |= {n.module.split(".")[0] for n in ast.walk(ast.parse(SOURCE)) if isinstance(n, ast.ImportFrom) and n.module}
     local = [m for m in imported if (TOOLS / (m + ".py")).exists()]
-    assert local == ["gitcmd"] and all(any(mg._matches("tools/%s.py" % m, p) for p in mg.MECHANISM_PREFIXES) for m in local)
+    assert sorted(local) == ["gitcmd", "journal_lock"] and all(any(mg._matches("tools/%s.py" % m, p) for p in mg.MECHANISM_PREFIXES) for m in local)
 
 
 needs_sh = pytest.mark.skipif(shutil.which("sh") is None, reason="no sh on this machine (the BATCH CANON docker run executes it)")
@@ -1228,7 +1228,7 @@ def test_k9_sh_guard_calls_python_in_the_main_checkout(repo):
 @needs_sh
 def test_w19_the_hook_end_to_end_starts_the_background_sweep_that_removes_the_merged_copy(repo):
     (repo.main / "tools").mkdir()
-    for name in ("worktree_sweep.py", "gitcmd.py", "worktree-junk.json"):
+    for name in ("worktree_sweep.py", "gitcmd.py", "journal_lock.py", "worktree-junk.json"):
         shutil.copy(TOOLS / name, repo.main / "tools" / name)
     (repo.main / ".githooks").mkdir()
     hook = repo.main / ".githooks" / "post-merge"
