@@ -1122,7 +1122,26 @@ def k_u7_7b_b_the_trace_reads_the_bound_verdict_of_an_unread_case() -> None:
             cleanup(task.parent)
 
 
+def k_u7_7c_the_trace_reads_a_walked_unprepared_case() -> None:
+    """U7 7c: a walked, current, result-less unprepared manual case -> gap `unresolved:unprepared_walk`; a stale or not-walked one keeps
+    `result:none`; an automated result row of the same case decides (no marker gap)."""
+    walk = {"case": "TC-002", "attempt_id": "a1", "unprepared": {"reason": "r", "walked": True}}
+    for label, row, results, want in (
+            ("walked", walk, None, ["unresolved:unprepared_walk"]),
+            ("stale", dict(walk, current_reason="stale"), None, ["result:none"]),
+            ("not walked", dict(walk, unprepared={"reason": "r", "walked": False}), None, ["result:none"]),
+            ("an automated row names the case", walk, [{"case": "TC-002", "instance_id": "t2", "test": "t2", "status": "passed"}], [])):
+        task = story()
+        try:
+            edit(task, "work/run-report.json", lambda r: r.update(current_manual_checks=[row], **({"current_results": results} if results else {})))
+            gaps = [g["gap"] for r in G_walk(task) if r["requirement"] == "R-2" for g in r["gaps"]]
+            check_eq(f"7c trace: {label}", gaps, want)
+        finally:
+            cleanup(task.parent)
+
+
 def main() -> None:
+    k_u7_7c_the_trace_reads_a_walked_unprepared_case()
     k_u7_7b_b_the_trace_reads_the_bound_verdict_of_an_unread_case()
     k_pc5_s_b_after_checks_one_item_per_case()
     k_tq1_18_a_refused_base_holds_delivery()

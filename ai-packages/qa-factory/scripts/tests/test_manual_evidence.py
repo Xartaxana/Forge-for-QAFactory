@@ -1180,6 +1180,17 @@ def f5_unprepared_cases():
         check_eq("test_unprepared_rows_reader: a report with none, or no list, has none",
                  (M.unprepared_rows({}), M.unprepared_rows({"current_manual_checks": [{"result": "pass"}]}), M.unprepared_rows(None)),
                  ([], [], []))
+        u = {"reason": "r", "walked": True}
+        for label, rep, want in (
+                ("walked, ids of both spellings", {"current_manual_checks": [{"case": "A", "unprepared": u, "current_obligation_ids": ["O1"]},
+                                                                           {"case": "B", "unprepared": {"reason": "r"}, "obligation_ids": ["O2"]}]}, {"A": ["O1"], "B": ["O2"]}),
+                ("stale / not walked / has a result", {"current_manual_checks": [
+                    {"case": "A", "unprepared": u, "current_reason": "x"}, {"case": "B", "unprepared": dict(u, walked=False)},
+                    {"case": "C", "unprepared": u, "result": "pass"}]}, {}),
+                ("one unprepared row and one with a result", {"current_manual_checks": [{"case": "A", "unprepared": u}, {"case": "A", "result": "pass"}]}, {}),
+                ("broken input: a junk row is skipped", {"current_manual_checks": ["x", None, {"case": "A", "unprepared": u, "obligation_ids": ["O1"]}]}, {"A": ["O1"]}),
+                ("broken input: none, a non-dict, a non-list", None, {}), ("a string report", "x", {}), ("a non-list", {"current_manual_checks": {"case": "A"}}, {})):
+            check_eq("current_unprepared: " + label, M.current_unprepared(rep), want)
     finally:
         S.cleanup(t)
     t = S.make_task(manual=("ui",))

@@ -1550,6 +1550,17 @@ def an_unread_run_reads_as_checks_left_never_green():
                                {"triage": triage}, {"TS-1": plan_cases})[0]
         check_eq("plan_row_state: " + name, got, want)
 
+    # U7 7c (N6): a case with NO result (word `""`) is never green; the walked unprepared one is left with the person
+    walk = {"case": "TC-9", "unprepared": {"reason": "r", "walked": True}, "current_obligation_ids": ["O-1"]}
+    for name, rows, plan_cases, want in (
+            ("walked unprepared", [walk], ["TC-9"], L.UNPREPARED_WALK_STATE),
+            ("a row with no result and no marker", [{"case": "TC-9"}], ["TC-9"], "not_executed:no result recorded for this row's cases"),
+            ("stale walk", [dict(walk, current_reason="stale")], ["TC-9"], "not_executed:no result recorded for this row's cases"),
+            ("unprepared + a failed sibling: the failure wins", [walk], ["TC-9", "TC-4"], "failed:untriaged")):
+        report = {"current_manual_checks": rows, "current_results": [{"case": "TC-4", "instance_id": "i4", "status": "failed"}] if "sibling" in name else []}
+        check_eq("plan_row_state 7c: " + name, L.plan_row_state({"ts": "TS-1", "disposition": "manual-agent", "reason": ""}, {}, report, {"triage": []},
+                                                              {"TS-1": plan_cases})[0], want)
+
 
 if __name__ == "__main__":
     main()

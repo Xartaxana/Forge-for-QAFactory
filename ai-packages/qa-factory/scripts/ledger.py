@@ -38,6 +38,8 @@ HANDED_STATE = "not_executed:handed_to_person"
 # U7 7b-B: the state of a test (or plan row) whose run results code could not read (`C.REPORT_UNREAD_CODE`) and whose log the failure
 # analyst read as NOT_EXECUTED. Its kind is `run_unread` in `references/delivery-verdict-kinds.json` (`after_checks`, owner factory).
 REPORT_UNREAD_STATE = "not_executed:report_unread"
+# U7 7c: the state of a plan row whose cases the factory could not prepare and the runner walked with no result; kind `unprepared_walk`.
+UNPREPARED_WALK_STATE = "not_executed:unprepared_walk"
 # HF2-3 (3c1): the ledger state of a case whose OWN runs are green while a Then of it stands behind another case's red
 # assert in the same test (a `blocked_by_check` row, or a covered Then of a test that stopped at that red). Inside the
 # vocabulary like HANDED_STATE; its kind is `blocked_by_check` in `references/delivery-verdict-kinds.json`.
@@ -865,6 +867,17 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
     # with the person (`run_unread`), not a factory refusal. POSITION INVARIANT: AFTER every failure, flaky, partial, error,
     # unknown-word and unconfirmed-expectation word (none is hidden), BEFORE `skipped`; `passed_green` stays unreachable for it. A case
     # whose reading is "unanswered" (or any other skipped-class sibling) keeps `skipped:inconclusive run`: only an all-read set moves.
+    # U7 7c (N6): a case whose word is `""` has NO result (a walked unprepared manual case, or a manual row nobody filled). SAME POSITION as
+    # `report_unread` and ahead of it, so that branch (which looks only at skipped-class words) never hides a no-result case: AFTER every
+    # failure, flaky, partial, error, unknown-word and unconfirmed word (none hidden), BEFORE `skipped`; `passed_green` is unreachable
+    # for it. Every such case in `manual_evidence.current_unprepared` -> `unprepared_walk` (left with the person); any other -> no result.
+    blank = [c for c, r in outcomes if r == ""]
+    if blank:
+        from manual_evidence import current_unprepared
+        walked = current_unprepared(report)
+        if all(C.names_case(walked, c, cfg_u) for c in blank):
+            return (UNPREPARED_WALK_STATE, ", ".join(blank))
+        return ("not_executed:no result recorded for this row's cases", ", ".join(blank))
     read = [c for c, r in outcomes if r == "not_run" and unread.get(c) == "read"]
     if read and all(c in read for c, r in outcomes if r in ("skipped", "inconclusive", "not_run", "blocked")):
         return (REPORT_UNREAD_STATE, ", ".join(read))

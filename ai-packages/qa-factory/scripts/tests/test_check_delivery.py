@@ -2315,8 +2315,36 @@ def a_run_whose_results_code_could_not_read_reaches_delivery_by_the_analysts_wor
             cleanup(top)
 
 
+def an_unprepared_manual_walk_reaches_delivery_as_a_check_left_with_the_person() -> None:
+    """U7 7c (N9): a manual case the factory could not prepare and the runner walked (S6 completed) is ONE `unprepared_walk` item and
+    `after_checks`, with no `chain_broken` and no coverage reason; a stale record, a not-walked one and an open oracle stay `no`."""
+    from test_third_verdict import edit, read, story, write
+    ob = {"obligation_id": "O-TC2", "behavior": "b", "observation_boundary": "api", "completion_condition": "done",
+          "requirement_refs": [{"ref": "R-2", "revision": "r"}], "applicable_scenarios": ["positive"], "oracle_status": "resolved",
+          "oracle_source_ref": "spec", "decision": "manual-agent", "execution_scope": "current_task", "planned_check_refs": ["x"]}
+    for label, mark, extra, open_oracle, want, kept in (
+            ("walked", {"walked": True}, {}, False, "after_checks", [False, False]),
+            ("stale", {"walked": True}, {"current_reason": "stale"}, False, "no", [True, True]),
+            ("not walked", {"walked": False, "not_walked": "never opened"}, {}, False, "no", [True, True]),
+            ("oracle open (N9)", {"walked": True}, {}, True, "no", [False, True])):
+        task = story()
+        try:
+            row = dict({"case": "TC-002", "attempt_id": "a1", "unprepared": dict(mark, reason="no rule"), "current_obligation_ids": ["O-TC2"]}, **extra)
+            edit(task, "work/run-report.json", lambda r: r.update(manual_checks=[row], current_manual_checks=[row]))
+            plan = [dict(p, schema_version=2, coverage_obligations=[]) for p in read(task, "work/test-plan.json")]
+            write(task, "work/test-plan.json", plan + [{"id": "TS-2", "schema_version": 2, "coverage_refs": ["TC-002"],
+                                                         "coverage_obligations": [dict(ob, oracle_status="open" if open_oracle else "resolved")]}])
+            doc = D.assess(task)
+            check_eq(f"7c {label}: verdict", doc["delivery_verdict"], want)
+            check_eq(f"7c {label}: a traceability / coverage reason", [any(r.startswith(k) for r in doc["reasons"]) for k in ("traceability", "coverage")], kept)
+            check_eq(f"7c {label}: TC-002 is listed once", [i["kinds"] for i in doc["left_items"] if i.get("ref") == "TC-002"], [["unprepared_walk"]])
+        finally:
+            cleanup(task.parent)
+
+
 if __name__ == "__main__":
     a_run_whose_results_code_could_not_read_reaches_delivery_by_the_analysts_word()
+    an_unprepared_manual_walk_reaches_delivery_as_a_check_left_with_the_person()
     f5_unprepared_walk_is_a_left_item()
     fv1_30b_n2_no_run_row_names_the_word()
     main()
