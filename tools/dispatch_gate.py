@@ -2,7 +2,7 @@
 checks the SHAPE of a dispatch before it goes out, enforcing two
 rules in code rather than relying on discipline alone: CLAUDE.md rule 11
 (DoD-in-every-dispatch / dispatch-context-manifest) and COORDINATOR.md rule 7
-(the dispatch label starts with the worker's tier).
+(the dispatch label starts with the worker's role, D-0016).
 
 B-201 (spec docs/tasks/specs/t-090-dispatch-manifest.md): checks 1 and 2
 below are REPLACED in decide() by tools/dispatch_manifest.py's completeness
@@ -85,14 +85,14 @@ Checks (blocking gate):
     owns: HEADER line that actually carries an absolute path, not
     just the bare word (see "One owns predicate" below).
  3. ANY subagent_type (including critic/scout): tool_input["description"],
-    IF PRESENT, must start with a leading token followed by a
-    separator ([ :-]) -- LABEL_MODEL_PREFIX_RE below. This is a FORM
-    check only, on purpose: this template has no fixed list of tier/
-    model names (a deployment configures its own bindings in
-    delegation.config.yaml), so the hook can only verify that the
-    label carries *some* leading tag-like token, not that the token
-    names a real tier. description absent from the payload -> check 3
-    is skipped.
+    IF PRESENT, must start with the dispatch's own subagent_type and a
+    colon ("builder: ...", compared case-insensitively on the first
+    len(role)+1 characters only). The label names the ROLE, never the
+    model: the model is the role's binding (role_bound_model). A
+    non-string description, or a missing/blank/non-string subagent_type
+    next to a description, is refused too (the recorder could not
+    record it). description absent from the payload -> check 3 is
+    skipped. Check 3 stays LAST: it never pre-empts an earlier refusal.
  4. critic/scout (any subagent_type != "builder") -- checks 1 and 2 do
     not apply to them; their own DoD shape is different (rule 11
     describes it in prose, not as a prompt-text pattern).
@@ -173,18 +173,16 @@ meta, is decided by this predicate on its first user line; an unknown kind
 with no readable first line is counted as a writer (the cap's error
 direction).
 
---- Role-type WARN layer (declared tier vs. loaded agent role) ------
+--- Role-type WARN layer (a loaded agent role must exist) -----------
 A SEPARATE, informational-only layer, symmetric with the given-path
 layer below: it never blocks (never returns exit 2, never adds a
 permissionDecision), it only adds text to additionalContext, and only
-when decide() has already returned (0, ""). Motivation: the dispatch
-label's leading token (LABEL_MODEL_PREFIX_RE) is a self-declared tier
-("opus: review the diff"), but the tier ACTUALLY applied to the
-worker session is whatever role file loads for tool_input's
-subagent_type -- and those two facts can silently diverge (a
-subagent_type with no matching role file at all, e.g. "general-
-purpose", runs with no role instructions loaded even though its label
-claims a specific tier).
+when decide() has already returned (0, ""). Since D-0016 the label
+carries the role, not a tier, so the layer reads no description: it
+warns only when tool_input's subagent_type has no role file (e.g.
+"general-purpose" runs with no role instructions loaded). A divergence
+between the config binding and a role file's `model:` is left to the
+journal_echo measurement (COORDINATOR.md rule 7).
 
 role_type_warn(payload) resolves subagent_type against
 `.claude/agents/*.md` in THIS repo (AGENTS_DIR, a fixed path relative
@@ -194,26 +192,15 @@ in dispatch text): a role file's STEM (filename without ".md") or its
 frontmatter `name:` field, matched case-insensitively with surrounding
 quotes stripped, identifies the role; filename match takes priority
 over a `name:` field match (closer to how the harness itself resolves
-subagent_type -> role file). The role file's frontmatter `model:`
-field gives its bound model; the same substring family heuristic used
-elsewhere in this tool set (haiku/sonnet/opus/fable) reduces it to a
-tier family and compares that against the label's declared family.
+subagent_type -> role file).
 
-Edges (all silent, no WARN): description absent/not a string/empty;
-a label with the "claude" prefix (no family can be inferred);
-subagent_type absent/not a string/blank; the `.claude/agents/`
-directory itself missing entirely (a fresh checkout with no role
-files yet -- this layer is purely informational, warning on every
-single dispatch in that state would be noise with no corresponding
-enforcement value); a role file found but with no `model:` line
-(a known role with an unstated model -- not the same fact as "role
-unknown"); a `model:` value that doesn't resolve to a known family
-(e.g. a bare "claude" or a custom id); families that match. A role
-file that IS found for the subagent_type, but whose declared family
-differs from the label -- WARN (mismatch). No role file found at all
-for a real subagent_type -- WARN (unknown role). Any exception inside
-this layer is swallowed -- fail-open, the same posture as
-given_path_warn().
+Edges (all silent, no WARN): subagent_type absent/not a string/blank;
+the `.claude/agents/` directory itself missing entirely (a fresh
+checkout with no role files yet -- warning on every single dispatch in
+that state would be noise); a role file found, whatever its `model:`
+line says or lacks. No role file found at all for a real subagent_type
+-- WARN (unknown role). Any exception inside this layer is swallowed --
+fail-open, the same posture as given_path_warn().
 
 Two WARNs in one call are joined into ONE additionalContext string
 ("\\n\\n"-joined, given-path first, role-type second) -- the harness
@@ -394,11 +381,6 @@ MANIFEST_GIVEN_RE = re.compile(r"\bgiven\b|\bдано\b", re.IGNORECASE)
 # \b-bounded: a filename merely containing "owns" as a substring in the
 # given basket must not count as an owns-marker.
 MANIFEST_OWNS_RE = re.compile(r"\bowns\b", re.IGNORECASE)
-# Portable form check (see module docstring, check 3): a leading
-# non-whitespace token followed by a separator. Deliberately NOT a
-# fixed list of model/tier names -- this template doesn't know a
-# deployment's actual bindings.
-LABEL_MODEL_PREFIX_RE = re.compile(r"^\S+[ :-]")
 
 # --- Write-indicator discriminator: a shared "is this a path token"
 # predicate -- see the module docstring, "Write-indicator
@@ -572,8 +554,12 @@ BLOCK_MESSAGE_NO_MANIFEST = (
     "go out (rule 11, dispatch-context-manifest rule)."
 )
 BLOCK_MESSAGE_NO_LABEL = (
-    "The dispatch label starts with the worker's tier (rule 7): "
-    "e.g. 'sonnet: ...'."
+    "The dispatch label starts with the worker's role (COORDINATOR.md rule 7, D-0016): "
+    "'{role}: ...'. The model comes from the role's binding; the label names no model."
+)
+BLOCK_MESSAGE_NO_SUBAGENT_TYPE = (
+    "A dispatch with a label (description) names its role in subagent_type (a non-empty string), "
+    "and the label starts with it: 'builder: ...' (COORDINATOR.md rule 7, D-0016)."
 )
 
 
@@ -817,8 +803,8 @@ def decide_full(payload: dict) -> Decision:
     shared by the completeness check and the path check. An exception out of the
     completeness check means "not checked"; one out of the path check yields the note
     "paths not checked" and the label check still runs. This function stats files
-    (existence only: sizes and line counts are computed in main()). It can still
-    raise on a non-string `description` (the label regex); its callers guard it."""
+    (existence only: sizes and line counts are computed in main()). A non-string
+    `description` is a refusal (check 3), not an exception."""
     if not isinstance(payload, dict) or payload.get("tool_name") not in ("Task", "Agent"):
         return Decision(0, "", [], [])
     tool_input = payload.get("tool_input") or {}
@@ -878,9 +864,21 @@ def decide_full(payload: dict) -> Decision:
         notes.append(PATH_NOTE + "paths unchecked: degraded read (%s)" % (cut.reason or "?"))
 
     if description is not None:
-        if not LABEL_MODEL_PREFIX_RE.search(description):
-            return Decision(2, BLOCK_MESSAGE_NO_LABEL, notes, paths, stderr_note, cut, covered)
+        label_message = _label_refusal(description, tool_input.get("subagent_type"))
+        if label_message:
+            return Decision(2, label_message, notes, paths, stderr_note, cut, covered)
     return Decision(0, "", notes, paths, stderr_note, cut, covered)
+
+
+def _label_refusal(description, subagent_type) -> str:
+    """Check 3 (D-0016): "" when the label starts with `<subagent_type>:` (case-insensitive, only the first
+    len(role)+1 characters are read), else the refusal text. Never raises, never scans the whole label."""
+    if not isinstance(subagent_type, str) or not subagent_type.strip():
+        return BLOCK_MESSAGE_NO_SUBAGENT_TYPE
+    role = subagent_type.strip()
+    if isinstance(description, str) and description[:len(role) + 1].lower() == role.lower() + ":":
+        return ""
+    return BLOCK_MESSAGE_NO_LABEL.format(role=role[:80])
 
 
 def decide(payload: dict) -> tuple[int, str]:
@@ -1040,13 +1038,6 @@ def given_path_warn(payload: dict, decision=None) -> str:
 # called ONLY from main(), ONLY when decide() has already returned
 # (0, "").
 
-ROLE_TYPE_WARN_MISMATCH = (
-    "ROLE-TYPE WARN: the dispatch label declares tier '{declared_family}', "
-    "but the role file .claude/agents/ for subagent_type='{subagent_type}' "
-    "declares model: {bound_model} (family '{bound_family}') -- "
-    "a type<->tier mismatch."
-)
-
 # Route port, node D1 (staff twin ~:1934/:1943): the single UNKNOWN-ROLE
 # message split into two cases with OPPOSITE actions for the reader --
 # a project role missing a file is a gap to CLOSE (add the role file),
@@ -1057,9 +1048,8 @@ ROLE_TYPE_WARN_MISMATCH = (
 # phrase stays green regardless of which branch fires.
 ROLE_TYPE_WARN_PROJECT = (
     "ROLE-TYPE WARN: no role file in .claude/agents/ for type "
-    "'{subagent_type}' -- the declared tier '{declared_family}' is not "
-    "backed by any loaded role, and the worker's actual model can "
-    "silently diverge from what's declared -- add a role file with a "
+    "'{subagent_type}' -- no loaded role backs this worker, and its "
+    "actual model can silently diverge from its binding -- add a role file with a "
     "model: field for this project role; or, if this is a harness "
     "built-in type not yet in the known list, verify the tier by a "
     "transcript measurement and add the type to the list."
@@ -1067,8 +1057,8 @@ ROLE_TYPE_WARN_PROJECT = (
 ROLE_TYPE_WARN_BUILTIN_TYPE = (
     "ROLE-TYPE WARN: the harness built-in type '{subagent_type}' has no "
     "role file in .claude/agents/ -- expected, not a defect of this "
-    "layer, but the declared tier '{declared_family}' stays unconfirmed "
-    "and the worker's actual model can diverge from it unnoticed -- "
+    "layer, but the worker's model stays unconfirmed and can diverge "
+    "from its binding unnoticed -- "
     "verify the tier by a transcript measurement if the dispatch "
     "decision depends on it."
 )
@@ -1090,39 +1080,34 @@ try:
 except ImportError:
     import tier_ladder  # sibling-module fallback (the ladder home: a leaf, stdlib only, not a gate)
 
-_FAMILY_NAMES = tuple(reversed(tier_ladder.FAMILIES))  # strongest-first, as before; the order comes from the home
-# A non-greedy variant of LABEL_MODEL_PREFIX_RE's leading-token check,
-# local to this layer: LABEL_MODEL_PREFIX_RE itself (`^\S+[ :-]`,
-# greedy) is used unchanged by check 3 above and must not be touched;
-# this layer additionally needs the FIRST separator's position (a
-# lazy `\S+?` stops at the first match rather than backtracking from
-# the end) to read out the leading token itself, not just confirm one
-# exists.
-_LABEL_LEADING_TOKEN_RE = re.compile(r"^(\S+?)[ :-]")
 _FRONTMATTER_BLOCK_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---", re.DOTALL)
 _FRONTMATTER_NAME_RE = re.compile(r"^name:\s*(\S+)", re.MULTILINE)
 _FRONTMATTER_MODEL_RE = re.compile(r"^model:\s*(\S+)", re.MULTILINE)
 
 
-def _model_family(model_id) -> str | None:
-    """A bound model's tier family, read through tier_ladder.family_of -- the
-    ladder home is a leaf (stdlib only), not a gate module."""
-    return tier_ladder.family_of(model_id)
-
-
-def label_model_family(description) -> str | None:
-    """The tier family word a dispatch description opens with ("sonnet: find x" -> "sonnet", "opus-x: y" -> "opus"), read
-    by the SAME leading-token rule as check 3 (_LABEL_LEADING_TOKEN_RE, the token compared whole against the family
-    names); None when the description is not a string or its leading token is no tier word ("fix flaky test"). The
-    public reader the dispatch-record hook (tools/journal_hooks.py, offload B23) asks -- it writes no model it did not
-    read here (E-B23-3)."""
-    if not isinstance(description, str):
-        return None
-    token_m = _LABEL_LEADING_TOKEN_RE.match(description)
-    if not token_m:
-        return None
-    token = token_m.group(1).lower()
-    return _model_family(token) if token in _FAMILY_NAMES else None
+def role_bound_model(subagent_type, config_text, agents_dir=None) -> tuple[str | None, str]:
+    """(model id or None, a road note) of a dispatch's ROLE (D-0016): the public reader the dispatch-record hook
+    (tools/journal_hooks.py) asks -- it writes no model it did not read here (E-B23-3). A coordination function
+    (tier_ladder.COORDINATION_FUNCTIONS) -> tier_ladder.effective_bindings(config_text); any other role -> its role
+    file's `model:` (_find_agent_role_model). Never raises."""
+    try:
+        if not isinstance(subagent_type, str) or not subagent_type.strip():
+            return None, "no role"
+        role = subagent_type.strip().lower()
+        if role in tier_ladder.COORDINATION_FUNCTIONS:
+            found, note = tier_ladder.effective_bindings(config_text)
+            model = found.get(role)
+            if not model:
+                return None, "roles.%s names no model" % role
+            if "lead" not in tier_ladder.bindings(config_text)[0]:
+                return model, "default bindings (%s)" % (note or "no config")
+            return model, "delegation.config.yaml roles.%s" % role
+        _known, model = _find_agent_role_model(role, agents_dir)
+        if model:
+            return model, ".claude/agents role file for '%s'" % role
+        return None, ("no binding: not a delegation.config.yaml function and no model: in .claude/agents for '%s'" % role)
+    except Exception as exc:  # noqa: BLE001 -- the contract: never raises
+        return None, "role lookup failed (%s)" % type(exc).__name__
 
 
 def _strip_quotes(token: str) -> str:
@@ -1159,7 +1144,7 @@ def _model_of(frontmatter) -> str | None:
     return _strip_quotes(m2.group(1).strip()) if m2 else None
 
 
-def _find_agent_role_model(subagent_type_norm: str):
+def _find_agent_role_model(subagent_type_norm: str, agents_dir=None):
     """subagent_type_norm is already .strip().lower(). Returns (True,
     model|None) when a `.claude/agents/*.md` file is found whose
     filename (without ".md") OR frontmatter `name:` field matches
@@ -1174,7 +1159,7 @@ def _find_agent_role_model(subagent_type_norm: str):
     subagent_type (matched against the FILENAME in the agents
     directory). The `name:` match is tried ONLY if no file in the
     directory matched by filename."""
-    candidates = sorted(AGENTS_DIR.glob("*.md"))
+    candidates = sorted(Path(AGENTS_DIR if agents_dir is None else agents_dir).glob("*.md"))  # None: read AGENTS_DIR at call time
 
     for path in candidates:
         if path.stem.strip().lower() == subagent_type_norm:
@@ -1195,11 +1180,10 @@ def _find_agent_role_model(subagent_type_norm: str):
 
 
 def role_type_warn(payload: dict) -> str:
-    """"" -- nothing to warn about (payload isn't Task/Agent, required
-    fields absent/not strings, a "claude:" label, the .claude/agents/
-    directory missing, a known role with no model: in its frontmatter,
-    or families matching). Otherwise the ready-made WARN text (a
-    type<->tier mismatch OR a subagent_type with no role file). See the
+    """"" -- nothing to warn about (payload isn't Task/Agent, subagent_type
+    absent/not a string, the .claude/agents/ directory missing, a known
+    role file). Otherwise the ready-made WARN text (a subagent_type with
+    no role file). The label is never read (D-0016). See the
     module docstring, "Role-type WARN layer", for the full contract.
     Wrapped entirely in try/except -- fail-open on ANY exception, the
     same posture as the rest of this file's WARN layers."""
@@ -1215,48 +1199,19 @@ def role_type_warn(payload: dict) -> str:
         subagent_type = tool_input.get("subagent_type")
         if not isinstance(subagent_type, str) or not subagent_type.strip():
             return ""
-        description = tool_input.get("description")
-        if not isinstance(description, str) or not description:
-            return ""
-        if not LABEL_MODEL_PREFIX_RE.search(description):
-            return ""
-        token_m = _LABEL_LEADING_TOKEN_RE.match(description)
-        if not token_m:
-            return ""
-        declared_family = token_m.group(1).lower()
-        if declared_family not in _FAMILY_NAMES:
-            # Not a recognized tier family (e.g. "claude:", a custom
-            # label token) -- no family to compare, silent.
-            return ""
         if not AGENTS_DIR.is_dir():
             # The directory is missing entirely (a fresh checkout) --
             # silent, see the module docstring, "Edges".
             return ""
 
         subagent_type_norm = subagent_type.strip().lower()
-        role_known, bound_model = _find_agent_role_model(subagent_type_norm)
-        if not role_known:
-            # PROJECT/BUILTIN_TYPE split (route port, node D1): the
-            # branching LOGIC (what counts as an unknown role) is
-            # untouched -- only the choice of TEXT differs.
-            if subagent_type_norm in _ROLE_TYPE_BUILTIN_HARNESS_TYPES:
-                return ROLE_TYPE_WARN_BUILTIN_TYPE.format(
-                    subagent_type=subagent_type, declared_family=declared_family
-                )
-            return ROLE_TYPE_WARN_PROJECT.format(
-                subagent_type=subagent_type, declared_family=declared_family
-            )
-        if not bound_model:
+        role_known, _bound_model = _find_agent_role_model(subagent_type_norm)
+        if role_known:
             return ""
-        bound_family = _model_family(bound_model)
-        if bound_family is None or bound_family == declared_family:
-            return ""
-        return ROLE_TYPE_WARN_MISMATCH.format(
-            declared_family=declared_family,
-            subagent_type=subagent_type,
-            bound_model=bound_model,
-            bound_family=bound_family,
-        )
+        # PROJECT/BUILTIN_TYPE split (route port, node D1): only the choice of TEXT differs.
+        if subagent_type_norm in _ROLE_TYPE_BUILTIN_HARNESS_TYPES:
+            return ROLE_TYPE_WARN_BUILTIN_TYPE.format(subagent_type=subagent_type)
+        return ROLE_TYPE_WARN_PROJECT.format(subagent_type=subagent_type)
     except Exception:
         return ""
 

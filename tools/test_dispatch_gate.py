@@ -91,7 +91,7 @@ _SPEC = _R + "/docs/tasks/specs"
 
 
 def _kind_payload(kind, prompt):
-    return {"tool_name": "Task", "tool_input": {"subagent_type": kind, "prompt": prompt, "description": "opus: x"}}
+    return {"tool_name": "Task", "tool_input": {"subagent_type": kind, "prompt": prompt, "description": f"{kind}: x"}}
 
 
 def _many_paths():
@@ -239,7 +239,7 @@ def test_decide_full_handoff_refusal_keeps_the_label_check_behind_it():
     payload["tool_input"]["description"] = "nolabel"
     assert "HANDOFF PATH" in dispatch_gate.decide(payload)[1]  # the handoff refusal is first
     payload["tool_input"]["prompt"] = "Review.\n" + _CRITIC_HANDOFF
-    assert "worker's tier" in dispatch_gate.decide(payload)[1]  # a valid handoff reaches the label check as before
+    assert "worker's role" in dispatch_gate.decide(payload)[1]  # a valid handoff reaches the label check as before
 
 
 # FG7-73 (critic t-1372 B2): no owns/handoff word gives cut_payload's None cut, and the live hook still refuses a task
@@ -280,7 +280,7 @@ def test_builder_without_dod_markers_blocks():
     # old: message contained "no DoD" / "rule 11" (BLOCK_MESSAGE_NO_DOD)
     # new: the completeness refusal, DoD among the missing items
     exit_code, message = dispatch_gate.decide(
-        _builder_payload("Just fix a typo in file x.py.", description="sonnet: fix typo")
+        _builder_payload("Just fix a typo in file x.py.", description="builder: fix typo")
     )
     assert exit_code == 2
     assert "DISPATCH INCOMPLETE" in message
@@ -292,7 +292,7 @@ def test_builder_with_dod_literal_passes_check1():
     # old: "Fix the typo. DoD: test is green." -> 0; new: the same premise
     # (a passing builder dispatch with a DoD line) in the full new form
     exit_code, message = dispatch_gate.decide(
-        _builder_payload(_manifest(prefix="Fix the typo."), description="sonnet: fix")
+        _builder_payload(_manifest(prefix="Fix the typo."), description="builder: fix")
     )
     assert exit_code == 0
     assert message == ""
@@ -302,13 +302,13 @@ def test_builder_without_siblings_line_is_refused_end_to_end_and_passes_with_it(
     # t-113 F2: the E1 form check reaches the gate -- a complete builder dispatch WITHOUT `siblings:` is refused
     # with the INCOMPLETE text naming siblings; the same dispatch with the line goes out
     exit_code, message = dispatch_gate.decide(
-        _builder_payload(_manifest(prefix="Fix the typo.", siblings=None), description="sonnet: fix")
+        _builder_payload(_manifest(prefix="Fix the typo.", siblings=None), description="builder: fix")
     )
     assert exit_code == 2
     assert message.startswith("DISPATCH INCOMPLETE (CLAUDE.md rule 11): this builder dispatch does not go out.")
     assert "Missing: siblings (no line)." in message
     assert dispatch_gate.decide(
-        _builder_payload(_manifest(prefix="Fix the typo."), description="sonnet: fix")
+        _builder_payload(_manifest(prefix="Fix the typo."), description="builder: fix")
     ) == (0, "")
 
 
@@ -318,7 +318,7 @@ def test_builder_with_acceptance_criteria_en_no_longer_a_dod_header():
     exit_code, message = dispatch_gate.decide(
         _builder_payload(
             _manifest(dod="Acceptance criteria: the test passes, run `python -m pytest x`"),
-            description="sonnet: fix",
+            description="builder: fix",
         )
     )
     assert exit_code == 2
@@ -331,7 +331,7 @@ def test_builder_with_criteria_priyomki_cyrillic_no_longer_a_dod_header():
     exit_code, message = dispatch_gate.decide(
         _builder_payload(
             _manifest(dod="Критерии приёмки: тест зелёный, `python -m pytest x`"),
-            description="sonnet: fix",
+            description="builder: fix",
         )
     )
     assert exit_code == 2
@@ -342,7 +342,7 @@ def test_builder_with_witness_passes_check1():
     # old: "attach a witness." (a word in prose) -> 0; new: a witness: header with a command
     exit_code, message = dispatch_gate.decide(
         _builder_payload(
-            _manifest(dod="witness: `python -m pytest tools/x.py -q`"), description="sonnet: fix"
+            _manifest(dod="witness: `python -m pytest tools/x.py -q`"), description="builder: fix"
         )
     )
     assert exit_code == 0, message
@@ -353,7 +353,7 @@ def test_builder_with_verification_run_en_passes_check1():
     exit_code, message = dispatch_gate.decide(
         _builder_payload(
             _manifest(dod="Verification run: `python -m pytest tools/x.py -q`"),
-            description="sonnet: fix",
+            description="builder: fix",
         )
     )
     assert exit_code == 0, message
@@ -364,7 +364,7 @@ def test_builder_with_progon_cyrillic_no_longer_a_dod_header():
     # new: no such header key -> DoD is missing
     exit_code, message = dispatch_gate.decide(
         _builder_payload(
-            _manifest(dod="Проверочный прогон: `python -m pytest x`"), description="sonnet: fix"
+            _manifest(dod="Проверочный прогон: `python -m pytest x`"), description="builder: fix"
         )
     )
     assert exit_code == 2
@@ -374,7 +374,7 @@ def test_builder_with_progon_cyrillic_no_longer_a_dod_header():
 def test_dod_marker_case_insensitive():
     # old: "a fix. dod: green test." -> 0; new: a lowercase dod: header with a command
     exit_code, _ = dispatch_gate.decide(
-        _builder_payload(_manifest(dod="dod: `python -m pytest x`"), description="sonnet: x")
+        _builder_payload(_manifest(dod="dod: `python -m pytest x`"), description="builder: x")
     )
     assert exit_code == 0
 
@@ -402,7 +402,7 @@ def test_pravj_word_boundary_still_matches_standalone_word():
     exit_code, message = dispatch_gate.decide(
         _builder_payload(
             "DoD: test is green. Правь file x.py per the spec.",
-            description="sonnet: fix",
+            description="builder: fix",
         )
     )
     assert exit_code == 2
@@ -421,14 +421,14 @@ def test_builder_readonly_prompt_is_refused_without_the_full_form_and_passes_wit
     exit_code, message = dispatch_gate.decide(
         _builder_payload(
             "Read file x.py and tell me what's in it. DoD: an explicit yes/no answer.",
-            description="sonnet: read",
+            description="builder: read",
         )
     )
     assert exit_code == 2
     assert "DISPATCH INCOMPLETE" in message
     exit_code2, message2 = dispatch_gate.decide(
         _builder_payload(
-            _manifest(prefix="Read file x.py and tell me what's in it."), description="sonnet: read"
+            _manifest(prefix="Read file x.py and tell me what's in it."), description="builder: read"
         )
     )
     assert exit_code2 == 0, message2
@@ -438,7 +438,7 @@ def test_builder_write_indicator_without_manifest_blocks():
     # old: "context manifest" / "given/owns" in the message; new: given and owns among the missing
     exit_code, message = dispatch_gate.decide(
         _builder_payload(
-            "DoD: test is green. Edit file x.py per the spec.", description="sonnet: fix"
+            "DoD: test is green. Edit file x.py per the spec.", description="builder: fix"
         )
     )
     assert exit_code == 2
@@ -451,7 +451,7 @@ def test_builder_write_indicator_with_full_manifest_passes():
     # old: "MANIFEST: given -- ...; owns -- tools/x.py." inline; new: header lines, absolute owns path
     prompt = _manifest(prefix="Create file x.py.")
     exit_code, message = dispatch_gate.decide(
-        _builder_payload(prompt, description="sonnet: write x")
+        _builder_payload(prompt, description="builder: write x")
     )
     assert exit_code == 0
     assert message == ""
@@ -461,7 +461,7 @@ def test_builder_write_indicator_with_only_owns_blocks():
     # old: owns present, given absent -> 2 "context manifest"; new: the same premise, given is named
     prompt = _manifest(given=None, prefix="Modify file x.py.")
     exit_code, message = dispatch_gate.decide(
-        _builder_payload(prompt, description="sonnet: write x")
+        _builder_payload(prompt, description="builder: write x")
     )
     assert exit_code == 2
     assert "Missing: given (no line)." in message
@@ -471,7 +471,7 @@ def test_builder_write_indicator_with_only_given_blocks():
     # old: given present, owns absent -> 2 "context manifest"; new: the same premise, owns is named
     prompt = _manifest(owns=None, prefix="Create file x.py.")
     exit_code, message = dispatch_gate.decide(
-        _builder_payload(prompt, description="sonnet: write x")
+        _builder_payload(prompt, description="builder: write x")
     )
     assert exit_code == 2
     assert "Missing: owns (no line)." in message
@@ -480,14 +480,14 @@ def test_builder_write_indicator_with_only_given_blocks():
 def test_builder_given_and_owns_both_present_passes():
     # old: inline "Given: ... owns: tools/x.py" -> 0; new: the full form (absolute owns path)
     prompt = _manifest(prefix="Create file x.py.")
-    exit_code, _ = dispatch_gate.decide(_builder_payload(prompt, description="sonnet: write x"))
+    exit_code, _ = dispatch_gate.decide(_builder_payload(prompt, description="builder: write x"))
     assert exit_code == 0
 
 
 def test_builder_write_indicator_en_forms_without_manifest_block():
     for phrase in ["write file x.py", "create file x.py", "edit file x.py", "modify file x.py"]:
         exit_code, message = dispatch_gate.decide(
-            _builder_payload(f"DoD: witness present. Please {phrase}.", description="sonnet: x")
+            _builder_payload(f"DoD: witness present. Please {phrase}.", description="builder: x")
         )
         assert exit_code == 2, phrase
         assert "DISPATCH INCOMPLETE" in message
@@ -507,61 +507,34 @@ def test_missing_description_skips_check3():
     assert message == ""
 
 
-def test_description_with_no_separator_blocks():
-    # fixture in the full new form, so the completeness check passes and the label check is reached
-    exit_code, message = dispatch_gate.decide(
-        _builder_payload(_manifest(prefix="Read the file."), description="fixbugnow")
-    )
-    assert exit_code == 2
-    assert "worker's tier" in message
-    assert "rule 7" in message
+_CHECK3_ROWS = [  # (subagent_type, description, passes): D-0016, the label starts with the role and a colon
+    ("builder", "builder: fix x", True),             # E1
+    ("critic", "critic: review diff", True),
+    ("builder", "sonnet: fix x", False),             # E2 legacy model label
+    ("builder", "sonnet: builder - x", False),       # E3 the old Lead form
+    ("builder", "", False), ("builder", "  ", False), ("builder", " builder: x", False),  # E9
+    ("builder", 5, False), ("builder", ["builder: x"], False),
+    ("builder", "builder: " + "x" * 10**6, True),
+    ("builder", "BUILDER: x", True),                 # E10
+    ("builder", "bu\u0456lder: x", False),           # Cyrillic homoglyph
+    ("builder", "builder: \u0434\u0435\u043b\u043e \U0001F680", True),
+    ("general-purpose", "general-purpose: x", True),  # E11
+    ("builder", "builder x", False), ("builder", "builder-x", False),
+    ("scout", "findfile", False),
+    (None, "builder: x", False), ("", "builder: x", False), ("  ", "builder: x", False), (7, "builder: x", False),  # E8
+]
 
 
-def test_description_with_leading_token_and_separator_passes():
-    # A FORM-only check (see module docstring): any leading token
-    # followed by a space/colon/dash passes, regardless of whether the
-    # token names a real tier -- this template has no fixed model list.
-    for prefix in ["sonnet: ", "sonnet-", "sonnet ", "haiku: ", "opus: ", "fable: "]:
-        exit_code, message = dispatch_gate.decide(
-            _builder_payload(
-                _manifest(prefix="Read the file."), description=f"{prefix}does the work"
-            )
-        )
-        assert exit_code == 0, f"prefix {prefix!r} should pass, got {message!r}"
-
-
-def test_description_check_applies_to_critic():
-    payload = {
-        "tool_name": "Task",
-        "tool_input": {"subagent_type": "critic", "prompt": "Review the diff.\n" + _CRITIC_HANDOFF,
-                       "description": "reviewthediff"},
-    }
-    exit_code, message = dispatch_gate.decide(payload)
-    assert exit_code == 2
-    assert "worker's tier" in message
-
-
-def test_description_check_applies_to_scout():
-    payload = {
-        "tool_name": "Task",
-        "tool_input": {"subagent_type": "scout", "prompt": "Find the file.", "description": "findfile"},
-    }
-    exit_code, message = dispatch_gate.decide(payload)
-    assert exit_code == 2
-    assert "worker's tier" in message
-
-
-def test_description_check_passes_for_critic_with_leading_token():
-    payload = {
-        "tool_name": "Task",
-        "tool_input": {
-            "subagent_type": "critic",
-            "prompt": "Review the diff.\n" + _CRITIC_HANDOFF,
-            "description": "opus: review diff",
-        },
-    }
-    exit_code, message = dispatch_gate.decide(payload)
-    assert exit_code == 0
+@pytest.mark.parametrize("kind,description,passes", _CHECK3_ROWS)
+def test_check3_label_starts_with_the_dispatch_role(kind, description, passes):
+    prompt = _manifest(prefix="Read the file.") if kind == "builder" else "Find the file.\n" + _CRITIC_HANDOFF
+    tool_input = {"prompt": prompt, "description": description}
+    if kind is not None:
+        tool_input["subagent_type"] = kind
+    code, message = dispatch_gate.decide({"tool_name": "Task", "tool_input": tool_input})
+    assert code == (0 if passes else 2), message
+    if not passes:
+        assert "rule 7" in message and ("'%s: ...'" % kind in message or "subagent_type" in message)
 
 
 # ---------------------------------------------------------------------
@@ -575,7 +548,7 @@ def test_critic_without_dod_markers_not_blocked_by_check1():
         "tool_input": {
             "subagent_type": "critic",
             "prompt": "Review the diff, not a single DoD word here.\n" + _CRITIC_HANDOFF,
-            "description": "opus: review",
+            "description": "critic: review",
         },
     }
     exit_code, message = dispatch_gate.decide(payload)
@@ -588,7 +561,7 @@ def test_scout_write_indicator_without_manifest_not_blocked_by_check2():
         "tool_input": {
             "subagent_type": "scout",
             "prompt": "Edit file x and create file notes.md (this is NOT builder, check 2 does not apply).",
-            "description": "haiku: scout",
+            "description": "scout: scout",
         },
     }
     exit_code, message = dispatch_gate.decide(payload)
@@ -609,7 +582,7 @@ def test_priority_dod_wins_over_label():
     assert exit_code == 2
     assert "DISPATCH INCOMPLETE" in message
     assert "DoD (no line)" in message
-    assert "worker's tier" not in message
+    assert "worker's role" not in message
 
 
 def test_priority_manifest_wins_over_label():
@@ -619,7 +592,7 @@ def test_priority_manifest_wins_over_label():
     exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="fixitnow"))
     assert exit_code == 2
     assert "Missing: owns (no line)." in message
-    assert "worker's tier" not in message
+    assert "worker's role" not in message
 
 
 # ---------------------------------------------------------------------
@@ -629,7 +602,7 @@ def test_priority_manifest_wins_over_label():
 
 def test_echo_json_blocks_builder_without_dod():
     # old: "no DoD" on stderr; new: the completeness refusal, DoD among the missing
-    result = _run_hook(_builder_payload("Just a fix.", description="sonnet: fix"))
+    result = _run_hook(_builder_payload("Just a fix.", description="builder: fix"))
     assert result.returncode == 2
     assert "DISPATCH INCOMPLETE" in result.stderr
     assert "DoD (no line)" in result.stderr
@@ -638,7 +611,7 @@ def test_echo_json_blocks_builder_without_dod():
 def test_echo_json_passes_builder_with_dod():
     # premise kept (a passing builder dispatch); fixture in the full new form
     result = _run_hook(
-        _builder_payload(_manifest(prefix="Fix it."), description="sonnet: fix")
+        _builder_payload(_manifest(prefix="Fix it."), description="builder: fix")
     )
     assert result.returncode == 0
     assert result.stderr == ""
@@ -650,7 +623,7 @@ def test_echo_json_passes_builder_with_dod():
 def test_echo_json_blocks_missing_manifest():
     # old: "context manifest" on stderr; new: given and owns among the missing
     result = _run_hook(
-        _builder_payload("DoD: test is green. Edit file x.py.", description="sonnet: fix")
+        _builder_payload("DoD: test is green. Edit file x.py.", description="builder: fix")
     )
     assert result.returncode == 2
     assert "DISPATCH INCOMPLETE" in result.stderr
@@ -663,7 +636,7 @@ def test_echo_json_blocks_bad_label():
         _builder_payload(_manifest(prefix="Read the file."), description="fixbugnow")
     )
     assert result.returncode == 2
-    assert "worker's tier" in result.stderr
+    assert "worker's role" in result.stderr
 
 
 def test_echo_json_malformed_json_fails_open():
@@ -707,7 +680,7 @@ _CYRILLIC_MANIFEST_PAYLOAD = {
             "DoD: критерии приёмки — тест зелёный, `python -m pytest tools/x.py -q`\n"
             "siblings: none -- a test fixture\n"
         ),
-        "description": "sonnet: fix",
+        "description": "builder: fix",
     },
 }
 
@@ -750,7 +723,7 @@ def test_dod_gate_filename_substring_is_no_longer_a_dod_marker():
     exit_code, message = dispatch_gate.decide(
         _builder_payload(
             _manifest(given="tools/dod_gate.py for reference", dod=None, prefix="Just fix a typo."),
-            description="sonnet: fix",
+            description="builder: fix",
         )
     )
     assert exit_code == 2
@@ -762,14 +735,14 @@ def test_dod_marker_colon_and_hyphen_forms_still_match():
     hyphen is a non-word char, up to 160 characters may sit between the key
     and the colon). old: "DoD-marker" in prose; new: as a header line."""
     exit_code, _ = dispatch_gate.decide(
-        _builder_payload(_manifest(prefix="Fix the typo."), description="sonnet: fix")
+        _builder_payload(_manifest(prefix="Fix the typo."), description="builder: fix")
     )
     assert exit_code == 0
 
     exit_code2, _ = dispatch_gate.decide(
         _builder_payload(
             _manifest(dod="DoD-marker: `python -m pytest tools/x.py -q`", prefix="Fix the typo."),
-            description="sonnet: fix",
+            description="builder: fix",
         )
     )
     assert exit_code2 == 0
@@ -785,7 +758,7 @@ def test_witness_echo_filename_substring_is_no_longer_a_dod_marker():
             _manifest(
                 given="tools/test_witness_echo.py for reference", dod=None, prefix="Just fix a typo."
             ),
-            description="sonnet: fix",
+            description="builder: fix",
         )
     )
     assert exit_code == 2
@@ -799,7 +772,7 @@ def test_manifest_given_word_boundary_prodano_false_positive_fixed():
     ONLY occurrence of that substring is inside "продано" is still refused
     for a missing given. (old: "context manifest"; new: "given (no line)".)"""
     prompt = _manifest(given=None, prefix="На складе всё продано.")
-    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="sonnet: fix"))
+    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="builder: fix"))
     assert exit_code == 2
     assert "Missing: given (no line)." in message
 
@@ -812,11 +785,11 @@ def test_manifest_given_real_forms_unaffected_by_word_boundary():
     for given_line in ("Given: the whole repo", "Дано: репо целиком", "ДАНО: репо целиком"):
         key, _sep, body = given_line.partition(": ")
         prompt = _manifest(given=None, prefix=f"{key}: {body}")
-        exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="sonnet: fix"))
+        exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="builder: fix"))
         assert exit_code == 0, message
 
     prompt = _manifest(given=None, prefix="дано -- репо целиком")
-    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="sonnet: fix"))
+    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="builder: fix"))
     assert exit_code == 2
     assert "Missing: given (no line)." in message
 
@@ -828,14 +801,14 @@ def test_owns_filename_substring_is_no_longer_an_owns_marker():
     prompt = _manifest(
         given="tools/ownership_report.py for reference", owns=None, prefix="Правь file x.py."
     )
-    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="sonnet: fix"))
+    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="builder: fix"))
     assert exit_code == 2
     assert "Missing: owns (no line)." in message
 
 
 def test_owns_real_marker_unaffected_by_word_boundary():
     prompt = _manifest(prefix="Edit file x.py.")
-    exit_code, _ = dispatch_gate.decide(_builder_payload(prompt, description="sonnet: fix"))
+    exit_code, _ = dispatch_gate.decide(_builder_payload(prompt, description="builder: fix"))
     assert exit_code == 0
 
 
@@ -846,7 +819,7 @@ def test_readonly_dispatch_mentioning_ownership_filename_in_given_not_blocked():
     check 2; a builder is now always checked, so the premise is kept as
     "a passing dispatch" with a full manifest.)"""
     prompt = _manifest(given="tools/ownership_report.py", prefix="Tell me what it does.")
-    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="sonnet: fix"))
+    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="builder: fix"))
     assert exit_code == 0, message
 
 
@@ -1065,7 +1038,7 @@ def test_echo_json_blocking_verdict_suppresses_given_path_warn():
         "tool_input": {
             "subagent_type": "builder",
             "prompt": "Given: tools/does_not_exist_anywhere.py. Just fix a typo.",
-            "description": "sonnet: fix",
+            "description": "builder: fix",
         },
     }
     result = subprocess.run(
@@ -1091,7 +1064,7 @@ def test_echo_json_passing_dispatch_emits_given_path_warn_additional_context(tmp
         "tool_input": {
             "subagent_type": "critic",
             "prompt": "Review Given: tools/does_not_exist_anywhere_xyz.py for reference.\n\n" + _CRITIC_HANDOFF,
-            "description": "opus: review",
+            "description": "critic: review",
         },
         "cwd": str(tmp_path),  # FLIPPED: the root is the payload cwd now (t-796: a tmp root, the gate writes traces under it)
     }
@@ -1118,7 +1091,7 @@ def test_echo_json_no_missing_given_paths_emits_no_stdout():
         "tool_input": {
             "subagent_type": "critic",
             "prompt": "Review tools/dispatch_gate.py for reference.\n\n" + _CRITIC_HANDOFF,
-            "description": "opus: review",
+            "description": "critic: review",
         },
     }
     result = subprocess.run(
@@ -1180,7 +1153,7 @@ def test_owns_bare_word_no_longer_a_write_indicator():
     prompt = "DoD: witness present. This dispatch discusses how owns works, read-only.\n\n" + _CRITIC_HANDOFF
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "critic", "prompt": prompt, "description": "opus: x"},
+        "tool_input": {"subagent_type": "critic", "prompt": prompt, "description": "critic: x"},
     }
     exit_code, message = dispatch_gate.decide(payload)
     assert exit_code == 0, message
@@ -1192,7 +1165,7 @@ def test_owns_declaration_with_absolute_path_still_requires_manifest():
     line but no given still blocks. (old: "context manifest"; new: the
     completeness refusal names given.)"""
     prompt = "DoD: witness present. owns (ABSOLUTE write paths): D:/repo/tools/x.py."
-    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="sonnet: x"))
+    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="builder: x"))
     assert exit_code == 2
     assert "DISPATCH INCOMPLETE" in message
     assert "given (no line)" in message
@@ -1204,13 +1177,13 @@ def test_owns_declaration_with_absolute_path_and_given_passes():
     prompt = _manifest(owns="D:/repo/tools/x.py").replace(
         "owns: ", "owns (ABSOLUTE write paths): ", 1
     )
-    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="sonnet: x"))
+    exit_code, message = dispatch_gate.decide(_builder_payload(prompt, description="builder: x"))
     assert exit_code == 0, message
 
 
 # =======================================================================
-# Role-type WARN layer: declared label tier vs. the model actually
-# bound by the .claude/agents/*.md role file for subagent_type.
+# Role-type WARN layer: a subagent_type must have a .claude/agents/*.md
+# role file (the label is never read, D-0016).
 # =======================================================================
 
 
@@ -1224,60 +1197,6 @@ def _agent_payload(subagent_type=None, description=None, prompt="noop", cwd=None
     if cwd is not None:
         payload["cwd"] = cwd
     return payload
-
-
-def _scout_families():
-    """(live_family, foreign_family) for scout.md's own binding.
-
-    Route port, node D1 (DoD item 6): these tests derive their
-    match/mismatch labels from the LIVE role file through the SAME
-    resolver the gate itself uses, instead of pinning a model name --
-    "model name as the test's own criterion" is a known failure class:
-    the earlier hardcoded assumption "scout.md declares model: haiku"
-    broke the moment scout.md was rebound to sonnet, with the gate
-    itself fully intact (measured baseline before this edit: 6 of
-    these tests failed on a clean run, not because the layer regressed
-    but because the pin did). The tests' subject is the LOGIC
-    (mismatch -> WARN, match -> silence), not a particular binding."""
-    known, model = dispatch_gate._find_agent_role_model("scout")
-    assert known and model, "scout.md must exist and carry model: (otherwise these tests are moot)"
-    fam = dispatch_gate._model_family(model)
-    assert fam, f"model {model!r} of scout.md's role file does not resolve to a known family"
-    return fam, ("haiku" if fam != "haiku" else "sonnet")
-
-
-def test_role_type_warn_known_role_family_mismatch_warns():
-    # The label declares a family DELIBERATELY FOREIGN to scout.md's
-    # live binding (binding-agnostic, see _scout_families).
-    live, foreign = _scout_families()
-    warn = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="scout", description=f"{foreign}: does recon")
-    )
-    assert "ROLE-TYPE WARN" in warn
-    assert foreign in warn
-    assert "scout" in warn
-    assert live in warn
-
-
-def test_role_type_warn_known_role_family_match_silent():
-    # Positive control (symmetric with the mismatch above): the same
-    # type, label matching the role file's LIVE model -> "".
-    live, _foreign = _scout_families()
-    warn = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="scout", description=f"{live}: does recon")
-    )
-    assert warn == ""
-
-
-def test_role_type_warn_builder_opus_label_mismatch_warns():
-    # builder.md declares model: sonnet; the label declares "opus:".
-    warn = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="builder", description="opus: fix the file")
-    )
-    assert "ROLE-TYPE WARN" in warn
-    assert "opus" in warn
-    assert "builder" in warn
-    assert "sonnet" in warn
 
 
 def test_role_type_warn_unknown_role_general_purpose_warns():
@@ -1322,18 +1241,6 @@ def test_subagent_type_case_and_whitespace_variants_silent():
         assert warn == "", f"variant {variant!r} should be silent, got {warn!r}"
 
 
-def test_subagent_type_case_mismatch_still_warns_on_real_mismatch():
-    # Regression guard paired with the test above: case does NOT mask
-    # a real family mismatch -- "Scout" (different case) with a label
-    # of a family foreign to the live binding still warns
-    # (binding-agnostic, see _scout_families).
-    _live, foreign = _scout_families()
-    warn = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="Scout", description=f"{foreign}: does recon")
-    )
-    assert "ROLE-TYPE WARN" in warn
-
-
 # --- Quote-stripping around name:/model: frontmatter values -----------
 
 
@@ -1364,56 +1271,7 @@ def test_strip_quotes_too_short_unchanged():
     assert dispatch_gate._strip_quotes("") == ""
 
 
-def test_quoted_name_field_now_matches_and_reveals_real_mismatch(tmp_path, monkeypatch):
-    (tmp_path / "randomname.md").write_text(
-        '---\nname: "scout"\nmodel: "haiku"\n---\n\n# scout (quoted)\n', encoding="utf-8"
-    )
-    monkeypatch.setattr(dispatch_gate, "AGENTS_DIR", tmp_path)
-    warn = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="scout", description="sonnet: does recon")
-    )
-    assert "ROLE-TYPE WARN" in warn
-    assert "no role file" not in warn
-    assert "haiku" in warn
-
-
-def test_quoted_model_single_quotes_family_still_resolved(tmp_path, monkeypatch):
-    (tmp_path / "custom.md").write_text(
-        "---\nname: custom\nmodel: 'opus'\n---\n\n# custom\n", encoding="utf-8"
-    )
-    monkeypatch.setattr(dispatch_gate, "AGENTS_DIR", tmp_path)
-    warn_match = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="custom", description="opus: review")
-    )
-    assert warn_match == ""
-    warn_mismatch = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="custom", description="sonnet: review")
-    )
-    assert "ROLE-TYPE WARN" in warn_mismatch
-    assert "opus" in warn_mismatch
-
-
 # --- Filename match takes priority over a name: field conflict --------
-
-
-def test_filename_match_takes_priority_over_name_field_conflict(tmp_path, monkeypatch):
-    (tmp_path / "scout.md").write_text(
-        "---\nname: not-scout\nmodel: sonnet\n---\n\n# scout by filename\n", encoding="utf-8"
-    )
-    (tmp_path / "other.md").write_text(
-        "---\nname: scout\nmodel: haiku\n---\n\n# scout by name field\n", encoding="utf-8"
-    )
-    monkeypatch.setattr(dispatch_gate, "AGENTS_DIR", tmp_path)
-    warn = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="scout", description="sonnet: does recon")
-    )
-    assert warn == ""
-
-    warn_control = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="scout", description="haiku: does recon")
-    )
-    assert "ROLE-TYPE WARN" in warn_control
-    assert "sonnet" in warn_control
 
 
 def test_builtin_harness_type_without_role_file_warns_legitimately():
@@ -1549,19 +1407,6 @@ def test_role_type_warn_tool_input_missing_silent():
     assert warn == ""
 
 
-def test_role_type_warn_huge_description_does_not_hang():
-    _live, foreign = _scout_families()
-    huge_description = f"{foreign}: " + ("x" * 100_000)
-    huge_prompt = "y" * 240_000
-    start = time.monotonic()
-    warn = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="scout", description=huge_description, prompt=huge_prompt)
-    )
-    elapsed = time.monotonic() - start
-    assert elapsed < 5.0, f"took {elapsed:.2f}s"
-    assert "ROLE-TYPE WARN" in warn  # foreign family != scout's live binding -- a real mismatch
-
-
 def test_role_type_warn_known_role_without_model_in_frontmatter_silent(tmp_path, monkeypatch):
     (tmp_path / "custom.md").write_text(
         "---\nname: custom\ntools: Read\n---\n\n# custom\n", encoding="utf-8"
@@ -1590,10 +1435,9 @@ def test_role_type_warn_matches_by_frontmatter_name_field_not_filename(tmp_path,
     )
     monkeypatch.setattr(dispatch_gate, "AGENTS_DIR", tmp_path)
     warn = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="mytype", description="sonnet: does something")
+        _agent_payload(subagent_type="mytype", description="mytype: does something")
     )
-    assert "ROLE-TYPE WARN" in warn
-    assert "opus" in warn
+    assert warn == ""  # found by the name: field; the label and the model: are never compared (D-0016)
 
 
 def test_role_type_warn_malformed_frontmatter_no_closing_fence_silent(tmp_path, monkeypatch):
@@ -1688,20 +1532,6 @@ def test_role_type_warn_builtin_match_is_case_insensitive():
         assert "expected" in warn, f"variant={variant!r}"
 
 
-def test_role_type_warn_mismatch_case_unaffected_by_split():
-    # Regression guard: the MISMATCH branch (a role file IS found, the
-    # family diverges) is untouched by the split -- verbatim old text,
-    # no "no role file" substring.
-    warn = dispatch_gate.role_type_warn(
-        _agent_payload(subagent_type="builder", description="opus: fix the file")
-    )
-    assert "ROLE-TYPE WARN" in warn
-    assert "opus" in warn
-    assert "builder" in warn
-    assert "sonnet" in warn
-    assert "no role file" not in warn
-
-
 # --- ROOT-ONLY GUARD on is_path_like_token (route port, node D1; staff
 # twin ~:863-884): a bare root with no segment ("/", "C:\\") is NOT a
 # path token; a root WITH a segment ("/etc", "C:\\x") IS -- both edges
@@ -1732,7 +1562,7 @@ def test_is_path_like_token_doubled_bare_root_still_not_a_token():
 
 
 def test_role_type_warn_not_computed_when_gate_blocks_check1():
-    payload = _builder_payload("Just fix a typo.", description="opus: fix")
+    payload = _builder_payload("Just fix a typo.", description="builder: fix")
     payload["tool_input"]["subagent_type"] = "builder"
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
@@ -1747,11 +1577,9 @@ def test_role_type_warn_not_computed_when_gate_blocks_check1():
 
 
 def test_role_type_warn_never_sets_exit_2_or_permission_decision():
-    # A mismatch (binding-agnostic, see _scout_families) guarantees the
-    # WARN actually fires, so the subprocess-level invariants below
-    # have something to check.
-    _live, foreign = _scout_families()
-    payload = _agent_payload(subagent_type="scout", description=f"{foreign}: does recon")
+    # A role with no role file guarantees the WARN actually fires, so the
+    # subprocess-level invariants below have something to check.
+    payload = _agent_payload(subagent_type="no-such-role", description="no-such-role: does recon")
     payload["tool_input"]["prompt"] = "DoD: the test is green."
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
@@ -1767,15 +1595,12 @@ def test_role_type_warn_never_sets_exit_2_or_permission_decision():
 
 
 def test_both_warn_layers_fire_single_json_object_given_path_first(tmp_path):
-    # Same reasoning as above: a foreign-family label guarantees the
-    # role-type WARN actually fires alongside the given-path one
-    # (binding-agnostic, see _scout_families).
-    _live, foreign = _scout_families()
+    # Same reasoning as above: a role with no role file makes the role-type WARN fire alongside the given-path one.
     (tmp_path / "tools").mkdir()  # t-796: a tmp root (the gate writes its verdict under the payload cwd), with a `tools` entry
     repo_root = str(tmp_path)
     payload = _agent_payload(
-        subagent_type="scout",
-        description=f"{foreign}: recon",
+        subagent_type="no-such-role",
+        description="no-such-role: recon",
         prompt="Given: tools/fake_does_not_exist.py. Find mentions.",
         cwd=repo_root,
     )
@@ -1797,7 +1622,7 @@ def test_both_warn_layers_fire_single_json_object_given_path_first(tmp_path):
 
 def test_role_type_warn_silent_on_existing_dispatch_gate_own_test_suite_labels():
     warn = dispatch_gate.role_type_warn(
-        _builder_payload("Fix it. DoD: test is green.", description="sonnet: fix")
+        _builder_payload("Fix it. DoD: test is green.", description="builder: fix")
     )
     assert warn == ""
 
@@ -1855,12 +1680,12 @@ def test_decide_unchecked_when_check_raises_label_check_still_runs(monkeypatch):
 
     monkeypatch.setattr(dispatch_manifest, "check_cut", boom)  # FLIPPED (B-204): decide builds the cut and calls check_cut
     # an incomplete builder dispatch is NOT refused when the check raised ...
-    exit_code, message = dispatch_gate.decide(_builder_payload("Just a fix.", description="sonnet: fix"))
+    exit_code, message = dispatch_gate.decide(_builder_payload("Just a fix.", description="builder: fix"))
     assert (exit_code, message) == (0, "")
     # ... and the label check (last) still runs
     exit_code, message = dispatch_gate.decide(_builder_payload("Just a fix.", description="fixitnow"))
     assert exit_code == 2
-    assert "worker's tier" in message
+    assert "worker's role" in message
 
 
 def test_decide_unchecked_when_manifest_import_fails(monkeypatch):
@@ -1868,7 +1693,7 @@ def test_decide_unchecked_when_manifest_import_fails(monkeypatch):
         raise ImportError("dispatch_manifest is gone")
 
     monkeypatch.setattr(dispatch_gate, "_load_manifest_module", no_module)
-    exit_code, message = dispatch_gate.decide(_builder_payload("Just a fix.", description="sonnet: fix"))
+    exit_code, message = dispatch_gate.decide(_builder_payload("Just a fix.", description="builder: fix"))
     assert (exit_code, message) == (0, "")
 
 
@@ -1906,7 +1731,7 @@ def test_decide_builder_type_case_and_whitespace_is_checked():
 def test_decide_non_builder_without_absolute_owns_is_not_checked():
     payload = {
         "tool_name": "Agent",
-        "tool_input": {"subagent_type": "general-purpose", "prompt": "Just look around.", "description": "sonnet: x"},
+        "tool_input": {"subagent_type": "general-purpose", "prompt": "Just look around.", "description": "general-purpose: x"},
     }
     assert dispatch_gate.decide(payload) == (0, "")
 
@@ -1918,7 +1743,7 @@ def test_decide_writing_non_builder_is_checked():
         "tool_input": {
             "subagent_type": "general-purpose",
             "prompt": "owns: C:/proj/tools/x.py\nDo it.",
-            "description": "sonnet: x",
+            "description": "general-purpose: x",
         },
     }
     exit_code, message = dispatch_gate.decide(payload)
@@ -1927,7 +1752,7 @@ def test_decide_writing_non_builder_is_checked():
 
 
 def test_main_full_manifest_builder_exit_0_silent():
-    result = _run_hook(_builder_payload(_manifest(prefix="Fix it."), description="sonnet: fix"))
+    result = _run_hook(_builder_payload(_manifest(prefix="Fix it."), description="builder: fix"))
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""
     # FLIPPED (B-245): no cwd -> the pass carries the P11 note instead of silence
@@ -1936,7 +1761,7 @@ def test_main_full_manifest_builder_exit_0_silent():
 
 def test_main_skip_note_joins_additional_context_exit_0():
     prompt = "Just a probe.\n" + _SKIP_LINE
-    result = _run_hook(_builder_payload(prompt, description="sonnet: probe"))
+    result = _run_hook(_builder_payload(prompt, description="builder: probe"))
     code, out, err = _hook_out(result)
     assert code == 0, err
     assert out is not None
@@ -1946,7 +1771,7 @@ def test_main_skip_note_joins_additional_context_exit_0():
 
 
 def test_main_incomplete_builder_exit_2_message_on_stderr_no_stdout():
-    result = _run_hook(_builder_payload("Just a fix.", description="sonnet: fix"))
+    result = _run_hook(_builder_payload("Just a fix.", description="builder: fix"))
     assert result.returncode == 2
     assert result.stderr.startswith("DISPATCH INCOMPLETE (CLAUDE.md rule 11)")
     assert result.stdout == ""
@@ -1956,13 +1781,13 @@ def test_main_completeness_refusal_wins_over_label_problem():
     result = _run_hook(_builder_payload("Just a fix.", description="fixitnow"))
     assert result.returncode == 2
     assert "DISPATCH INCOMPLETE" in result.stderr
-    assert "worker's tier" not in result.stderr
+    assert "worker's role" not in result.stderr
 
 
 def test_main_degraded_quote_read_exit_0_unchecked_note():
     # more than 200 inline spans on one line: md_regions reports a degraded read
     prompt = "owns: C:/proj/tools/x.py\n" + ("`a` " * 201)
-    result = _run_hook(_builder_payload(prompt, description="sonnet: fix"))
+    result = _run_hook(_builder_payload(prompt, description="builder: fix"))
     code, out, err = _hook_out(result)
     assert code == 0, err
     assert out is not None
@@ -2012,38 +1837,26 @@ def test_main_stdin_timeout_carries_the_unchecked_note_on_both_channels(monkeypa
     assert "payload unreadable: stdin deadline exceeded" in _context(out)
 
 
-def test_decide_can_still_raise_on_a_non_string_description():
-    # as it truly behaves (TypeError in the label regex, as before B-201): decide() is NOT
-    # a never-raises function; its callers guard it (main(), owns_gate, critic_snapshot)
-    payload = {
-        "tool_name": "Agent",
-        "tool_input": {"subagent_type": "critic", "prompt": "x\n" + _CRITIC_HANDOFF, "description": 5},
-    }
-    import pytest
+def test_main_exception_out_of_decide_exit_0_unchecked_note_on_both_channels(monkeypatch, capsys):
+    # the repro of the review (exit 1 with a traceback before the guard); the trigger is a raising decide_full
+    # since a non-string description is now a refusal, not an exception
+    def boom(payload):
+        raise RuntimeError("boom")
 
-    with pytest.raises(TypeError):
-        dispatch_gate.decide(payload)
-
-
-def test_main_exception_out_of_decide_exit_0_unchecked_note_on_both_channels():
-    # the repro of the review: exit 1 with a traceback before this guard
-    payload = {
-        "tool_name": "Agent",
-        "tool_input": {"subagent_type": "critic", "prompt": "x\n" + _CRITIC_HANDOFF, "description": 5},
-    }
-    result = _run_hook(payload)
-    code, out, err = _hook_out(result)
+    monkeypatch.setattr(dispatch_gate, "decide_full", boom)
+    payload = {"tool_name": "Agent",
+               "tool_input": {"subagent_type": "critic", "prompt": "x\n" + _CRITIC_HANDOFF, "description": "critic: x"}}
+    code, out, err = _run_main(monkeypatch, capsys, payload)
     assert code == 0, err
     assert "Traceback" not in err
-    assert out is not None
-    assert _context(out).startswith("MANIFEST-UNCHECKED:")
-    assert "check failed: TypeError" in _context(out)
-    assert "check failed: TypeError" in err
+    assert _context(json.loads(out)).startswith("MANIFEST-UNCHECKED:")
+    assert "check failed: RuntimeError" in _context(json.loads(out))
+    assert "check failed: RuntimeError" in err
 
 
 def test_main_a_real_refusal_is_still_exit_2_not_swallowed():
     # only exceptions are caught: an incomplete builder dispatch with a fine label stays exit 2
-    result = _run_hook(_builder_payload("Just a fix.", description="sonnet: fix"))
+    result = _run_hook(_builder_payload("Just a fix.", description="builder: fix"))
     assert result.returncode == 2
     assert "MANIFEST-UNCHECKED" not in result.stderr
 
@@ -2073,7 +1886,7 @@ def test_main_exception_in_check_exit_0_unchecked_note_on_both_channels(monkeypa
         raise RuntimeError("boom")
 
     monkeypatch.setattr(dispatch_manifest, "check_cut", boom)  # FLIPPED (B-204): decide builds the cut and calls check_cut
-    raw = json.dumps(_builder_payload("Just a fix.", description="sonnet: fix")).encode("utf-8")
+    raw = json.dumps(_builder_payload("Just a fix.", description="builder: fix")).encode("utf-8")
     monkeypatch.setattr(dispatch_gate, "_read_stdin_bytes_deadline", lambda: (raw, False))
     code = dispatch_gate.main()
     captured = capsys.readouterr()
@@ -2089,7 +1902,7 @@ def test_main_failed_manifest_import_still_produces_the_unchecked_note(monkeypat
         raise ModuleNotFoundError("dispatch_manifest is gone")
 
     monkeypatch.setattr(dispatch_gate, "_load_manifest_module", no_module)
-    raw = json.dumps(_builder_payload("Just a fix.", description="sonnet: fix")).encode("utf-8")
+    raw = json.dumps(_builder_payload("Just a fix.", description="builder: fix")).encode("utf-8")
     monkeypatch.setattr(dispatch_gate, "_read_stdin_bytes_deadline", lambda: (raw, False))
     code = dispatch_gate.main()
     captured = capsys.readouterr()
@@ -2107,7 +1920,7 @@ def test_manifest_note_comes_before_the_other_warn_parts(tmp_path):
     # FLIPPED (B-245, spec 6.5): the fake given path now REFUSES (a) ...
     (tmp_path / "tools").mkdir()  # a top-level entry: makes `tools/...` a path candidate under this tmp root (t-796)
     prompt = "Given: tools/fake_does_not_exist_b201.py\n" + _SKIP_LINE.replace("given, ", "")
-    payload = _builder_payload(prompt, description="sonnet: probe")
+    payload = _builder_payload(prompt, description="builder: probe")
     payload["cwd"] = str(tmp_path)
     result = _run_hook(payload)
     assert result.returncode == 2
@@ -2116,7 +1929,7 @@ def test_manifest_note_comes_before_the_other_warn_parts(tmp_path):
     # ... (b) with a skip line naming given it passes: the SKIP NOTE first, and NO
     # GIVEN-PATH WARN (the old layer no longer fires on paths inside the sections)
     prompt = "Given: tools/fake_does_not_exist_b201.py\n" + _SKIP_LINE + "\nmanifest-skip: given -- a probe\n"
-    payload = _builder_payload(prompt, description="sonnet: probe")
+    payload = _builder_payload(prompt, description="builder: probe")
     payload["cwd"] = str(tmp_path)
     code, out, err = _hook_out(_run_hook(payload))
     assert code == 0, err
@@ -2153,7 +1966,7 @@ def _subagents_home(tmp_path, monkeypatch, n_fresh, n_old=0, session="sess-1"):
 
 
 def _dispatch(prompt_extra="", **top):
-    payload = _builder_payload(_manifest(suffix=prompt_extra), description="sonnet: fix")
+    payload = _builder_payload(_manifest(suffix=prompt_extra), description="builder: fix")
     payload["session_id"] = "sess-1"
     payload.update(top)
     return payload
@@ -2815,7 +2628,7 @@ def _root(tmp_path):
     return tmp_path
 
 
-def _pdecide(root, given="tools/have.py", owns=None, suffix="", cwd=True, description="sonnet: x"):
+def _pdecide(root, given="tools/have.py", owns=None, suffix="", cwd=True, description="builder: x"):
     owns = owns if owns is not None else str(root / "tools" / "have.py")
     payload = _builder_payload(_manifest(given=given, owns=owns, suffix=suffix), description=description)
     if cwd:
@@ -2920,12 +2733,12 @@ def test_P19_P20_P21_unknowns_are_notes_never_refusals(tmp_path):
     assert _pdecide(root, given="tools/have.py (docstring EDGE (c) only)").code == 0  # P19
     # P20: prose between the key and the colon -> the header is not a bare declaration
     payload = _builder_payload(_manifest(given=None, prefix="Given that it was renamed: tools/old.py was the name"),
-                               description="sonnet: x")
+                               description="builder: x")
     payload["cwd"] = str(root)
     d = dispatch_gate.decide_full(payload)
     assert d.code == 0 and any("not a bare declaration" in n for n in d.notes)
     # P21: a line inside an unterminated fence
-    payload = _builder_payload("```\n" + _manifest(given="tools/gone.py"), description="sonnet: x")
+    payload = _builder_payload("```\n" + _manifest(given="tools/gone.py"), description="builder: x")
     payload["cwd"] = str(root)
     d = dispatch_gate.decide_full(payload)
     assert d.code == 0 and any("inside an unterminated fence opened at line 1" in n for n in d.notes)
@@ -2955,7 +2768,7 @@ def test_f626_an_owns_path_with_a_function_list_passes_the_path_check_by_the_pat
 def test_decide_keeps_the_pair_and_main_prints_the_path_lines(tmp_path, monkeypatch, capsys):
     root = _root(tmp_path)
     payload = _builder_payload(_manifest(given="tools/have.py", owns=str(root / "tools" / "have.py")),
-                               description="sonnet: x")
+                               description="builder: x")
     payload["cwd"] = str(root)
     assert dispatch_gate.decide(payload) == (0, "")
     code, out, err = _run_main(monkeypatch, capsys, payload)
@@ -3023,7 +2836,7 @@ def test_main_decide_full_raising_is_a_note_exit_0_and_the_other_layers_still_ru
 
     monkeypatch.setattr(dispatch_gate, "decide_full", boom)
     payload = {"tool_name": "Task", "cwd": str(root),
-               "tool_input": {"subagent_type": "critic", "description": "opus: look",
+               "tool_input": {"subagent_type": "critic", "description": "critic: look",
                               "prompt": "Given: tools/gone.py for reference."}}
     code, out, err = _run_main(monkeypatch, capsys, payload)
     ctx = _context(json.loads(out))
@@ -3039,14 +2852,14 @@ def test_main_exception_in_the_path_check_is_a_note_and_the_label_check_still_ru
         raise RuntimeError("boom")
 
     monkeypatch.setattr(dispatch_gate, "_path_check", boom)
-    payload = _builder_payload(_manifest(given="tools/gone.py"), description="sonnet: x")
+    payload = _builder_payload(_manifest(given="tools/gone.py"), description="builder: x")
     payload["cwd"] = str(root)
     code, out, err = _run_main(monkeypatch, capsys, payload)
     assert code == 0 and "PATH CHECK: paths not checked: RuntimeError" in _context(json.loads(out))
     payload = _builder_payload(_manifest(given="tools/gone.py"), description="nolabel")
     payload["cwd"] = str(root)
     code, out, err = _run_main(monkeypatch, capsys, payload)
-    assert code == 2 and "worker's tier" in err
+    assert code == 2 and "worker's role" in err
 
 
 # ---------------------------------------------------------------------
@@ -3084,7 +2897,7 @@ def _critic_payload(root, tool_use_id=None, prompt="Review the diff."):
     prompt = prompt.replace("handoff: a short report", _CRITIC_HANDOFF)
     if "handoff" not in prompt.lower():
         prompt += "\n" + _CRITIC_HANDOFF
-    payload = _agent_payload("critic", "opus: review the diff", prompt, cwd=str(root))
+    payload = _agent_payload("critic", "critic: review the diff", prompt, cwd=str(root))
     if tool_use_id is not None:
         payload["tool_use_id"] = tool_use_id
     return payload
@@ -3123,7 +2936,7 @@ def test_verdict_key_without_an_id_is_the_content_key_with_the_prompt_length():
     same_head = _dispatch("x" * 5000)
     same_head["tool_input"]["prompt"] += "a tail differs beyond 4 KB"
     other_label = _dispatch("x" * 5000)
-    other_label["tool_input"]["description"] = "opus: other"
+    other_label["tool_input"]["description"] = "builder: other"
     key, kind = k(base)
     assert kind == "content" and key.endswith(":%d" % len(base["tool_input"]["prompt"]))
     assert k(base) == k(_dispatch("x" * 5000))  # the same dispatch, the same key
@@ -3193,7 +3006,7 @@ def test_the_readers_overlap_warning_is_folded_into_the_gates_one_json_object(tm
     root = tmp_path / "root"
     root.mkdir()
     owns_gate._append_registry(root / "logs" / "owns_registry.jsonl", datetime.now(), "other-session", str(root),
-                               "sonnet: live", [_OWNED_PATH])
+                               "builder: live", [_OWNED_PATH])
     code, out, err = _run_main(monkeypatch, capsys, _with_cwd(root, tool_use_id="toolu_ov"))
     assert (code, err) == (0, "")
     lines = [ln for ln in out.splitlines() if ln.strip()]
@@ -3317,7 +3130,7 @@ def _race_payload(root, kind, tool_use_id):
         root / "x.py", handoff)
     payload = {"tool_name": "Agent", "cwd": str(root), "session_id": "sid1",
                "transcript_path": str(root / "home" / "x.jsonl"),
-               "tool_input": {"subagent_type": kind, "description": "sonnet: probe", "prompt": prompt}}
+               "tool_input": {"subagent_type": kind, "description": f"{kind}: probe", "prompt": prompt}}
     if tool_use_id:
         payload["tool_use_id"] = tool_use_id
     return payload
@@ -3503,12 +3316,26 @@ def test_t857_a_writer_whose_handback_is_followed_by_short_lines_is_not_counted_
     assert (code, err) == (0, "")
 
 
-# ---- offload B23 (S-1): label_model_family, the public reader of a description's tier word
+# ---- D-0016: role_bound_model, the public reader of a dispatch role's bound model
 
-@pytest.mark.parametrize("description,expected", [
-    ("sonnet: find x", "sonnet"), ("opus-x: y", "opus"), ("Opus: review", "opus"), ("fable - plan", "fable"), ("haiku: tiny", "haiku"),
-    ("fix flaky test", None), ("claude: x", None), ("sonnetry: x", None), ("sonnet", None), ("", None), (None, None), (5, None),
-], ids=["sonnet", "opus_dash", "opus_case", "fable", "haiku", "no_tier_word", "other_label", "longer_token", "no_separator", "empty",
-        "none", "int"])
-def test_label_model_family_rows(description, expected):
-    assert dispatch_gate.label_model_family(description) == expected
+_CFG = "roles:\n  lead:\n    subscription:\n      model: claude-fable-1\n  critic:\n    subscription:\n      model: claude-haiku-9\n"
+
+
+@pytest.mark.parametrize("role,config,model,road_has", [
+    ("scout", None, "sonnet", "default bindings"),   # no config: the ladder default
+    ("critic", _CFG, "claude-haiku-9", "roles.critic"),         # the config binding wins
+    ("builder", _CFG, None, "names no model"),                   # a readable config without roles.builder
+    ("designer", None, "claude-opus-5-5", "role file"),          # not a function: the role file's model:
+    ("general-purpose", None, None, "no binding"),
+    (None, None, None, "no role"), (5, None, None, "no role"), ("  ", None, None, "no role"),
+], ids=["scout_default", "critic_config", "builder_no_model", "designer_role_file", "no_role_file", "none", "int", "blank"])
+def test_role_bound_model_rows(role, config, model, road_has):
+    bound, road = dispatch_gate.role_bound_model(role, config)
+    assert bound == model and road_has in road, (bound, road)
+
+
+def test_role_bound_model_filename_beats_name_field(tmp_path):
+    (tmp_path / "scout.md").write_text("---\nname: not-scout\nmodel: sonnet\n---\n", encoding="utf-8")
+    (tmp_path / "other.md").write_text("---\nname: scout\nmodel: haiku\n---\n", encoding="utf-8")
+    assert dispatch_gate.role_bound_model("Designer", None, tmp_path)[0] is None
+    assert dispatch_gate._find_agent_role_model("scout", tmp_path) == (True, "sonnet")

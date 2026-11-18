@@ -206,13 +206,24 @@ def _post_agent(payload) -> list:
     if agent_id is None:
         return [_door("the launch result carries no agent id")]
     import dispatch_gate
-    model = dispatch_gate.label_model_family(tool_input.get("description"))
-    if model is None:
-        return [_door("the description does not open with a tier word (" + " / ".join(tier_ladder.FAMILIES) + "), and the hook writes no "
-                      "model it did not read")]
+    import journal_validator
     agent = tool_input.get("subagent_type")
     if not isinstance(agent, str) or not agent.strip():
         return [_door("the dispatch names no subagent_type")]
+    try:
+        root = jw.repo_root(payload.get("cwd") or os.getcwd())
+    except jw.Refused as exc:
+        return [_door(exc.text)]
+    # D-0016: the model is the ROLE's binding, never read from the label; an explicit Agent `model` parameter wins (F5).
+    declared = tool_input.get("model")
+    if isinstance(declared, str) and declared.strip():
+        bound, road = declared.strip(), "the dispatch's model parameter"
+    else:
+        bound, road = dispatch_gate.role_bound_model(agent, journal_validator.read_config_text(root))
+    if bound is None:
+        return [_door(f"the dispatch's role '{agent.strip()}' has no bound model ({road}), and the hook writes no model it did not read")]
+    model = tier_ladder.family_of(bound) or bound
+    by_default = road.startswith("default bindings")
     prompt = tool_input.get("prompt") if isinstance(tool_input.get("prompt"), str) else ""
     ids, skip_reason = {}, None
     try:
@@ -224,10 +235,6 @@ def _post_agent(payload) -> list:
         skip_reason = dispatch_manifest.designer_skip_reason(cut)
     except Exception:  # noqa: BLE001 -- the ids are help: without them the writer issues a task id
         ids, skip_reason = {}, None
-    try:
-        root = jw.repo_root(payload.get("cwd") or os.getcwd())
-    except jw.Refused as exc:
-        return [_door(exc.text)]
     ref = f"agent:{agent_id}"
     journal = _journal_file(root)
     if journal is None:
@@ -251,7 +258,6 @@ def _post_agent(payload) -> list:
     if task:
         obj["task_id"] = task
         obj.update(_repeat_fields(objs, task, agent.strip()))
-    import journal_validator
     replaces = journal_validator.extract_replaces_worker(prompt)
     obj["notes"] = cut_notes(tool_input.get("description"), f"replaces_worker:{replaces}" if replaces else "")
     res = jw.write_event(root, obj, via="hook", lock_timeout=HOOK_LOCK_TIMEOUT)
@@ -262,6 +268,8 @@ def _post_agent(payload) -> list:
     done = f"JOURNAL: delegated {res.task_id} written ({res.path}:{res.line_no})"
     if not task:
         done += f"; task id issued by the hook: {res.task_id} (the dispatch named none)"
+    if by_default:
+        done += "; model by default bindings (delegation.config.yaml absent or unreadable)"
     lines.append(done)
     lines.extend(one_line(m, 300) for m in res.messages[1:] if m)
     if skip_reason:

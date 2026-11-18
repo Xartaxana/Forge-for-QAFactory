@@ -193,10 +193,10 @@ a rule.
 7. Background execution by default (background-by-default rule): `run_in_background`; synchronous only when the next
    step depends on the result AND there is no other work or operator question pending. Accepting the result on
    completion is mandatory (flat delegation rule). The visible dispatch label (`description`) starts
-   with the worker's model: "sonnet: …" / "opus: …" (a
-   non-standard agent: its actual model) — the operator sees the tier
-   in the background-task list, the same self-declaration as the
-   journal's `model` field (reconciled by calibration check 4). A tier REQUIREMENT closes by MEASUREMENT, not by
+   with the worker's role — the dispatch's `subagent_type` — and a colon: "builder: …" / "critic: …"
+   (D-0016: the interface already shows the model). The model is the role's binding (`delegation.config.yaml`
+   `roles.<function>`; a role the config does not bind: its role file's `model:`), written to the journal's `model`
+   field by the dispatch hook (reconciled by calibration check 4). A tier REQUIREMENT closes by MEASUREMENT, not by
    declaration alone: when a journal line carries a `worker_ref` of the form `agent:<id>`, the `journal_echo` hook
    measures the worker's actual transcript models and warns on a MISMATCH against the declared model; a mismatch is
    resolved — relaunch, an honest record via `basis`, or escalation — before the result is used as that tier's word.
