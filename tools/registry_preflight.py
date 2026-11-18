@@ -35,8 +35,8 @@ REPO = HERE.parent.parent
 PKG = "ai-packages/qa-factory"
 SCRIPTS = PKG + "/scripts"
 TESTS = SCRIPTS + "/tests"
-CHECK_TIMEOUT = 30.0            # seconds per row (module constant: a test moves it)
-TOTAL_BUDGET = 60.0             # seconds per run
+CHECK_TIMEOUT = 60.0            # seconds per row (Lead t-1469, after census measured 44.2 s) (module constant: a test moves it)
+TOTAL_BUDGET = 120.0            # seconds per run
 NO_RULE_SHOW = 10
 PROBLEM_SHOW = 5
 MARK = "registry preflight:"
@@ -45,17 +45,20 @@ _normcase = os.path.normcase    # a seam for tests (the Windows prefix fold)
 
 # (glob, ad_only): ad_only signs select on an added/deleted/renamed path only (a content edit changes no role name, no listing)
 _SCRIPTS_PY = (SCRIPTS + "/*.py", False)
+# Order = print order = cost ascending, so a spent budget drops the dearest rows (`budget spent`). Seconds measured by the
+# builder on 2026-11-18 (t-1469): `python -B tools/registry_preflight.py check census driver-layers read-json test-layers lint
+# --paths tools/wave.py` -> lint 0.2, test-layers 0.2, read-json 11.1, driver-layers 25.1, census 44.2.
 RULES = (
+    ("lint", tuple((r.strip("/") + "/**/*.py", False) for r in lint_ratchet.ROOTS),     # read from the module, never copied
+     "a new pyflakes finding, a file that does not parse, a stale baseline row, a hand-input match"),
+    ("test-layers", ((TESTS + "/test-layers.json", False), (SCRIPTS + "/slow_tests.json", False), (TESTS + "/test_*.py", True)),
+     "malformed layers data, a keep row naming no file, an unlisted new test file, a broken named_by"),
+    ("read-json", (_SCRIPTS_PY,), "a reader-shaped JSON function outside KEPT, a stale KEPT row"),
+    ("driver-layers", (_SCRIPTS_PY, (TESTS + "/fixtures/*-layers.json", False)),
+     "a family name with no map row, L1-L12 on the real maps"),
     ("census", (_SCRIPTS_PY, (TESTS + "/fixtures/judgment-census.json", False), (PKG + "/references/stages.json", False),
                 (PKG + "/agents/*.md", True)),
      "a check unit with no census row, a stale row, a raised ceiling (C1-C5)"),
-    ("driver-layers", (_SCRIPTS_PY, (TESTS + "/fixtures/*-layers.json", False)),
-     "a family name with no map row, L1-L12 on the real maps"),
-    ("read-json", (_SCRIPTS_PY,), "a reader-shaped JSON function outside KEPT, a stale KEPT row"),
-    ("test-layers", ((TESTS + "/test-layers.json", False), (SCRIPTS + "/slow_tests.json", False), (TESTS + "/test_*.py", True)),
-     "malformed layers data, a keep row naming no file, an unlisted new test file, a broken named_by"),
-    ("lint", tuple((r.strip("/") + "/**/*.py", False) for r in lint_ratchet.ROOTS),     # read from the module, never copied
-     "a new pyflakes finding, a file that does not parse, a stale baseline row, a hand-input match"),
 )
 IDS = tuple(r[0] for r in RULES)
 
@@ -359,7 +362,7 @@ def _run_rows(repo, head, ids, entries, rep, say, runner):
                 try:
                     state, detail = _judge(*runner(argv, tmo))
                 except subprocess.TimeoutExpired:
-                    state, detail = "cannot", f"timeout after {tmo:g} s"
+                    state, detail = "cannot", f"timeout {tmo:g} s"
                 except Exception as exc:
                     state, detail = "cannot", _why(exc)
             secs = _clock() - t0

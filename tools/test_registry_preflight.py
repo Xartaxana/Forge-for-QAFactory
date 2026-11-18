@@ -16,12 +16,12 @@ T = RP.TESTS
 
 
 @pytest.mark.parametrize("path, want", [
-    (S + "/x.py", ["census", "driver-layers", "read-json", "lint"]),
+    (S + "/x.py", ["lint", "read-json", "driver-layers", "census"]),
     (T + "/fixtures/judgment-census.json", ["census"]),
     (T + "/test-layers.json", ["test-layers"]),
     (S + "/slow_tests.json", ["test-layers"]),
     (T + "/fixtures/driver-layers.json", ["driver-layers"]),
-    (T + "/test_x.py (new)", ["test-layers", "lint"]),
+    (T + "/test_x.py (new)", ["lint", "test-layers"]),
     (T + "/test_x.py", ["lint"]),                                  # a content edit lists nothing new
     (RP.PKG + "/agents/new.md (new)", ["census"]),
     (RP.PKG + "/agents/old.md", []),
@@ -30,9 +30,9 @@ T = RP.TESTS
     (str(R / "tools" / "x.py"), ["lint"]),                         # absolute
     ("tools\\x.py", ["lint"]),                                     # backslash
     ("tools", ["lint"]),                                           # a directory selects every row with a sign under it
-    (RP.PKG, ["census", "driver-layers", "read-json", "test-layers", "lint"]),
+    (RP.PKG, ["lint", "test-layers", "read-json", "driver-layers", "census"]),
     (str(R.parent / "elsewhere" / "tools" / "x.py"), []),          # outside the repo
-    ("", ["census", "driver-layers", "read-json", "test-layers", "lint"]),
+    ("", ["lint", "test-layers", "read-json", "driver-layers", "census"]),
 ])
 def test_rules_for_table(path, want):
     assert RP.rules_for([path], repo=R) == want
@@ -43,7 +43,7 @@ def test_rules_for_forms_and_deleted(monkeypatch):
     monkeypatch.setattr(RP, "_normcase", str.lower)                 # the Windows fold, whatever the host
     assert RP.rules_for([str(R).upper().replace("\\", "/") + "/tools/x.py (new)"], repo=R) == ["lint"]
     assert RP.select([("tools/x.py", "D")]) == ["lint"]             # a deleted file keeps its baseline rows to be judged
-    assert RP.select([(T + "/test_x.py", "D")]) == ["test-layers", "lint"]
+    assert RP.select([(T + "/test_x.py", "D")]) == ["lint", "test-layers"]
 
 
 def mkrepo(tmp_path, files):
@@ -107,20 +107,21 @@ def test_rows_never_read_ok_when_unjudged(tmp_path, monkeypatch, case):
             return 3, "", "Traceback\nImportError: no x"
         if case == "timeout":
             raise subprocess.TimeoutExpired(argv, timeout)
-        clock[0] += 61.0
+        clock[0] += 40.0                                     # three rows spend the 120 s: the dearest is cut
         return 0, "", ""
     rep, out = run_pf(repo, runner)
     text = "\n".join(out)
     states = {r[0]: r[1] for r in rep.rows}
     if case == "ok-red":
         assert states == {"census": "red", "driver-layers": "ok", "read-json": "ok", "lint": "ok"} and rep.code() == 1
-        assert "census RED (0.0 s)\n  C1: a\n  +3 more\nregistry preflight: driver-layers ok" in text
+        assert "census RED (0.0 s)\n  C1: a\n  +3 more\nregistry preflight: 4 run, 1 red" in text
     elif case == "crash":
         assert set(states.values()) == {"cannot"} and "exit 3: ImportError: no x" in text and " ok (" not in text
     elif case == "timeout":
-        assert set(states.values()) == {"cannot"} and "timeout after 30 s" in text and len(calls) == 4
+        assert set(states.values()) == {"cannot"} and "cannot judge (timeout 60 s)" in text and "RED" not in text and len(calls) == 4
     else:
-        assert calls == ["census"] and "driver-layers cannot judge (budget spent)" in text and states["lint"] == "cannot"
+        assert calls == ["lint", "read-json", "driver-layers"] and "census cannot judge (budget spent)" in text
+        assert states["lint"] == "ok" and states["census"] == "cannot"
     assert out[-1].startswith("registry preflight: ") and "the merge goes on" in out[-1] and rep.code() in (1, 2)
     assert not list((repo / ".claude" / "worktrees").glob("preflight-*"))        # the tree is gone, the runner crashed or not
 
