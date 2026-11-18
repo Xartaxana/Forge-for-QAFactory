@@ -33,8 +33,7 @@ NO_GROUP = "No two failures share a requirement, case, test file, code line or s
 NOTHING = "Nothing found: no failure, triage row or draft to compare."
 
 
-def _squash(value) -> str:
-    return " ".join(str(value or "").split())
+_squash = C.one_line
 
 
 def _texts(value) -> list:

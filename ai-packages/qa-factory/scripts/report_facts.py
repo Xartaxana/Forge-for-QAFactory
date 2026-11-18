@@ -88,8 +88,7 @@ CHANGED_NOTICE_RE = re.compile(r'^Changed since gate B: the verdict read "(.*)";
 
 # --- small helpers ------------------------------------------------------------------------------
 
-def _words(text) -> str:
-    return " ".join(str(text or "").split())
+_words = C.one_line
 
 
 def _plural(count: int, one: str, many: str) -> str:

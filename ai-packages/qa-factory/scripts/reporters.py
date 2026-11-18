@@ -628,7 +628,8 @@ _PREFIX = "AssertionError:"
 
 
 def _collapse(value) -> str:
-    return " ".join(str(value or "").split())
+    import contract
+    return contract.one_line(value)
 
 
 def _fold(value) -> str:
