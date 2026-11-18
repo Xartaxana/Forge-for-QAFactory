@@ -1095,11 +1095,11 @@ def role_bound_model(subagent_type, config_text, agents_dir=None) -> tuple[str |
             return None, "no role"
         role = subagent_type.strip().lower()
         if role in tier_ladder.COORDINATION_FUNCTIONS:
-            found, note = tier_ladder.effective_bindings(config_text)
+            found, note, defaulted = tier_ladder.resolved_bindings(config_text)
             model = found.get(role)
             if not model:
                 return None, "roles.%s names no model" % role
-            if "lead" not in tier_ladder.bindings(config_text)[0]:
+            if defaulted:
                 return model, "default bindings (%s)" % (note or "no config")
             return model, "delegation.config.yaml roles.%s" % role
         _known, model = _find_agent_role_model(role, agents_dir)

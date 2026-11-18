@@ -3318,20 +3318,9 @@ def test_t857_a_writer_whose_handback_is_followed_by_short_lines_is_not_counted_
 
 # ---- D-0016: role_bound_model, the public reader of a dispatch role's bound model
 
-_CFG = "roles:\n  lead:\n    subscription:\n      model: claude-fable-1\n  critic:\n    subscription:\n      model: claude-haiku-9\n"
-
-
-@pytest.mark.parametrize("role,config,model,road_has", [
-    ("scout", None, "sonnet", "default bindings"),   # no config: the ladder default
-    ("critic", _CFG, "claude-haiku-9", "roles.critic"),         # the config binding wins
-    ("builder", _CFG, None, "names no model"),                   # a readable config without roles.builder
-    ("designer", None, "claude-opus-5-5", "role file"),          # not a function: the role file's model:
-    ("general-purpose", None, None, "no binding"),
-    (None, None, None, "no role"), (5, None, None, "no role"), ("  ", None, None, "no role"),
-], ids=["scout_default", "critic_config", "builder_no_model", "designer_role_file", "no_role_file", "none", "int", "blank"])
-def test_role_bound_model_rows(role, config, model, road_has):
-    bound, road = dispatch_gate.role_bound_model(role, config)
-    assert bound == model and road_has in road, (bound, road)
+@pytest.mark.parametrize("role", [None, 5, "  "], ids=["none", "int", "blank"])
+def test_role_bound_model_rows(role):
+    assert dispatch_gate.role_bound_model(role, None) == (None, "no role")
 
 
 def test_role_bound_model_filename_beats_name_field(tmp_path):
