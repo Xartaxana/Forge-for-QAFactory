@@ -4357,7 +4357,8 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:125"
+    "design/state-exits.md:140",
+    "design/state-exits.md:141"
    ],
    "replaced_by": null,
    "covers": [
