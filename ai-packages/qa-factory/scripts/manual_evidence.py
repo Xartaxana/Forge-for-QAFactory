@@ -14,8 +14,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import grammar as G
 from event_store import atomic_json
-from profile_contract import (ACCEPTS, CONTENT_FILES_FALLBACK, SHORT_SHA, acceptable_provenance, no_changed_file, refusal_text,
-                              say_refusal, shown_files, validate_runtime_provenance)
+from profile_contract import (CONTENT_FILES_FALLBACK, SHORT_SHA, local_source_request, no_changed_file, provenance_word,
+                              refusal_text, say_refusal, shown_files, validate_runtime_provenance)
 from profile_contract import refusal_words as refusal_sentences   # this module has a `refusal_words(exc)` of its own
 from role_cli import RefusingParser, command_from_argv, epilog, refuse, run_guarded
 import hooklib
@@ -74,10 +74,10 @@ def _safe_evidence_path(root, raw):
 def _provenance_errors(before, after, record, story, where="") -> list:
     """The provenance rules of ONE attempt's two probes: the record's own (`where` empty) and each joined profile's
     (`other_profiles`, FB-12) go through this one function, so a second profile is never held to less (AR-19)."""
+    from gate_template import acceptable
     errors = []
     for probe in (before, after):
-        checked = validate_runtime_provenance(probe)
-        local_source = record.get("runtime_required") is False and record.get("target_kind") == "local_source"
+        local_source = local_source_request(record)
         # ONE predicate (t-300 N2 S10, FR-17): `matched`; a person's word bound to THIS story (`person_confirmed`: the
         # record then carries the sentence that says so, `build_record`); a probe that compared nothing; and the
         # local_source `not_applicable` beside it (X3). `unknown` is refused, with or without an image (Q18-B,
@@ -86,8 +86,7 @@ def _provenance_errors(before, after, record, story, where="") -> list:
         if probe.get("result") == "not_applicable" and not no_changed_file(probe) and not local_source:
             errors.append(where + "runtime not_applicable requires local_source with runtime_required false, or "
                           "a probe that says `reason_code: no_changed_file`")
-        elif not (acceptable_provenance(probe, ACCEPTS, task=story)
-                  or (checked["valid"] and checked["result"] == "not_applicable" and local_source)):
+        elif not acceptable(provenance_word(probe, task=story, local_source=local_source), "provenance.manual"):
             errors.append(where + "runtime provenance must be matched, the person's word for this story (person_confirmed), "
                           "or a valid local not_applicable: " + refusal_text(probe, task=story))
     for key in ("profile_id", "environment_id", "expected_source_revision", "observed_runtime_identity"):
@@ -668,9 +667,18 @@ def validate_baseline_record(record, task_root):
         errors.append("baseline capture cannot carry a product pass/fail result")
     if record.get("capture_status") not in {"captured", "inconclusive"}:
         errors.append("baseline capture_status must be captured or inconclusive")
-    contract = record.get("baseline_contract") or {}
+    # A hand-written record (outside input, FR-1): a block that is not an object is named by its TYPE only (never its value)
+    # and read as `{}` below; None / absent keeps the "baseline missing" sentence above (one sentence per fault).
+    blocks = {}
+    for field in ("baseline_contract", "runtime_before", "runtime_after"):
+        block = record.get(field)
+        if block is not None and not isinstance(block, dict):
+            errors.append(f"{field} must be a JSON object, got {type(block).__name__}")
+            block = {}
+        blocks[field] = block or {}
+    contract = blocks["baseline_contract"]
     request = {"evidence_phase": "baseline", "baseline_contract": contract,
-               "runtime_provenance": record.get("runtime_before")}
+               "runtime_provenance": blocks["runtime_before"] or None}
     errors.extend(validate_baseline_request(request))
     if contract.get("case_id") != record.get("case") or contract.get("case_version") != record.get("case_version"):
         errors.append("baseline contract case/version must match manual capture")
@@ -678,18 +686,24 @@ def validate_baseline_record(record, task_root):
         errors.append("manual baseline source revision must match baseline revision")
     if not set(contract.get("capture_steps") or []).issubset(set(record.get("steps_actual") or [])):
         errors.append("manual baseline actual steps must include approved capture steps")
-    for probe in (record.get("runtime_before") or {}, record.get("runtime_after") or {}):
-        checked = validate_runtime_provenance(probe)
-        if checked["result"] == "person_confirmed":
-            # t-300 N2 S11: the baseline is a measured OLD build - the person's word that this story's build is on the
-            # stand says nothing about the old one, so it never stands in (FR-58; the registry row keeps it code-proven)
-            errors.append(say_refusal("baseline_person"))
-        elif not checked["valid"] or checked["result"] not in {"matched", "not_applicable"}:
-            errors.append("manual baseline runtime provenance is unverified")
+    from gate_template import acceptable
+    for probe in (blocks["runtime_before"], blocks["runtime_after"]):
+        # ONE predicate with the capture (`baseline_identity.capture`, AR-19): `matched` or a probe that compared nothing.
+        if not acceptable(provenance_word(probe), "baseline_identity.capture"):
+            checked = validate_runtime_provenance(probe)
+            if checked["result"] == "person_confirmed":
+                # t-300 N2 S11: the baseline is a measured OLD build - the person's word that this story's build is on the
+                # stand says nothing about the old one, so it never stands in (FR-58; the registry row keeps it code-proven)
+                errors.append(say_refusal("baseline_person"))
+            else:
+                errors.append("manual baseline runtime provenance is unverified")
         if probe.get("expected_source_revision") != contract.get("baseline_revision"):
-            errors.append("manual baseline runtime must match baseline revision")
-    if ((record.get("runtime_before") or {}).get("observed_runtime_identity") !=
-            (record.get("runtime_after") or {}).get("observed_runtime_identity")):
+            errors.append("manual baseline runtime must match baseline revision: the probe's expected_source_revision is "
+                          f"{probe.get('expected_source_revision')!r}, the approved baseline_revision is "
+                          f"{contract.get('baseline_revision')!r}. Capture again on a stand that runs that revision, or "
+                          "record no baseline: missing before evidence blocks no current check")
+    if (blocks["runtime_before"].get("observed_runtime_identity") !=
+            blocks["runtime_after"].get("observed_runtime_identity")):
         errors.append("manual baseline runtime identity changed during capture")
     refs = record.get("evidence_refs")
     if not isinstance(refs, list) or not refs:

@@ -382,10 +382,14 @@ def _run_step(store: EnvironmentJobs, job: dict, step: dict, index: int, log_dir
               "stdout_log": str(stdout_path), "stderr_log": str(stderr_path)}
     provenance_ok = True
     if step.get("layer") == "provenance" and not timed_out and code in step["expected_exit_codes"]:
+        from gate_template import acceptable
+        from profile_contract import provenance_word
         try:
             receipt = json.loads(stdout_path.read_text(encoding="utf-8"))
             checked = validate_runtime_provenance(receipt)
-            provenance_ok = bool(checked["valid"] and checked["result"] == "matched" and
+            # The deploy's proof is `matched` only, judged by the registry (`environment_preparation.deploy_proof`, RD1-14 k3):
+            # a person's word never replaces it; the two equalities bind the proof to THIS step's build and stand.
+            provenance_ok = bool(acceptable(provenance_word(receipt), "environment_preparation.deploy_proof") and
                                  receipt.get("expected_source_revision") ==
                                  step.get("expected_source_revision") and
                                  receipt.get("environment_id") == step.get("environment_id"))
