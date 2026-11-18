@@ -309,9 +309,9 @@ def _site_path(raw: str, clone_root) -> tuple:
 def assertion_site(row: dict, reporter: str, clone_root, test_file, *,
                    pytest_command: bool = True, runtime: str = "",
                    frames=None, skip_frames=None, frame_path: str = "path") -> dict:
-    """`{"location": "<path>:<line>", "failure_kind": ...}` for a failed row, or `{}` when the row
-    is not proof (no stack, or no frame that names a file), or - for a `junit-xml` row of a runner
-    that is not pytest - `{"site_unread": "junit-xml/<runtime>", "reason": ...}`.
+    """`{"location": "<path>:<line>", "failure_kind": ...}` for a failed row, or `{}` for a green or skipped row (no site to read), or
+    the typed `{"site_unread": "<reporter>/<runtime>", "reason": ...}` for a failed or errored row whose site cannot be read: a
+    `junit-xml` row of a runner that is not pytest, a pytest or TRX row with no trace or frame (RD1-39).
 
     pytest, and junit-xml of a pytest command: pytest's own last traceback line, the rule the old
     private reader applied. That grammar is read for no other JUnit producer: a Jest frame came out
@@ -341,7 +341,8 @@ def assertion_site(row: dict, reporter: str, clone_root, test_file, *,
     has a package path that is a suffix of the test file's directory, so a same-named file of another
     package is never taken for this one. Anything else, and a failed or errored row with no matching
     frame, is the typed `site_unread` answer: a tooling gap is never turned into a location, and so
-    never into a verdict on the test (FR-59). `frames=None` is today's behaviour, byte for byte."""
+    never into a verdict on the test (FR-59). `frames=None` is today's behaviour except that a failed or errored `trx` or pytest row with no
+    frame or trace is now that typed answer, no longer `{}` (RD1-39); a found frame answers as before."""
     _check_reporter(reporter)
     problems = row.get("problems") or []
     if frames is not None and (reporter == "trx" or (reporter == "junit-xml" and not pytest_command)):
@@ -352,7 +353,7 @@ def assertion_site(row: dict, reporter: str, clone_root, test_file, *,
         unread = f"{reporter}/{runtime or 'unknown runtime'}"
         return {"site_unread": unread, "reason": f"the assertion site of a {unread} report is not read yet (B-337)"}
     if reporter != "trx":
-        return _pytest_site(row, problems)
+        return _pytest_site(row, problems, reporter, runtime)
     # The row's failure or error problem; a skip's text is not a failure site.
     chosen = next((p for p in problems if p.get("kind") in ("failure", "error")), None)
     for line in ((chosen or {}).get("text") or "").splitlines():
@@ -367,7 +368,12 @@ def assertion_site(row: dict, reporter: str, clone_root, test_file, *,
             kind = "assertion" if row.get("status") == "failed" and expected and compared == expected \
                 else "exception"
         return {"location": f"{shown}:{match.group('line')}", "failure_kind": kind}
-    return {}
+    if row.get("status") not in ("failed", "error"):
+        return {}  # a green or skipped row has no site to read
+    # RD1-39 (critic t-1348 RD24-b): a failed row with no frame was `{}`, which a green baseline read as `survived` - a tooling gap
+    # turned into a verdict (FR-59). Typed like the junit non-pytest branch; the failure text is never echoed.
+    unread = f"trx/{runtime or 'unknown runtime'}"
+    return {"site_unread": unread, "reason": f"the assertion site of a {unread} report was not read: the trx reporter found no stack frame (B-337)"}
 
 
 def _grammar(patterns, label: str) -> tuple:
@@ -562,7 +568,7 @@ def failure_frames(row, frames, skip_frames, error_head=None, after_frame_ok=())
     return found or None
 
 
-def _pytest_site(row: dict, problems: list) -> dict:
+def _pytest_site(row: dict, problems: list, reporter: str = "pytest", runtime: str = "") -> dict:
     # The old private row reader took the <failure> body before the <error> one; keep that order.
     chosen = next((p for p in problems if p.get("kind") == "failure"),
                   next((p for p in problems if p.get("kind") == "error"), None))
@@ -576,7 +582,11 @@ def _pytest_site(row: dict, problems: list) -> dict:
         kind = ("assertion" if match.group("exc") == "AssertionError" else
                 "error" if row.get("status") == "error" else "exception")
         return {"location": match.group("loc"), "failure_kind": kind}
-    return {}
+    if row.get("status") not in ("failed", "error"):
+        return {}  # a green or skipped row has no site to read
+    # RD1-39 R2 (critic t-1370): a failed row with no parseable traceback tail was `{}`, read by a green baseline as `survived` (FR-59).
+    unread = f"{reporter}/{runtime or 'unknown runtime'}"
+    return {"site_unread": unread, "reason": f"the assertion site of a {unread} report was not read: no traceback was found (B-337)"}
 
 
 # --- the reason an assertion failed ----------------------------------------------------------

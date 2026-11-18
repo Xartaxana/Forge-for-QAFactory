@@ -37,7 +37,7 @@
   "s6-w1-frozen/console.json": "test_story_run_s6_w1_frozen.py",
   "s6-w1-frozen/events.json": "test_story_run_s6_w1_frozen.py",
   "s6-w1-frozen/state_keys.json": "test_story_run_s6_w1_frozen.py",
-  "told-ratchet.json": "test_stage_joints.py"
+  "told-ratchet.json": "test_stage_joints_told_real.py"
  },
  "keep": {
   "test_adapter_forms.py": {
@@ -5529,9 +5529,9 @@
     "tests/harness.py"
    ]
   },
-  "test_stage_joints.py": {
+  "test_stage_joints_k1_k8.py": {
    "layer": "gate_named",
-   "why": "CONTRACT_TESTS: selftest --contracts runs the stage-joints walk (F6-51)",
+   "why": "CONTRACT_TESTS: selftest --contracts runs the stage-joints walk (F6-51) (part of test_stage_joints.py split, TD-11c)",
    "covers": [
     "branch_accounting.py",
     "detector_verdict.py",
@@ -5545,7 +5545,108 @@
     "scripts/tests/fixtures/judgment-census.json",
     "scripts/tests/fixtures/told-ratchet.json",
     "tests/harness.py",
-    "tests/test_judgment_census.py"
+    "tests/test_judgment_census.py",
+    "tests/stage_joints_common.py"
+   ]
+  },
+  "test_stage_joints_k9_k14.py": {
+   "layer": "gate_named",
+   "why": "CONTRACT_TESTS: selftest --contracts runs the stage-joints walk (F6-51) (part of test_stage_joints.py split, TD-11c)",
+   "covers": [
+    "branch_accounting.py",
+    "detector_verdict.py",
+    "null_outcomes.py",
+    "sizing.py",
+    "stage_joints.py",
+    "agents/qa-runner.md",
+    "references/slices/qa-automator/artifact-contract-automation.md",
+    "references/slices/qa-runner/common-rules.md",
+    "references/stage-joints.json",
+    "scripts/tests/fixtures/judgment-census.json",
+    "scripts/tests/fixtures/told-ratchet.json",
+    "tests/harness.py",
+    "tests/test_judgment_census.py",
+    "tests/stage_joints_common.py"
+   ]
+  },
+  "test_stage_joints_v2_rows.py": {
+   "layer": "gate_named",
+   "why": "CONTRACT_TESTS: selftest --contracts runs the stage-joints walk (F6-51) (part of test_stage_joints.py split, TD-11c)",
+   "covers": [
+    "branch_accounting.py",
+    "detector_verdict.py",
+    "null_outcomes.py",
+    "sizing.py",
+    "stage_joints.py",
+    "agents/qa-runner.md",
+    "references/slices/qa-automator/artifact-contract-automation.md",
+    "references/slices/qa-runner/common-rules.md",
+    "references/stage-joints.json",
+    "scripts/tests/fixtures/judgment-census.json",
+    "scripts/tests/fixtures/told-ratchet.json",
+    "tests/harness.py",
+    "tests/test_judgment_census.py",
+    "tests/stage_joints_common.py"
+   ]
+  },
+  "test_stage_joints_told_variants.py": {
+   "layer": "gate_named",
+   "why": "CONTRACT_TESTS: selftest --contracts runs the stage-joints walk (F6-51) (part of test_stage_joints.py split, TD-11c)",
+   "covers": [
+    "branch_accounting.py",
+    "detector_verdict.py",
+    "null_outcomes.py",
+    "sizing.py",
+    "stage_joints.py",
+    "agents/qa-runner.md",
+    "references/slices/qa-automator/artifact-contract-automation.md",
+    "references/slices/qa-runner/common-rules.md",
+    "references/stage-joints.json",
+    "scripts/tests/fixtures/judgment-census.json",
+    "scripts/tests/fixtures/told-ratchet.json",
+    "tests/harness.py",
+    "tests/test_judgment_census.py",
+    "tests/stage_joints_common.py"
+   ]
+  },
+  "test_stage_joints_told_legs.py": {
+   "layer": "gate_named",
+   "why": "CONTRACT_TESTS: selftest --contracts runs the stage-joints walk (F6-51) (part of test_stage_joints.py split, TD-11c)",
+   "covers": [
+    "branch_accounting.py",
+    "detector_verdict.py",
+    "null_outcomes.py",
+    "sizing.py",
+    "stage_joints.py",
+    "agents/qa-runner.md",
+    "references/slices/qa-automator/artifact-contract-automation.md",
+    "references/slices/qa-runner/common-rules.md",
+    "references/stage-joints.json",
+    "scripts/tests/fixtures/judgment-census.json",
+    "scripts/tests/fixtures/told-ratchet.json",
+    "tests/harness.py",
+    "tests/test_judgment_census.py",
+    "tests/stage_joints_common.py"
+   ]
+  },
+  "test_stage_joints_told_real.py": {
+   "layer": "gate_named",
+   "why": "CONTRACT_TESTS: selftest --contracts runs the stage-joints walk (F6-51) (part of test_stage_joints.py split, TD-11c)",
+   "covers": [
+    "branch_accounting.py",
+    "detector_verdict.py",
+    "null_outcomes.py",
+    "sizing.py",
+    "stage_joints.py",
+    "agents/qa-runner.md",
+    "references/slices/qa-automator/artifact-contract-automation.md",
+    "references/slices/qa-runner/common-rules.md",
+    "references/stage-joints.json",
+    "scripts/tests/fixtures/judgment-census.json",
+    "scripts/tests/fixtures/told-ratchet.json",
+    "tests/harness.py",
+    "tests/test_judgment_census.py",
+    "tests/stage_joints_common.py"
    ]
   },
   "test_stage_joints_12586.py": {
@@ -6881,9 +6982,9 @@
     "tests/test_s7_pretriage.py"
    ]
   },
-  "test_story_run_stand_identity.py": {
+  "test_story_run_stand_identity_k35_k36.py": {
    "layer": "gate_named",
-   "why": "named by gate-registry.json, driver-layers.json",
+   "why": "named by gate-registry.json, driver-layers.json (part of test_story_run_stand_identity.py split, TD-11c)",
    "covers": [
     "finalize_task.py",
     "gate_preflight.py",
@@ -6911,7 +7012,110 @@
     "surfaces.py",
     "tests/harness.py",
     "tests/story_run_common.py",
-    "tests/test_runtime_probe_onboarding.py"
+    "tests/test_runtime_probe_onboarding.py",
+    "tests/story_run_stand_identity_common.py"
+   ]
+  },
+  "test_story_run_stand_identity_t366_k37.py": {
+   "layer": "gate_named",
+   "why": "named by gate-registry.json, driver-layers.json (part of test_story_run_stand_identity.py split, TD-11c)",
+   "covers": [
+    "finalize_task.py",
+    "gate_preflight.py",
+    "human_text.py",
+    "run_suite.py",
+    "runtime_probe.py",
+    "stage_done.py",
+    "stand_identity.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "surfaces.py",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/test_runtime_probe_onboarding.py",
+    "tests/story_run_stand_identity_common.py"
+   ]
+  },
+  "test_story_run_stand_identity_k38_edges.py": {
+   "layer": "gate_named",
+   "why": "named by gate-registry.json, driver-layers.json (part of test_story_run_stand_identity.py split, TD-11c)",
+   "covers": [
+    "finalize_task.py",
+    "gate_preflight.py",
+    "human_text.py",
+    "run_suite.py",
+    "runtime_probe.py",
+    "stage_done.py",
+    "stand_identity.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "surfaces.py",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/test_runtime_probe_onboarding.py",
+    "tests/story_run_stand_identity_common.py"
+   ]
+  },
+  "test_story_run_stand_identity_ep1.py": {
+   "layer": "gate_named",
+   "why": "named by gate-registry.json, driver-layers.json (part of test_story_run_stand_identity.py split, TD-11c)",
+   "covers": [
+    "finalize_task.py",
+    "gate_preflight.py",
+    "human_text.py",
+    "run_suite.py",
+    "runtime_probe.py",
+    "stage_done.py",
+    "stand_identity.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "surfaces.py",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/test_runtime_probe_onboarding.py",
+    "tests/story_run_stand_identity_common.py"
    ]
   },
   "test_story_run_words.py": {
