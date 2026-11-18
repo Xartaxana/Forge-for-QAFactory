@@ -687,6 +687,7 @@
   {"file": "manual_evidence.py", "function": "_validate_current", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "manual_evidence.py", "function": "build_record", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manual_evidence.py", "function": "main", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "manual_evidence.py", "function": "need_record_problems", "class": "shape", "roles": ["qa-runner"], "owner": "data"},
   {"file": "manual_evidence.py", "function": "prepare_request", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "manual_evidence.py", "function": "rejudge_record", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manual_evidence.py", "function": "validate", "class": "xref", "roles": ["conductor"], "owner": "data"},
