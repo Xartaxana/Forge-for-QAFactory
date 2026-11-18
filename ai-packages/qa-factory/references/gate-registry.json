@@ -35,8 +35,8 @@
       "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
-      "id": "provenance_acceptance", "inventory": "G2", "vocabulary": "target",
-      "decides": "the probe's record is good enough for this use (one predicate at the run, rehearsal, capture and record sites, profile_contract.acceptable_provenance; residue: the local_source and fingerprint bare not_applicable, gate A - T2, B-255)",
+      "id": "provenance_acceptance", "inventory": "G2", "vocabulary": "code",
+      "decides": "the probe's record is good enough for this use. ONE producer, profile_contract.provenance_word, turns a probe answer into one of seven words (matched, person_confirmed, no_changed_file, local_source, not_applicable, mismatched, unknown); ONE predicate, gate_template.acceptable, joins the word to the tokens of the consumer's literal use: provenance.run, rehearsal, manual_capture and identity take matched, person_confirmed and the no-changed-file reason (identity: matched and person_confirmed only); provenance.manual and automation add the local-source reason; provenance.fingerprint takes matched, person_confirmed and any not_applicable; baseline_identity.capture takes matched or not_applicable; environment_preparation.deploy_proof takes matched only. An unknown is asked as the stand_identity build question at the stage entry; every accept site refuses with that door",
       "sites": [
         {"file": "execution_request.py", "function": "validate_request", "role": "accept",
          "allow": [{"compare": "seed.get(\"result\") not in {\"matched\", \"mismatched\", \"unknown\"}", "why": "the data-seed record's shape check, not an acceptance of provenance"},
@@ -58,7 +58,6 @@
         {"file": "manual_capture.py", "function": "stand_probe", "role": "accept"},
         {"file": "run_suite.py", "function": "probe_runtime", "role": "accept"},
         {"file": "gate_preflight.py", "function": "_observed_identity", "role": "accept"},
-        {"file": "profile_contract.py", "function": "acceptable_provenance", "role": "accept"},
         {"file": "profile_contract.py", "function": "provenance_word", "role": "produce"},
         {"file": "profile_contract.py", "function": "local_source_request", "role": "validate"},
         {"file": "profile_contract.py", "function": "validate_runtime_provenance", "role": "validate"},
@@ -77,7 +76,7 @@
         {"file": "gate_registry.py", "function": "<module>", "role": "vocabulary"},
         {"file": "gate_template.py", "function": "acceptable", "role": "library"}
       ],
-      "field": "result",
+      "field": null,
       "words": ["matched", "mismatched", "unknown", "not_applicable", "person_confirmed", "no_changed_file", "local_source"],
       "verdict_map": {
         "matched": {"class": "matched"},
@@ -104,7 +103,7 @@
       "closed_by": ["person"], "addressee": ["code_routes", "person"], "person_subject": "world",
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_execution_request.py",
-      "status": "debt", "debt_ref": "B-255", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "request_shape", "inventory": "G3", "vocabulary": "target",

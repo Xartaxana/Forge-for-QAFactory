@@ -357,7 +357,8 @@ def ep1_24_b1_the_s5_refusal_names_the_probe_command() -> None:
         answer = [(f"c{i}", "") for i in range(6)]
         six = refused({})
         check_in("B-2: six names: five and `(+1 more)`", "c0, c1, c2, c3, c4 (+1 more)", six)
-        check_not_in("B-2: the sixth is not named", "c5", six)
+        # the names segment only: a checkout path that holds `c5` (a hex worktree name) is not a sixth name (critic t-1501 F6)
+        check_not_in("B-2: the sixth is not named", "c5", six.split("could be the stand (")[1].split("(+1 more)")[0])
         answer = []
         none = refused({})
         check_not_in("AK3: no container: the command carries no --container", "--container", none.split("`")[1])
@@ -593,7 +594,7 @@ def provenance_shapes(base: dict, task: str = "REQ-1") -> dict:
 
 def n2_k1_probe_runtime_is_the_one_predicate(request: dict) -> None:
     """K-N2.1 (t-300 N2, S1): `run_suite.probe_runtime` - the run path, the post-run probe, `--mine`, the red probe and the
-    manual capture - reads a probe's answer through `profile_contract.acceptable_provenance(record, ACCEPTS)`: M, PC and NA1
+    manual capture - reads a probe's answer through `acceptable(profile_contract.provenance_word(record), "provenance.run")`: M, PC and NA1
     are returned; MM, CM, U and NA2 raise a `ProvenanceRefused` that carries the record and says what the probe said, what
     was expected and the door - with the probe's own `error`, `remedy` and `voided.what` verbatim."""
     import inspect
@@ -677,16 +678,11 @@ def n2_k1_probe_runtime_is_the_one_predicate(request: dict) -> None:
         failed = str(exc)
     check_in("K-N2.1 F4: output that is not JSON says what it printed", "did not return JSON: it printed: not json at all", failed)
     # the spellings outside the five, and an unknown token (E11)
+    from gate_template import acceptable
     check_eq("K-N2.1 E11: `MATCHED` is not `matched`, `Person_Confirmed` is not `person_confirmed`",
-             (profile_contract.acceptable_provenance({**shapes["M"], "result": "MATCHED"}, profile_contract.ACCEPTS),
-              profile_contract.acceptable_provenance({**shapes["PC"], "result": "Person_Confirmed"}, profile_contract.ACCEPTS)),
+             (acceptable(profile_contract.provenance_word({**shapes["M"], "result": "MATCHED"}), "provenance.run"),
+              acceptable(profile_contract.provenance_word({**shapes["PC"], "result": "Person_Confirmed"}), "provenance.run")),
              (False, False))
-    try:
-        profile_contract.acceptable_provenance(shapes["M"], ("matched", "unknown"))
-        raised = False
-    except ValueError:
-        raised = True
-    check("K-N2.1 E11: an unknown token is a programming error (ValueError), never a silent refusal", raised)
 
 
 def n2_k2_validate_request_takes_a_word_bound_to_the_story(request: dict) -> None:

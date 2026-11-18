@@ -878,7 +878,7 @@ def person_confirmed(record, task=None) -> bool:
     `validate_runtime_provenance` (the words and the time, no technical verification, a non-empty identity, a
     `tested_build` that is the revision the person confirmed) AND bound to what it was given for
     (`person_confirmed_problems`: kind, story, revisions - t-300 N2 X6). It is never `matched`; a reader that wants a
-    verified build refuses it, and the one that accepts a word says so by name (`acceptable_provenance`)."""
+    verified build refuses it, and the one that accepts a word says so by name (`acceptable(.., "provenance.<use>")`)."""
     if not isinstance(record, dict) or record.get("result") != "person_confirmed":
         return False
     checked = validate_runtime_provenance(record)
@@ -886,7 +886,6 @@ def person_confirmed(record, task=None) -> bool:
             and not person_confirmed_problems(record, task))
 
 
-ACCEPTS = ("matched", "person_confirmed", "not_applicable:no_changed_file")
 # What a rehearsal view puts in the place of the evidence file a rehearsal never writes (FR-45): the record is
 # validated as if its one evidence reference were there, and that is the only rule it is excused from.
 REHEARSAL_EVIDENCE = "rehearsal:no-evidence-written"
@@ -897,42 +896,11 @@ def rehearsal_view(record):
     (`observed_without_evidence: true`, `evidence_refs: []` - what `runtime_probe.py --no-evidence` prints) with the
     evidence rule satisfied by a stand-in. Anything else comes back as it is. This is the ONLY excuse a rehearsal
     has, and `validate_runtime_provenance` itself never gives it: a caller that wants it asks for the view by name
-    (`acceptable_provenance(rehearsal=True)`, and `execution_request` for the fingerprint of a freshness read)."""
+    (`provenance_word(rehearsal=True)`, and `execution_request` for the fingerprint of a freshness read)."""
     if (isinstance(record, dict) and record.get("result") == "matched" and record.get("observed_without_evidence") is True
             and record.get("evidence_refs") == []):
         return dict(record, evidence_refs=[REHEARSAL_EVIDENCE])
     return record
-
-
-def acceptable_provenance(record, accepts, *, rehearsal: bool = False, task=None) -> bool:
-    """Whether this probe answer is one the caller may take, by the caller's own list (t-300 F11: ONE reading, so a
-    reader never spells its own). `accepts` holds tokens from `ACCEPTS`; any other token is a programming error
-    (ValueError), never a silent refusal. ERROR DIRECTION: only toward refusal - the exact word (`MATCHED` is not
-    `matched`), a record that validates, and an effective result equal to the declared one (a `matched` record that
-    `validate_runtime_provenance` reads as `mismatched` is refused). `task` (t-300 N2 X5): the story the caller serves;
-    a person's word given for another story is refused (the word is bound to its story, E5).
-
-    `rehearsal=True` is for a caller that RAN the probe with `--no-evidence` (a rehearsal writes nothing, FR-45): it
-    excuses ONE rule, "a matched record names an evidence file", and only for a record that says it was observed
-    without one (`observed_without_evidence: true`, `evidence_refs: []`). The marker without `rehearsal=True` is
-    refused, and so is `rehearsal=True` without the marker: the strict reader (`validate_runtime_provenance`,
-    `run_suite.probe_runtime`) is unchanged."""
-    unknown = [token for token in accepts if token not in ACCEPTS]
-    if unknown:
-        raise ValueError(f"unknown acceptance token(s) {unknown}; the tokens are {list(ACCEPTS)}")
-    if not isinstance(record, dict):
-        return False
-    declared = record.get("result")
-    checked = validate_runtime_provenance(rehearsal_view(record) if rehearsal else record)
-    if not checked["valid"] or checked["result"] != declared:
-        return False
-    if declared == "matched":
-        return "matched" in accepts
-    if declared == "person_confirmed":
-        return "person_confirmed" in accepts and person_confirmed(record, task)
-    if declared == "not_applicable":
-        return "not_applicable:no_changed_file" in accepts and no_changed_file(record)
-    return False
 
 
 def provenance_word(record, *, rehearsal: bool = False, task=None, local_source: bool = False) -> str:
@@ -942,7 +910,7 @@ def provenance_word(record, *, rehearsal: bool = False, task=None, local_source:
     ERROR DIRECTION: only toward a word no consumer takes (`unknown` / `mismatched`), never a raise. Validity is decided
     FIRST: an invalid record, an effective result other than the declared one, a non-exact word (`MATCHED`) or a non-dict
     is `unknown`; a proven mismatch is `mismatched` whatever was declared. `person_confirmed` and `no_changed_file` read the
-    raw record, as `acceptable_provenance` does; `rehearsal` excuses the one evidence rule (`rehearsal_view`); `task` binds a
+    raw record (the deleted `acceptable_provenance` did the same); `rehearsal` excuses the one evidence rule (`rehearsal_view`); `task` binds a
     person's word to its story; `local_source` (the REQUEST's `local_source_request`) names a reasonless `not_applicable`,
     and `no_changed_file` wins over it (no consumer takes `local_source` without also taking that reason)."""
     if not isinstance(record, dict):
