@@ -2778,9 +2778,10 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
         return EXIT_BAD_FRAGMENT
     claim_faults = claim_pair_problems(read_json(path, {}) if path.exists() else {}, fragment)
     if claim_faults:
-        print("manifest_put: " + _problems_text(task_root, "claim-then-pairs", claim_faults) + ". " + REPAIR_MARKER + ".",
-              file=sys.stderr)
-        return EXIT_BAD_FRAGMENT
+        # Sourced (RD1-34): the Record reaches `refuse`, the way `probe_owed` does; the check row is stage-joints.json.
+        refuse("manifest_put.py --fragment",
+               DV.refusal("manifest_put:claim_then_pairs", _problems_text(task_root, "claim-then-pairs", claim_faults)))
+        return EXIT_BAD_FRAGMENT      # refuse() says 2; this refusal has always exited with the bad-fragment code
     # A `novelty` on a row is the measurer's, never a role's (t-187, F-B). The refusal is here and not
     # in `merge()`: merge is pure and replays every event already committed, and a refusal there would
     # reject a manifest written before this rule. The door is the role's own: leave the key out - the

@@ -649,8 +649,190 @@ def u7_r9_s0_readiness_pays_no_conductor_turn() -> None:
             harness.cleanup(root)
 
 
+@contextlib.contextmanager
+def e7_world(cases=("TC-1",), ended="2020-01-01T00:00:00+00:00", why="start a second browser session", status="completed", need=True, stand="staging"):
+    """A driver over a run report whose cases carry a need record (stand `staging`); `rework`, `walk_before` and `failures_to_triage` are stand-ins."""
+    from unittest import mock
+    import manual_evidence as ME
+    root, task_root, driver = logged_rig()
+    try:
+        marker = dict({"reason": ME.NEED_REASON}, **({"need": "another_instance", "need_why": why} if need else {}))
+        rows = [{"case": c, "current_obligation_ids": ["OB-1"], "attempt_ended_at": ended, "unprepared": dict(marker)} for c in cases]
+        (task_root / "work").mkdir(exist_ok=True)
+        (task_root / "work" / "run-report.json").write_text(json.dumps({"current_manual_checks": rows}), encoding="utf-8")
+        driver.triaged, driver.reworks, driver.refuse = [], [], False
+        driver.failures_to_triage = lambda awaiting="": driver.triaged.append(1) or "manual " + ",".join(cases)
+        driver.controller_state = lambda: {"stages": {"S6": {"status": status}}, "dispatches": {}}
+        driver.walk_before = lambda lane, did, assigned=None: {"walking": False, "report_last": False}
+        driver.manual_request_paths = lambda block: ["request.json"]
+        driver.role_lines = lambda stage, role: ["ROLE"]
+
+        def rework(stage, role, block, reason, **kw):
+            if driver.refuse:
+                raise story_run.ReworkRefused("controller refused\nsecond line")
+            kw["on_request"]("S6-qa-runner-9")
+            driver.reworks.append((stage, role, list(block), kw.get("complete"), list(kw["extra"])))
+        driver.rework = rework
+        with mock.patch("stand_gaps.stand_name", lambda tr: stand):
+            yield root, task_root, driver
+    finally:
+        harness.cleanup(root)
+
+
+def e7_step(driver, awaiting=""):
+    try:
+        return driver.s7_extra_instance_step(driver.controller_state(), True, awaiting)
+    except story_run.Person as person:
+        return person
+
+
+def e7_answer(root, yes=True, words="yes"):
+    import project_knowledge as PK
+    return PK.record(root, key=PK.EXTRA_INSTANCE_KEY, environment="staging", element="another_instance", state=PK.KNOWN, scope="stand",
+                     value={"authorized": yes}, words=words, source="person", story="QA-9", by="conductor")[0]
+
+
+def e7_extra_instance_trigger() -> None:
+    """E7-3b (spec U7 / E7 r2 §2.1-§2.5, amendments M1, M5, M8): a need record with no answer about another instance is ONE closed question at S7
+    entry (no conductor turn, no analyst, no close); a known yes walks the older checks again once per (case, answer); a no is a note; the answers
+    are the driver's registry row; the re-walk's restart never makes S6 complete (AR-13, AR-16, AR-17, AR-24, AR-25)."""
+    import acceptance
+    import project_knowledge as PK
+    for label, cases, more in (("11 cases BEYOND the cap", [f"TC-{n}" for n in range(1, 12)], True), ("10 cases AT the cap", [f"TC-{n}" for n in range(1, 11)], False)):
+        for world_name, status, awaiting in (("A", "running", "S6-qa-runner-2"), ("B", "completed", "")):
+            with e7_world(cases, status=status, why='start it with password: "abcdefghijklmnopqrstuvwx"') as (root, task_root, driver):
+                driver.run_role = driver.s7_close = lambda *a, **k: (_ for _ in ()).throw(AssertionError("a role or a close ran over a need"))
+                person = e7_step(driver, awaiting)
+                text = str(getattr(person, "text", ""))
+                check_eq(f"E7 {label}, world {world_name}: ONE Person `extra_instance`, conductor calls 0", (getattr(person, "kind", None), len(driver.calls)), ("extra_instance", 0))
+                check(f"E7 {label}: the lead names the stand and the cases, the doors are priced", "`staging`" in text and all(d in text for d in ("start it", "by hand", "stop")))
+                check_eq(f"E7 {label}: 10 case lines, and `and 1 more` only beyond the cap", (text.count("\n- TC-"), "- and 1 more (the report lists them all)" in text), (10, more))
+                check("E7 N8: a secret-like need_why is masked, never shown", "abcdefghijklmnop" not in text and "(not shown: they look like a secret)" in text)
+    with e7_world(need=False) as (root, task_root, driver):
+        check_eq("E7 M12-3: a record with no need (a refused need record) -> no question, `failures_to_triage` never called", (e7_step(driver, "S6-x"), driver.triaged), (False, []))
+    with e7_world() as (root, task_root, driver):
+        driver.failures_to_triage = lambda awaiting="": (_ for _ in ()).throw(story_run.Refusal("S7 entry: run-report.json execution_status is `broken_run`"))
+        try:
+            e7_step(driver)
+            raised_refusal = False
+        except story_run.Refusal:
+            raised_refusal = True
+        check("E7 (i): a halted run with a need raises its Refusal, no Person", raised_refusal)
+    for label, status, awaiting in (("A", "running", "S6-qa-runner-2"), ("B", "completed", "")):
+        with e7_world(status=status) as (root, task_root, driver):
+            row = e7_answer(root)
+            check_eq(f"E7 {label}: a known yes and an older record -> one re-walk, no question, no conductor turn", (e7_step(driver, awaiting), len(driver.reworks), len(driver.calls)), (True, 1, 0))
+            stage, role, block, complete, lines = driver.reworks[0]
+            check_eq(f"E7 {label}: rework of S6 qa-runner over the case", (stage, role, block), ("S6", "qa-runner", ["TC-1"]))
+            check(f"E7 {label}: complete is the awaits word in A and False in B, never True",
+                  (getattr(complete, "unresolved", None) == acceptance.AWAITS_WORD) if awaiting else complete is False, repr(complete))
+            check(f"E7 {label}: the lines hold the finalize line, the allowed line and the role lines",
+                  any("finalize_task.py" in x for x in lines) and ALLOWED in lines and lines[-1] == "ROLE", str(lines))
+            check_eq(f"E7 {label} N7: one re-walk per (case, answer): the next entry walks nothing", (e7_step(driver, awaiting), len(driver.reworks)), (False, 1))
+            driver.controller_state = lambda: {"stages": {"S6": {"status": status}}, "dispatches": {}}
+            check_eq(f"E7 {label} M1: a restart of the re-walk is never complete (A: awaits word, B: False), S6 not re-planned",
+                     (type(driver.completion_for("S6", "qa-runner", {"id": "S6-qa-runner-9"})).__name__, driver.state["extra_instance_rewalk"] == {f"TC-1|{row['id']}": "S6-qa-runner-9"}),
+                     ("OpenWork" if awaiting else "bool", True))
+            PK.revoke(root, row["id"], "changed my mind")
+            check("E7 N7: revoked -> the next need asks again", getattr(e7_step(driver, awaiting), "kind", "") == "extra_instance")
+            e7_answer(root, words="yes again")
+            check_eq("E7 N7: a new yes has a new id, so the re-walk is owed again", (e7_step(driver, awaiting), len(driver.reworks)), (True, 2))
+    for label, ended in (("equal moments", None), ("an unreadable moment", "not a time"), ("a need newer than the yes", "2999-01-01T00:00:00+00:00")):
+        with e7_world(ended=ended or "") as (root, task_root, driver):
+            row = e7_answer(root)
+            if ended is None:
+                (task_root / "work" / "run-report.json").write_text(json.dumps({"current_manual_checks": [{"case": "TC-1", "attempt_ended_at": row["at"], "unprepared": {
+                    "reason": "needs another instance of the stand or device; not started without the person's word", "need": "another_instance", "need_why": "w"}}]}), encoding="utf-8")
+            check_eq(f"E7 M5: {label} -> not owed, no rework, no question", (e7_step(driver, "S6-x"), len(driver.reworks)), (False, 0))
+            check_in(f"E7 M15: {label} -> a note of the case", "TC-1", (task_root / "work" / "extra-instance.json").read_text(encoding="utf-8"))
+    with e7_world() as (root, task_root, driver):
+        e7_answer(root, yes=False)
+        check_eq("E7: a known no -> no Person, no rework, a note", (e7_step(driver, "S6-x"), len(driver.reworks), "the person said the factory may not start one" in (task_root / "work" / "extra-instance.json").read_text(encoding="utf-8")), (False, 0, True))
+    with e7_world() as (root, task_root, driver):
+        e7_answer(root)
+        driver.refuse = True
+        check_eq("E7: ReworkRefused -> counted `refused`, a line, False", (e7_step(driver, "S6-x"), list(driver.state["extra_instance_rewalk"].values())), (False, ["refused"]))
+    for token, want in (("Start It", True), ('"by hand"', False), ("  start it ", True)):
+        with e7_world() as (root, task_root, driver):
+            check("E7: the question is asked", getattr(e7_step(driver, "S6-x"), "kind", "") == "extra_instance")
+            if token.startswith(" "):       # F2: through the machine's own answer door (`take_answer`, kind `extra_instance`)
+                driver.state["asked"] = {"kind": "extra_instance", "stage": "S7", "dispatch": ""}
+                take(driver, answer(task_root, "ans.txt", token.encode()))
+            else:
+                driver._answer = {"text": token, "rel": None}
+                driver._answer_extra_instance(token, "", "S7", "")
+            got = PK.instance_answer(root, "staging", "another_instance")
+            check_eq(f"E7 AR-24: `{token}` -> the driver's registry row, the words whole", (got["authorized"], got["row"]["provenance"]["words"], got["row"]["provenance"]["by"]), (want, token.strip(), "driver"))
+    with e7_world() as (root, task_root, driver):
+        e7_step(driver, "S6-x")
+        driver._answer = {"text": "stop", "rel": None}
+        try:
+            driver._answer_extra_instance("stop", "", "S7", "")
+            held = None
+        except story_run.Person as person:
+            held = person
+        check_eq("E7: `stop` -> held, no row", (held is not None, PK.instance_answer(root, "staging", "another_instance")["authorized"]), (True, None))
+        check("E7: the rerun lead starts `You answered `stop` earlier.`", str(e7_step(driver, "S6-x").text).startswith("You answered `stop` earlier."))
+        driver._answer = {"text": "what?", "rel": None}
+        calls = len(driver.calls)
+        try:
+            driver._answer_extra_instance("what do you mean", "", "S7", "")
+        except story_run.Person:
+            pass
+        check_eq("E7: free words -> the `unread` road once, no row", (len(driver.calls) - calls, PK.instance_answer(root, "staging", "another_instance")["authorized"]), (1, None))
+    with e7_world(stand="this stand") as (root, task_root, driver):        # F3: no stand chosen -> the answer is held for this story
+        person = e7_step(driver, "S6-x")
+        text = str(person.text)
+        check("E7 F3: the story-only lead and door words", "on the stand of this story" in text and "holds for this story only" in text
+              and "for this story only; the checks above" in text and "`ask again`" not in text)
+        driver._answer = {"text": "start it", "rel": None}
+        driver._answer_extra_instance("start it", "", "S7", "")
+        held = driver.state.get("extra_instance_held", {}).get("this stand|another_instance", {})
+        check_eq("E7 F3: no registry row, the yes is held under the key the step reads", (PK.instance_answer(root, "this stand", "another_instance")["authorized"], held.get("authorized")), (None, True))
+        check_eq("E7 F3: the NEXT step reads the held yes and starts the one re-walk", (e7_step(driver, "S6-x"), len(driver.reworks)), (True, 1))
+    with e7_world() as (root, task_root, driver):        # F1: the real stage_S7, world B (S6 completed, an accepted fresh triage), a need with no answer
+        def never(*a, **k):
+            raise AssertionError("a close, a repair or an analyst ran over a need")
+        driver.run_role = driver.s7_repairs = driver.s7_close = driver.close_by_code = never
+        driver.pipeline, driver.s7_fresh, driver.consumer_pending = (lambda: {}), (lambda: True), (lambda stage: False)
+        triaged = {"S7-qa-failure-analyst-1": {"stage": "S7", "role": "qa-failure-analyst", "status": "accepted"}}
+        driver.controller_state = lambda: {"stages": {"S6": {"status": "completed"}}, "dispatches": triaged}
+        for label, pending in (("accepted fresh triage", False), ("M9: a scribe accept pending", True)):
+            driver.consumer_pending = lambda stage, pending=pending: pending
+            try:
+                driver.stage_S7()
+                kind = None
+            except story_run.Person as person:
+                kind = person.kind
+            check_eq(f"E7 F1: stage_S7, world B, {label} -> the Person, no close, no analyst", kind, "extra_instance")
+    with e7_world() as (root, task_root, driver):
+        driver.run_role = lambda *a, **k: None
+        driver.pipeline = lambda: {}
+        for name in ("s7_repair_rows", "s7_rejudge_rows"):
+            setattr(driver, name, lambda: [])
+        driver.s7_life, driver.s7_decided, driver.s7_plan = (lambda: "L"), (lambda life=None: {}), (lambda rows, life: [])
+        driver.s7_close = lambda *a, **k: (_ for _ in ()).throw(AssertionError("S7 closed over a need"))
+        try:
+            driver.s7_repairs()
+            kind = None
+        except story_run.Person as person:
+            kind = person.kind
+        check_eq("E7 F-r2-1: a need written inside the re-judge round -> the second call asks before any close", kind, "extra_instance")
+
+
+ALLOWED = ("The person allowed the factory to start another instance of the stand or device for these checks: start it with the project's own "
+           "actions, write what you started in `tried.md`, and walk the checks again.")
+
+
+def test_e7_extra_instance_trigger() -> None:
+    n = len(harness.RESULTS)
+    e7_extra_instance_trigger()
+    assert all(ok for ok, _ in harness.RESULTS[n:]), [name for ok, name in harness.RESULTS[n:] if not ok]
+
+
 def main() -> None:
     for scenario in (
+        e7_extra_instance_trigger,
         u7_r9_s0_readiness_pays_no_conductor_turn,
         rd1_20_the_s8_summary_run_has_its_door,
         cc15_the_offers_of_a_stage_closed_by_code,
