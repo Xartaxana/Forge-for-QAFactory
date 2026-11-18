@@ -1,0 +1,236 @@
+{
+ "_about": "The label ledger of the walk group s5 (rows of exits/s5.json only), read by known_red.py through test_scenario_dry_1.py --part exits:s5; `pins.known_red` is the number of rows.",
+ "known_red": {
+  "s6.walk_supply/the app makes them": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.walk_supply/one at a time": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.walk_supply/I will add accounts": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.walk_supply/free words": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.walk_supply/empty": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.walk_account/added": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.walk_account/by hand": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.walk_account/go on": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.walk_account/free words": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.walk_account/empty": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.data_change/only use what exists": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.data_change/may create, never delete": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.data_change/may create and delete": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.data_change/free words": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "s6.data_change/empty": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "kind:data_change/free words": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "kind:data_change/empty": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "kind:walk_account/free words": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "kind:walk_account/empty": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "kind:walk_supply/free words": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "kind:walk_supply/empty": {
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
+  },
+  "code_close.stage/retry": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.stage: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.stage/stop": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.stage: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.stage/free words": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.stage: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.stage/empty": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.stage: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.factory_file/retry": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.factory_file: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.factory_file/stop": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.factory_file: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.factory_file/free words": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.factory_file: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.factory_file/empty": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.factory_file: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.behind/retry": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.behind: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.behind/stop": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.behind: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.behind/free words": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.behind: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.behind/empty": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.behind: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "s5.repair_limit/debt": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.repair_limit: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.repair_limit/stop": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.repair_limit: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.repair_limit/free words": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.repair_limit: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.repair_limit/empty": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.repair_limit: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_review/review": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_review: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_review/debt": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_review: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_review/stop": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_review: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_review/free words": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_review: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_review/empty": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_review: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_environment/fixed": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_environment: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_environment/debt": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_environment: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_environment/stop": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_environment: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_environment/free words": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_environment: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_environment/empty": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_environment: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_tooling/debt": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_tooling: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_tooling/stop": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_tooling: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_tooling/free words": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_tooling: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "s5.nobody_tooling/empty": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.nobody_tooling: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "exit.resume_limit/stop": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "exit.resume_limit/free words": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "exit.resume_limit/empty": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "exit.resume_limit_halted/stop": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit_halted: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "exit.resume_limit_halted/free words": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit_halted: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  },
+  "exit.resume_limit_halted/empty": {
+   "node": "FV3-35",
+   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit_halted: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
+  }
+ },
+ "pins": {
+  "known_red": 57
+ }
+}
