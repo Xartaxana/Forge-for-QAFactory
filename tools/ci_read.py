@@ -179,20 +179,25 @@ def _state_word(row: dict) -> str:
 
 def workflow_note(root, ref: str, workflow: str):
     """One line about a ref that edits workflow files, or None. GitHub runs a workflow_dispatch from the default
-    branch's file (t-1223 round 7: a branch edit of the dry-story cap only took effect from main), so a branch's own
-    workflow edit is not tested by its own run. Never raises; a failed git diff is "workflow check skipped"."""
+    branch's file (t-1223 round 7: a branch edit of the dispatch cap only took effect from main), so a branch's own
+    workflow edit is not tested by its own run. GitHub runs the REMOTE ref, so origin/<ref> is diffed first and the
+    local <ref> only when origin/<ref> does not resolve. Never raises; a failed git diff is "workflow check skipped"."""
     if ref in ("main", "origin/main"):
         return None
-    if ref.startswith("-"):
-        return "workflow check skipped: the ref starts with a dash"
-    rc, out = gitcmd.git(root, "diff", "--name-only", "origin/main..." + ref, "--", ".github/workflows/")
-    if rc != 0:
-        return "workflow check skipped: %s" % (gitcmd.first_line(out, 120) or "git diff failed")
+    errors = []
+    for rev in ("origin/" + ref, ref):
+        rc, out, err = gitcmd.git(root, "diff", "--name-only", "origin/main..." + rev, "--", ".github/workflows/",
+                                  stderr=True)
+        if rc == 0:
+            break
+        errors.append(gitcmd.first_line(err or out, 120))
+    else:
+        return "workflow check skipped: neither origin/%s nor %s resolves (%s)" % (ref, ref, errors[0])
     files = [Path(ln).name for ln in gitcmd.as_text(out).splitlines() if ln.strip()]
     if workflow in files:
         return ("note: %s is changed on %s, but this run uses main's version of it (a dispatch reads the default "
                 "branch's workflow file)" % (workflow, ref))
-    if files:
+    if files:        # start refuses a numeric --workflow (WORKFLOW_RE), so `workflow` is always a file name here
         return ("note: %s changed on %s, which does not affect the run of %s unless it is reusable/called"
                 % (", ".join(files), ref, workflow))
     return None
