@@ -1560,7 +1560,6 @@ class DriverStageS6:
         ERROR DIRECTION: it may say serial needlessly on doubt, and must never let two lanes run where a row below holds. The project's own
         word (`manual.walkers: 1`) is not this function's: that is the old road itself. Reads the entry's plan through `_s6_view`."""
         import config_contract
-        import dispatch_identity
         view = getattr(self, "_s6_view", None) or {}
         host_reason = self.host_window_reason()
         if host_reason:
