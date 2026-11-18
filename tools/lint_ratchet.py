@@ -138,6 +138,23 @@ def lint_tree(repo: Path, roots, checkpath) -> list:
     return findings
 
 
+def lint_named(repo: Path, roots, named, checkpath) -> list:
+    """lint_tree for the named files only: a `.py` under a root that exists in the tree (an absent one is linted as nothing)."""
+    findings: list = []
+    for rel in sorted(named):
+        if not rel.endswith(".py") or not any(rel.startswith(Path(r).as_posix().strip("/") + "/") for r in roots):
+            continue
+        f = repo / rel
+        if not f.is_file() or any(part in SKIP_DIRS for part in Path(rel).parts):
+            continue
+        col = Collector(rel)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            checkpath(str(f), col)
+        findings.extend(col.found)
+    return findings
+
+
 class CannotJudge(Exception):
     """The hand-input line cannot be judged (exit 2): the message names the path or the pattern."""
 
@@ -236,7 +253,13 @@ def run(argv=None) -> int:
     ap.add_argument("--repo", default=str(REPO), help="repository root")
     ap.add_argument("--root", action="append", metavar="REL", help="a root relative to the repo (repeatable)")
     ap.add_argument("--baseline", default=None, help="baseline file")
+    ap.add_argument("--path", action="append", metavar="REL", default=None,
+                    help="narrow --check to the named files (repeatable, relative to the repo; a named file absent from the tree "
+                         "is linted as nothing, so its baseline rows read stale); FG7-92 registry preflight")
     args = ap.parse_args(argv)
+    if args.path and args.update:
+        print("lint ratchet: --path narrows --check only; --update rewrites the whole baseline (a partial one would drop rows)")
+        return 2
 
     repo = Path(args.repo).resolve()
     baseline_path = Path(args.baseline) if args.baseline else (repo / "tools" / "lint-baseline.json")
@@ -261,10 +284,17 @@ def run(argv=None) -> int:
                   f"the configured ROOTS are {', '.join(ROOTS)} (override with `--root REL`, repeatable, relative to `--repo`)")
             return 2
 
-    findings = lint_tree(repo, roots, pyflakes_api.checkPath)
+    named = {Path(p).as_posix().strip("/") for p in args.path} if args.path else None
+    if named is None:
+        findings = lint_tree(repo, roots, pyflakes_api.checkPath)
+    else:
+        findings = lint_named(repo, roots, named, pyflakes_api.checkPath)
     if PACKAGE_SCRIPTS_ROOT in {Path(r).as_posix().strip("/") for r in roots}:
+        hand_named = named is None or any(n.startswith(HAND_TESTS_DIR + "/") and n.endswith(".py") for n in named)
         try:
-            findings.extend(hand_input_findings(repo))     # non-fatal: mixed in before counts, like pyflakes findings
+            if hand_named:
+                hand = hand_input_findings(repo)
+                findings.extend(hand if named is None else [f for f in hand if f.path in named])
         except CannotJudge as exc:
             print(f"lint ratchet: {exc}")
             return 2
@@ -307,6 +337,8 @@ def run(argv=None) -> int:
     except ValueError as exc:
         print(f"lint ratchet: {exc}; record the current state with `python tools/lint_ratchet.py --update`")
         return 2
+    if named is not None:
+        base = {k: n for k, n in base.items() if k[0] in named}       # rows of the named files only
     if base_version != version:
         print(f"lint ratchet: the baseline was generated with pyflakes {base_version or 'an unrecorded version'}, "
               f"this is {version}: install pyflakes=={base_version or '<the baseline version>'} or regenerate with --update")

@@ -369,6 +369,44 @@ def test_hand_input_line(tmp_path, capsys, case):
         assert rc == 0 and "hand-input line: not run (package scripts root not among --root)" in out
 
 
+@pytest.mark.parametrize("case", [
+    "new finding in the named file is exit 1, in an unnamed one is not seen",
+    "baseline row of an unnamed file is not stale; of a named deleted file is",
+    "hand-input match counts for a named package test file only",
+    "--update with --path is refused",
+])
+def test_path_narrows_check_to_the_named_files_FG7_92(tmp_path, capsys, case):
+    if case.startswith("new finding"):
+        make_repo(tmp_path, {"src/a.py": UNUSED, "src/b.py": UNUSED})
+        baseline_file(tmp_path, [])
+        rc, out = go(tmp_path, capsys, "--check", "--path", "src/a.py")
+        assert rc == 1 and "src/a.py:1:" in out and "src/b.py" not in out and "1 findings" in out
+        assert go(tmp_path, capsys, "--check", "--path", "src/c.py", "--path", "docs/x.txt")[0] == 0     # absent / outside roots
+    elif case.startswith("baseline row"):
+        make_repo(tmp_path, {"src/a.py": CLEAN})
+        baseline_file(tmp_path, [ROW_OS])
+        assert go(tmp_path, capsys, "--check", "--path", "src/b.py")[0] == 0
+        rc, out = go(tmp_path, capsys, "--check", "--path", "src/a.py")        # the file lost its finding: stale
+        assert rc == 1 and "1 stale" in out
+        rc, out = go(tmp_path, capsys, "--check", "--path", "src/gone.py")     # twin: a deleted file with rows is stale
+        assert rc == 0
+        rows = [dict(ROW_OS, path="src/gone.py")]
+        baseline_file(tmp_path, rows)
+        assert go(tmp_path, capsys, "--check", "--path", "src/gone.py")[0] == 1
+    elif case.startswith("hand-input"):
+        make_repo(tmp_path, dict(HAND_FILES))
+        baseline_file(tmp_path, [])
+        rc, out = _hand_go(tmp_path, capsys, {}, [], "--check", "--path", PKG + "/tests/test_a.py")
+        assert rc == 1 and "test_a.py:1: Plan row: TS-1" in out
+        rc, out = _hand_go(tmp_path, capsys, {}, [], "--check", "--path", PKG + "/tests/test_x.py")
+        assert rc == 0 and "test_a.py" not in out
+    else:
+        make_repo(tmp_path, {"src/a.py": CLEAN})
+        baseline_file(tmp_path, [])
+        rc, out = go(tmp_path, capsys, "--update", "--path", "src/a.py")
+        assert rc == 2 and "--path narrows --check only" in out
+
+
 def _package_tree_dirty() -> str:
     try:
         changes = DRT.status_changes(REPO, ["ai-packages"])       # the one git-status reader (B-455), not a second subprocess
