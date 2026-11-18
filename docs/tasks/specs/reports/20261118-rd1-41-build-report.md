@@ -26,3 +26,17 @@ Needed from integration: changelog fragment `ai-packages/qa-factory/changelog.d/
 
 Analogs noticed: `proof_level.tooling_gap_key` and `window_record.py:787,880` read the live path only (not changed; non-goal/out of the card).
 Needed beyond manifest: none (read red_sandbox.py::_write_product_records, given).
+
+## Fix round (t-1495 resumed; critic t-1499)
+
+- F1 DONE: `window_record.judge_door` (new) picks `JUDGE_PRODUCT_DOOR` when `probe_record_state["record"]` is the product path, else `JUDGE_DOOR`;
+  used in `build`'s unjudged note and `probe_word_door` (grouped by door). Docstrings at the three places updated. Row failing on 0c55a95e:
+  `test_product_record_is_read_when_live_is_absent[owed]` / `[cannot_judge]`... (`WR.judge_door` absent; `probe_word_door` lacked `--product`),
+  and `test_live_record_present_is_read_as_today` (live keeps the plain door).
+- F2 DONE: rows "not an object", "no verdict" and the both-absent assertion cut (named as `tests not written ... over budget` in the test file);
+  the remainder still exceeds the budget: Lead's `--tests-over`.
+- F3 DONE: docstring of `probe_record_state` names the product fallback; a product `incomplete` with no notes says "the product probe record <path> says its
+  proof could not be judged" (row `[tooling incomplete]` asserts "did not run" absent; fails on 0c55a95e).
+- F4, F5: remarks, no change (changelog fragment text above; `probe_debt.py:284-288` live-only, for the Lead).
+
+Witness: `python -B -m pytest .../test_probe_readers.py .../test_probe_marker_judgment.py -q -p no:cacheprovider` -> `75 passed in 20.37s`

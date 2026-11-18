@@ -104,7 +104,7 @@ PROBE_GAP_DOOR = ("; or, when the person accepts that this test is not probed he
                   + PROBE_GAP_RECORD + "` for a case key of this instance (an instance id that is one token works too; "
                   "a phrase with spaces is never a word the window reads) (return this item: a role records no word)")
 # t-1968 N2: the tail of the `probe is missing` line of an owed green item whose probe record is `incomplete`, `cause: judgment`
-# and has no judgment yet; `probe_by_code.JUDGE_DOOR` (the critic's own command) follows it. Not a person's word (AR-24).
+# and has no judgment yet; `judge_door` (the critic's own command; `--product` for a product record) follows it. Not a person's word (AR-24).
 UNJUDGED_NOTE = "its probe failed at the mutated line with a text the factory cannot read; the code critic judges it: "
 # fix round D (B2): the tail of the `probe is missing` line of an owed green item whose walk has NO check owing a judgment; `PROBE_DOOR` follows.
 PLAIN_CALL_NOTE = ("its probe walk is not finished and no check of it owes the code critic's `--judge` (some checks were not selected, or have "
@@ -964,7 +964,7 @@ def probe_gap_block(task_root: Path, item: dict, keys: list, words: dict, class_
     Written ONLY when a recorded word of the person names the instance: its id, else one of its case keys `keys`
     (`words` is `contract.probe_gap_words`; identifier equality, never `*`). The factory names no gap of its own (t-1968 N2): a
     green item whose probe record of THESE bytes is `incomplete` with `cause: judgment` (`proof_level.probe_owes_judgment`) is
-    the code critic's to judge, and its window note names `JUDGE_DOOR` (`build`). The probe's record
+    the code critic's to judge, and its window note names `judge_door` (`JUDGE_DOOR`, `JUDGE_PRODUCT_DOOR` for a product record; `build`). The probe's record
     (`proof_level.probe_record_state`, the ONE reader) says what happened: `not_executed` / `incomplete` of THESE bytes is the
     verdict as it stands; no record, an unreadable one, one of other bytes or one with no verdict is `not_run`. A record
     that JUDGED the current bytes (`intended_failure` with no valid receipt, `no_failure`, `wrong_location`) writes
@@ -1098,10 +1098,23 @@ def probe_gap_keys_line(window, root) -> str:
     return " The case keys this window needs: " + ", ".join(keys) + " (one record each)." if keys else ""
 
 
+def judge_door(task_root, identity: str, current: str) -> str:
+    """The code critic's `--judge` command for the record `probe_record_state` read: `JUDGE_PRODUCT_DOOR` when it is the PRODUCT record
+    (`work/probes/product/`; `--judge` without `--product` refuses it, RD1-41 F1), else `JUDGE_DOOR`. Lazy import as in `build`."""
+    import probe_by_code
+    try:
+        product = proof_level.probe_record_path(task_root, identity, "product").relative_to(Path(task_root)).as_posix()
+        if proof_level.probe_record_state(task_root, identity, current).get("record") == product:
+            return probe_by_code.JUDGE_PRODUCT_DOOR
+    except Exception:  # noqa: BLE001 - a door text never stops the window
+        pass
+    return probe_by_code.JUDGE_DOOR
+
+
 def probe_word_door(window, root, ticket: str, rest_door: str) -> str:
     """The door sentences of a refusal about owed green tests, built from what the probe records of THOSE tests say (t-2007 F4,
     FR-2/FR-37). The ONE helper of the two controller refusals (AR-13). Per owed item (`_word_owed`): `unjudged` -> the code critic's
-    `probe_by_code.JUDGE_DOOR` (a person's word does not close it); `cannot_judge` -> the person's `probe not proved:` word
+    `judge_door` (`JUDGE_DOOR`, or `JUDGE_PRODUCT_DOOR` for a product record) (a person's word does not close it); `cannot_judge` -> the person's `probe not proved:` word
     (`NOT_PROVED_RECORD`) with the case keys `probe_judgment_cases` lists; any other -> `rest_door`, the old `probe gap:` door text the
     caller builds (it carries `PROBE_GAP_RECORD` and `probe_gap_keys_line`). When no owed item can be classified (a window that is
     not readable), `rest_door` stands alone as before. Data only; never raises."""
@@ -1118,10 +1131,10 @@ def probe_word_door(window, root, ticket: str, rest_door: str) -> str:
     parts = []
     if kinds["plain"]:      # B2: a walk with no check owing a judgment: `--judge` refuses; the plain call is the door
         parts.append(f" For {', '.join(kinds['plain'])}: {PLAIN_CALL_NOTE}{PROBE_DOOR}.")
-    if kinds["unjudged"]:
-        import probe_by_code      # the ONE JUDGE_DOOR (AR-13); lazy as in `build`
-        parts.append(f" For {', '.join(kinds['unjudged'])}: the probe failed at the mutated line with a text the factory cannot read, "
-                     f"and the code critic judges it (a person's word does not close it): {probe_by_code.JUDGE_DOOR}.")
+    for door in sorted({judge_door(root, i, str(items[i].get("input_hash") or "")) for i in kinds["unjudged"]}):   # live and product records have each their door
+        ids = [i for i in kinds["unjudged"] if judge_door(root, i, str(items[i].get("input_hash") or "")) == door]
+        parts.append(f" For {', '.join(ids)}: the probe failed at the mutated line with a text the factory cannot read, "
+                     f"and the code critic judges it (a person's word does not close it): {door}.")
     if kinds["cannot_judge"]:
         keys = [case for case, _items in probe_judgment_cases(window, root)]
         parts.append(f" For {', '.join(kinds['cannot_judge'])}: the code critic could not judge the probe; if the person accepts the "
@@ -1802,8 +1815,8 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
             elif proof_level.probe_owes_judgment(task_root, identity, str(item.get("input_hash") or "")) == "unjudged":
                 # t-1968 N2 (R4): the probe ran and failed at its line on a text the tool cannot read; the door is the critic's
                 # `--judge`, not a person's word. No new refusal: it is the tail of the same `probe is missing` line
-                import probe_by_code      # the ONE JUDGE_DOOR (AR-13); lazy: this module is imported by many that never probe
-                notes.append((identity, "probe", _keys_first(task_root, item) + UNJUDGED_NOTE + probe_by_code.JUDGE_DOOR))
+                notes.append((identity, "probe", _keys_first(task_root, item) + UNJUDGED_NOTE
+                              + judge_door(task_root, identity, str(item.get("input_hash") or ""))))
             elif proof_level.probe_owes_judgment(task_root, identity, str(item.get("input_hash") or "")) == "cannot_judge":
                 # t-1968 N5: the code critic judged and could not tell; the door is the person's own word, not a `probe gap:` one
                 notes.append((identity, "probe", _keys_first(task_root, item) + NOT_PROVED_NOTE))

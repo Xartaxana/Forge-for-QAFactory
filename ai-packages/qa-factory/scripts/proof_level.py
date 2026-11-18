@@ -1148,8 +1148,10 @@ def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
     `cause` word for `not_executed` and `incomplete` ("" otherwise): `tooling` (the tool could not read the test), `judgment`
     (the run failed at the mutated line on a text the tool cannot read; the code critic judges it, t-1968). `judgment` is the
     verdict word of that critic's `judgment` block (`fires` / `other_failure` / `cannot_judge`) or "" when none is written.
-    `record` is the record's
-    path under `task_root` (posix) or None when there is no file; `why` is the one line a person reads for the state ("" when
+    With NO live record file, the product probe's record (`work/probes/product/`, RD1-37c) is read the same way when it names this
+    instance (`instance_id`) and these bytes; one that is unreadable, of other bytes or with another verdict word (`probe_defect`)
+    is `not_run` with a `why` naming its path. A live file that exists is read alone, as before. `record` is the record's
+    path under `task_root` (posix; the live or the product one, whichever was read) or None when there is no file; `why` is the one line a person reads for the state ("" when
     judged); `refused` is the record's `refused` word ("tool" for a refusal of the tool, "" otherwise). Error direction: toward
     `not_run`, never toward 'probed'. Never raises."""
     product = False
@@ -1188,7 +1190,8 @@ def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
         # could not run nor a judgment owed; an old record has no such key and reads as before
         state, why = "plan_unfinished", notes[-1] if notes else "the plan is not finished: the same call again continues it"
     elif verdict in ("not_executed", "incomplete"):
-        state, why = verdict, notes[-1] if notes else "the probe did not run"
+        state, why = verdict, notes[-1] if notes else (f"the product probe record {rel} says its proof could not be judged" if product
+                                                       else "the probe did not run")      # a product record has no notes and its probe DID run
     elif probe_judged(record):
         state, why = "judged", ""
     else:
