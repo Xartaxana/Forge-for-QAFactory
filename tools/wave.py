@@ -520,7 +520,16 @@ class Wave:
                 return "journal restore mismatch"
         except OSError as exc:
             self.mismatch = "JOURNAL RESTORE FAILED (%s): copy kept at %s" % (exc, copy)
-            self.mismatch += self._recovery_clause(rel, copy)
+            clause = self._recovery_clause(rel, copy)
+            if clause:                                  # FG7-85: the copy is origin's journal -> refresh the root ourselves
+                text = self._auto_refresh(rel, copy)
+                if text is None:
+                    self.mismatch = None
+                    self.say("journal restore failed (%s); the copy equals origin/%s, so the root was staged and "
+                             "fast-forwarded by wave" % (exc, MAIN))
+                    return None
+                clause += "; auto refresh refused: %s" % text
+            self.mismatch += clause
             return "journal restore failed"
         if kept:
             self.say("a line written during the window was appended to the journal; the copy is kept at %s" % copy)
@@ -530,6 +539,28 @@ class Wave:
             return None
         self.ff_text = err or o
         return self.ff_text
+
+    def _auto_refresh(self, rel, copy):
+        """FG7-85: the copy equals origin/main's journal. Root on main with no other staged change: write the copy back,
+        stage it, `merge --ff-only`; None = done, else the reason (the hint line stays, git's text added)."""
+        root = self.root
+        try:
+            rc, br, _e = git(root, "symbolic-ref", "-q", "--short", "HEAD")
+            if rc != 0 or br.strip() != MAIN:
+                return "the root is not on %s" % MAIN
+            rc, staged, _e = git(root, "diff", "--cached", "--name-only")
+            if rc != 0 or [p for p in staged.split() if p != rel]:
+                return "the root has other staged changes"
+            _atomic_write(root / rel, copy.read_bytes())
+            if git(root, "add", "--", rel)[0] != 0:
+                return "git add failed"
+            rc, o, err = git(root, "merge", "--ff-only", "origin/" + MAIN)
+            if rc != 0:
+                return (err or o).strip()
+        except OSError as exc:
+            return str(exc)
+        copy.unlink(missing_ok=True)
+        return None
 
     def _recovery_clause(self, rel, copy):
         """E6: the kept copy equals origin/main's journal -> name the manual recovery; any failure -> no clause."""

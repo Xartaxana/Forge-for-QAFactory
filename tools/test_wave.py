@@ -426,22 +426,30 @@ def test_unlocked_appender_in_the_window_is_carried_over_Q5a(env, monkeypatch):
     assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2
 
 
-@pytest.mark.parametrize("main_has_copy", [True, False])       # FG7-82 E6: clause only when the kept copy == origin/main's journal
-def test_oserror_in_the_window_names_the_copy_Q5c(env, monkeypatch, main_has_copy):
-    branch(env, "b17b", {"f.txt": "x\n", **({REL: L1 + L2} if main_has_copy else {})})
+@pytest.mark.parametrize("case", ["equal", "differs", "off_main"])   # FG7-82 E6 + FG7-85: auto refresh only for an equal copy on main
+def test_restore_oserror_in_the_window_names_the_copy_Q5c(env, monkeypatch, case):
+    branch(env, "b17b", {"f.txt": "x\n", **({REL: L1 + L2} if case != "differs" else {})})
     (env.root / REL).write_bytes(L1 + L2)
 
     def hook(n):
         if n == "step9-locked":
-            if not main_has_copy:        # the wave commits the root journal into main, so the copy is made to differ
+            if case == "differs":        # the wave commits the root journal into main, so the copy is made to differ
                 with open(next(jl.lock_dir(env.root).glob("wave-copy-*")), "ab") as f:
                     f.write(L3)
+            if case == "off_main":
+                g(env.root, "checkout", "-q", "-b", "side")
             raise OSError("disk says no")
     monkeypatch.setattr(wave, "_hook", hook)
     rc, out, _ = go(env, "b17b")
+    copies = list(jl.lock_dir(env.root).glob("wave-copy-*"))
+    if case == "equal":
+        assert rc == 0 and "the root was staged and fast-forwarded by wave" in out and "RESTORE FAILED" not in out
+        assert not copies and (env.root / REL).read_bytes() == L1 + L2 and g(env.root, "status", "--porcelain") == ""
+        return
     assert rc == 1 and "JOURNAL RESTORE FAILED (disk says no): copy kept at" in out and "merge: " in out
-    assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2 + (b"" if main_has_copy else L3)
-    assert ("fast-forward the root by hand" in out) == main_has_copy
+    assert copies[0].read_bytes() == L1 + L2 + (L3 if case == "differs" else b"")
+    assert ("fast-forward the root by hand" in out) == (case == "off_main")
+    assert ("auto refresh refused: the root is not on main" in out) == (case == "off_main")
 
 
 @pytest.mark.parametrize("errs,exc,retried,ok", [          # FG7-82: t-1414 WinError 5 on os.replace
