@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import contract as C  # noqa: E402
 import hooklib  # noqa: E402  (`read_json`, the one JSON reader)
+import waiver  # noqa: E402  (`_stamp`, the one stamp loop, FG7-3)
 from hooklib import sorted_paths  # noqa: E402
 
 # Gate A asks before S5, gate B before S9: the stage a person's answer is recorded against, and the stage the gate's rehearsal
@@ -1095,10 +1096,12 @@ def annotate_override(task_root, stage, match, fields) -> str:
     path = Path(task_root) / "pipeline.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        for override in data.get("stage_overrides") or []:
-            if (isinstance(override, dict) and override.get("stage") == stage and override.get("match") == match
-                    and not override.get("revoked_at")):
-                override.update(fields)
+        def live(o):
+            return o.get("stage") == stage and o.get("match") == match and not o.get("revoked_at")
+        if not isinstance(fields, dict) and (fields is None or fields) and any(
+                isinstance(o, dict) and live(o) for o in data.get("stage_overrides") or []):
+            dict().update(fields)  # type guard: today update(non-dict) raised here, class_fields would give {}
+        waiver._stamp(data.get("stage_overrides"), live, fields)
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     except Exception as exc:
         return type(exc).__name__
