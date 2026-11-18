@@ -23,7 +23,7 @@
 
 | Узел | Приоритет | Что | Исполнитель | Пишет в | Зависит от | Статус |
 |---|---|---|---|---|---|---|
-| CD2-1 | П3 | Измерители считают служебные строки журнала драйвера (`window_round`, `process`, `launched`, `gate_repair`) вызовами: `compare.driver_report` и `report_run.journal`; один перечень служебных видов на оба (`findings/20261114-driver-report-schitaet-sluzhebnye-stroki-zhurnala-vyzovami.md`; критик темы CL4-1, Q3; P18; FR-28, FR-41; AR-13) | builder → critic | `experiments/measurers/compare.py`, `experiments/measurers/report_run.py`, их тесты | — | ожидает |
+| CD2-1 | П3 | Измерители считают служебные строки журнала драйвера (`window_round`, `process`, `launched`, `gate_repair`) вызовами: `compare.driver_report` и `report_run.journal`; один перечень служебных видов на оба (`findings/20261114-driver-report-schitaet-sluzhebnye-stroki-zhurnala-vyzovami.md`; критик темы CL4-1, Q3; P18; FR-28, FR-41; AR-13) | builder → critic | `experiments/measurers/compare.py`, `experiments/measurers/report_run.py`, их тесты | — | принято: 9f374ef632afdbc8e8415467cffbb8083132d6cc (t-1482) |
 
 ## Ход
 
