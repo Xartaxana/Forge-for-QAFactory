@@ -194,7 +194,7 @@ RUN_TIMEOUT_S = 1860
 JUDGE_DOOR = ('probe_by_code.py --task <T> --dispatch <D> --judge "<instance>" --verdict fires|other_failure|cannot_judge '
               '--quote "<a line of its failure text>" [--why "<one sentence>"]')
 JUDGE_VERDICTS = ("fires", "other_failure", "cannot_judge")
-FAILURE_TEXT_MAX = 16384    # characters of ONE failure text stored in `judgment_facts` (a longer one keeps its head and its tail around one `…`, which counts)
+FAILURE_TEXT_MAX = reporters.FAILURE_TEXT_MAX    # characters of ONE failure text stored in `judgment_facts` (cut by `reporters.cut_failure_text`)
 FACTS_ROWS_MAX = 12         # unsettled rows `judgment_facts.rows` holds (the rest is counted in `rows_cut`; `fires` is refused then)
 JUDGE_QUOTE_MAX = 300       # characters of `--quote`
 JUDGE_WHY_MAX = 300         # characters of `--why`
@@ -3002,11 +3002,9 @@ def report_rows(path: Path, reporter: str, raw: bool = False) -> list:
         return reporters.read_rows(path, reporter)
     rows = []
     for row in reporters.read_rows(path, reporter):
-        problems = row.get("problems") or []
-        chosen = next((p for p in problems if p.get("kind") == "failure"),
-                      next((p for p in problems if p.get("kind") == "error"), None))
+        chosen = reporters.failure_problem(row)
         status = row.get("status")
-        if chosen is not None:
+        if chosen:
             status = "failed" if chosen["kind"] == "failure" else "error"
         rows.append({"test_id": row["test_id"], "status": status,
                      "message": (chosen or {}).get("message", ""), "text": (chosen or {}).get("text", "")})
@@ -3082,10 +3080,7 @@ def text_head(text: str, entry: dict) -> str:
     return "\n".join(lines)
 
 
-def failure_problem(row: dict) -> dict:
-    problems = row.get("problems") or []
-    return next((p for p in problems if p.get("kind") == "failure"),
-                next((p for p in problems if p.get("kind") == "error"), {}))
+failure_problem = reporters.failure_problem     # the ONE pick of a row's problem (RD1-37; red_sandbox reads it there too)
 
 
 def fires_on(row: dict, entry: dict, fires_as: str) -> bool:
@@ -3458,16 +3453,7 @@ def _frames_of(text: str, entry) -> list:
     return reporters.frame_lines(text, frames, skip)      # the site reader's own walk and acceptance rule (F4)
 
 
-def cut_text(text: str) -> str:
-    """`text` as `judgment_facts` stores it: whole up to `FAILURE_TEXT_MAX` characters; a longer one keeps its HEAD and its TAIL around
-    ONE `…` (half each; the mark counts, so the result is exactly `FAILURE_TEXT_MAX` long). INV: the tail survives - a runner's last
-    line is the raising line (pytest's `E   ...` / `path:line: Exc`), and the head is the message; a middle of repeated frames is
-    what is dropped. Pure; `""` for an empty text."""
-    text = str(text or "")
-    if len(text) <= FAILURE_TEXT_MAX:
-        return text
-    tail = (FAILURE_TEXT_MAX - 1) // 2
-    return text[:FAILURE_TEXT_MAX - 1 - tail] + "…" + text[len(text) - tail:]
+cut_text = reporters.cut_failure_text     # `judgment_facts` stores a text cut by the ONE cutter (RD1-37: red_sandbox's product facts use it too)
 
 
 def _fact_row(row: dict) -> dict:

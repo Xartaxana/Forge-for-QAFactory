@@ -432,6 +432,22 @@ def pinned_frames(test_file, line) -> "list | None":
     return [f"(?:^|(?<=[{edge}]))(?P<path>(?:[^{edge}]*{sep})?{body}):(?P<line>{line})(?!\\w)"]
 
 
+FAILURE_TEXT_MAX = 16384    # characters of ONE failure text a judgment record stores (a longer one keeps its head and its tail around one `…`, which counts)
+
+
+def cut_failure_text(text) -> str:
+    """The ONE cutter of a failure text a judgment record stores (RD1-37; was `probe_by_code.cut_text`, which aliases it; red_sandbox
+    may not import probe_by_code): whole up to `FAILURE_TEXT_MAX` characters; a longer one keeps its HEAD and its TAIL around ONE `…`
+    (half each; the mark counts, so the result is exactly `FAILURE_TEXT_MAX` long). INV: the tail survives - a runner's last
+    line is the raising line (pytest's `E   ...` / `path:line: Exc`), and the head is the message; a middle of repeated frames is
+    what is dropped. Pure; `""` for an empty text."""
+    text = str(text or "")
+    if len(text) <= FAILURE_TEXT_MAX:
+        return text
+    tail = (FAILURE_TEXT_MAX - 1) // 2
+    return text[:FAILURE_TEXT_MAX - 1 - tail] + "…" + text[len(text) - tail:]
+
+
 def reason_agrees(actual, expected) -> bool:
     """Do two assertion messages agree (`assertion_reason`: whole texts, else headlines), the expected one non-empty."""
     wanted, seen = assertion_reason(expected, actual)
@@ -601,11 +617,17 @@ def failure_frames(row, frames, skip_frames, error_head=None, after_frame_ok=())
     return found or None
 
 
+def failure_problem(row) -> dict:
+    """The ONE pick of a report row's problem: the <failure> body before the <error> one (the old private row reader's order), `{}` when
+    the row holds neither (RD1-37: `red_sandbox` and `probe_by_code` read it here)."""
+    problems = (row or {}).get("problems") or []
+    return next((p for p in problems if p.get("kind") == "failure"),
+                next((p for p in problems if p.get("kind") == "error"), {}))
+
+
 def _pytest_site(row: dict, problems: list, reporter: str = "pytest", runtime: str = "") -> dict:
-    # The old private row reader took the <failure> body before the <error> one; keep that order.
-    chosen = next((p for p in problems if p.get("kind") == "failure"),
-                  next((p for p in problems if p.get("kind") == "error"), None))
-    for line in reversed(((chosen or {}).get("text") or "").splitlines()):
+    chosen = failure_problem({"problems": problems})
+    for line in reversed((chosen.get("text") or "").splitlines()):
         line = line.strip()
         if not line:
             continue

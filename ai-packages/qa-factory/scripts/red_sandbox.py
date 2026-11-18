@@ -825,6 +825,39 @@ def _written_scope(task_root, ref) -> str:
         return proof_level.ONE_CHECK
 
 
+def _receipt_body(target, result, binding, measured, probe_receipt, notes=None) -> dict:
+    """The receipt of one target BEFORE `scope`, `checks` and `receipt_hash` (RD1-37: `write_sensitivity_receipts` and the product record's
+    `pending_receipt` build it here, so the two cannot drift). `measured` is `instance_identity()`'s answer plus `test_file`, or None;
+    identity keys only when the raw sha equals what the manifest binds and what the sandbox copied (else `notes` says why). Pure."""
+    instance_id = str(target.get("instance_id") or "")
+    required = ("case_version", "test_content_hash", "source_revision", "build_id", "restoration_evidence")
+    proof = {"instance_id": instance_id, **{key: binding[key] for key in required},
+             "mutation": target.get("mutation_kind") or target.get("replacement_utf8"),
+             "expected_assertion_failure": target.get("expected_reason"),
+             "actual_failure": result.get("reason"),
+             "assertion_location": result.get("location"), "failure_kind": result.get("failure_kind"),
+             # A deliberate break of the product made the test fail: the higher of the two
+             # levels (D-0010). Named on the receipt so no reader has to guess it from the tool.
+             "proof_level": proof_level.PRODUCT, "probe_tool": "red_sandbox.py",
+             "immutable": True}
+    if measured:
+        raw = str(measured.get("input_hash") or "")
+        copied = _original_hash_of(probe_receipt, measured.get("test_file"))
+        if raw and raw == str(binding.get("test_content_hash") or "") and raw == copied:
+            if measured.get("test_code_sha"):
+                proof["test_code_sha"] = measured["test_code_sha"]
+            if measured.get("instance_identity"):
+                proof["instance_identity"] = measured["instance_identity"]
+        elif notes is not None:
+            notes.append(f"{instance_id}: the test file hashes {raw or 'nothing readable'}, the manifest binds "
+                         f"{binding.get('test_content_hash') or 'nothing'} and the sandbox copied "
+                         f"{copied or 'no such file'}: the receipt binds raw bytes only")
+    if probe_receipt.get("dependency_setup"):
+        # What the clone was provisioned with is part of what the proof was measured on: INSIDE the hash.
+        proof["dependency_setup"] = probe_receipt["dependency_setup"]
+    return proof
+
+
 def write_sensitivity_receipts(task, probe_receipt, results, bindings, baseline=None, identity=None,
                                notes=None):
     """Publish hash-bound S5 proof receipts from a verified isolated red probe.
@@ -858,31 +891,8 @@ def write_sensitivity_receipts(task, probe_receipt, results, bindings, baseline=
                     "restoration_evidence")
         if any(not binding.get(key) for key in required):
             raise ValueError(f"binding {instance_id} lacks immutable case/test/source/build/restoration facts")
-        proof = {"instance_id": instance_id, **{key: binding[key] for key in required},
-                 "mutation": target.get("mutation_kind") or target.get("replacement_utf8"),
-                 "expected_assertion_failure": target.get("expected_reason"),
-                 "actual_failure": result.get("reason"),
-                 "assertion_location": result.get("location"), "failure_kind": result.get("failure_kind"),
-                 # A deliberate break of the product made the test fail: the higher of the two
-                 # levels (D-0010). Named on the receipt so no reader has to guess it from the tool.
-                 "proof_level": proof_level.PRODUCT, "probe_tool": "red_sandbox.py",
-                 "immutable": True}
         measured = (identity or {}).get(instance_id)
-        if measured:
-            raw = str(measured.get("input_hash") or "")
-            copied = _original_hash_of(probe_receipt, measured.get("test_file"))
-            if raw and raw == str(binding.get("test_content_hash") or "") and raw == copied:
-                if measured.get("test_code_sha"):
-                    proof["test_code_sha"] = measured["test_code_sha"]
-                if measured.get("instance_identity"):
-                    proof["instance_identity"] = measured["instance_identity"]
-            elif notes is not None:
-                notes.append(f"{instance_id}: the test file hashes {raw or 'nothing readable'}, the manifest binds "
-                             f"{binding.get('test_content_hash') or 'nothing'} and the sandbox copied "
-                             f"{copied or 'no such file'}: the receipt binds raw bytes only")
-        if probe_receipt.get("dependency_setup"):
-            # What the clone was provisioned with is part of what the proof was measured on: INSIDE the hash.
-            proof["dependency_setup"] = probe_receipt["dependency_setup"]
+        proof = _receipt_body(target, result, binding, measured, probe_receipt, notes)
         # t-2064 P6 (EP-W): what the receipt proves, inside the hash. A reader that finds no `scope` knows it is an old receipt (EP-I).
         proof["scope"], proof["checks"] = _receipt_scope((measured or {}).get("test_file"), result.get("location"))
         proof["receipt_hash"] = content_hash(proof)
@@ -1218,10 +1228,7 @@ def target_result(target: dict, row, reporter: str, clone_root, command=None) ->
     entry = {"instance_id": str(target.get("instance_id") or ""), "status": "not_run"}
     if row:
         entry["status"] = row["status"]
-        problems = row.get("problems") or []
-        chosen = next((p for p in problems if p.get("kind") == "failure"),
-                      next((p for p in problems if p.get("kind") == "error"), None))
-        entry["reason"] = (chosen or {}).get("message", "")
+        entry["reason"] = reporters.failure_problem(row).get("message", "")
         expected_file = str(target.get("expected_location") or "").rpartition(":")[0]
         hint = {} if command is None else {"pytest_command": _is_pytest(command), "runtime": _launcher(command)}
         site = reporters.assertion_site(row, reporter, clone_root, expected_file, **hint, **_frame_grammar(expected_file))
@@ -1511,8 +1518,51 @@ def request_status(verdict: dict, unrun: list) -> str:
     return "accepted"
 
 
+def judgment_owed(proof: dict, result: dict, base_row, row) -> bool:
+    """Does this proof owe the code critic's judgment (RD1-37, AR-2)? Pure; routes only, decides nothing of the verdict. True only when the
+    proof is invalid, carries `site_unread`, is no `probe_defect`, the mutated run `failed`, `base_row` (the author's green or the own
+    baseline result) is `passed` and the failure row (`row`) holds a message or a text: no evidence, no judgment (J3). `verify` gives
+    `site_unread` BEFORE `baseline_status` (J2), so the baseline is read here too: a red baseline never makes a red run the mutation's doing."""
+    if proof.get("valid") or proof.get("verdict") == "probe_defect" or not proof.get("site_unread"):
+        return False
+    if (result or {}).get("status") != "failed" or str((base_row or {}).get("status") or "") != "passed":
+        return False
+    problem = reporters.failure_problem(row)
+    return bool(str(problem.get("message") or "").strip() or str(problem.get("text") or "").strip())
+
+
+def _owed_extras(iid: str, proof: dict, target: dict, row: dict, result: dict, files: list, placed: dict,
+                 receipt: dict, bindings: dict) -> dict:
+    """The keys of a record that owes a judgment: `cause`, `judgment_facts` (the keys `probe_by_code._judge_input` reads, plus the
+    product mutation) and `pending_receipt` (`_receipt_body` + `obligation_id`; null + `pending_receipt_why` when the bindings could not
+    be read: no receipt from facts not measured at probe time, J5). Reads only its arguments; `bindings` is `{}` or `{"_why": ...}`."""
+    problem = reporters.failure_problem(row)
+    cut =reporters.cut_failure_text
+    file, _, line = str(target.get("expected_location") or "").rpartition(":")
+    facts = {"file": file or None, "line": int(line) if line.isdigit() else None,
+             "expected_location": target.get("expected_location"), "expected_reason": target.get("expected_reason"),
+             "status": "failed", "message": cut(problem.get("message")), "failure_text": cut(problem.get("text")),
+             "site_unread_reason": proof.get("reason"), "frame": None, "location": None,
+             "product_mutation": [{"path": f["path"], "sha256": f["sha256"]} for f in files],
+             "rows": [{"test_id": (row or {}).get("test_id"), "status": "failed", "message": cut(problem.get("message")),
+                       "failure_text": cut(problem.get("text"))}], "rows_cut": 0}
+    out = {"cause": "judgment", "judgment_facts": facts, "pending_receipt": None}
+    binding = bindings.get(iid)
+    if binding is None:
+        out["pending_receipt_why"] = bindings.get("_why") or f"no binding facts for {iid}"
+        return out
+    try:
+        measured = {**placed[iid]["now"], "test_file": proof_level.test_file_of(placed[iid]["entry"])}
+        out["pending_receipt"] = {**_receipt_body(target, result, binding, measured, receipt),
+                                  "obligation_id": target.get("obligation_id")}
+    except Exception as exc:
+        out["pending_receipt_why"] = f"the receipt body could not be built ({type(exc).__name__}: {str(exc)[:160]})"
+    return out
+
+
 def _write_product_records(task_root: Path, dispatch: str, placed: dict, targets: list, proofs: list,
-                           repo: Path, notes: list) -> None:
+                           repo: Path, notes: list, *, rows_of=None, results=None, baseline_results=None,
+                           receipt=None) -> list:
     """`work/probes/product/<stem>.json` for every target of a run that was launched: the verdict of
     `verify()` in the words a repeat is answered by - `intended_failure`, `survived` (a red that was
     not the pinned one), `probe_defect` (the probe's own failure) or `incomplete` (a proof that could
@@ -1520,8 +1570,15 @@ def _write_product_records(task_root: Path, dispatch: str, placed: dict, targets
     `survived` blocks a repeat, and the NEWEST record decides, so a `probe_defect` after a person's
     word lifts a survivor's block (D11). The record carries the test's identity as measured BEFORE the sandbox was prepared and the
     product file the mutation touched with the bytes it held, so a later probe is answered only while
-    both still hold."""
+    both still hold. Every record carries `task` and `case` (the door's dispatch check reads them, RD1-37); a proof that owes the code
+    critic's judgment (`judgment_owed`) also carries `cause: judgment`, `judgment_facts` and `pending_receipt`; no other record does.
+    Returns the ids whose record was WRITTEN with `cause: judgment` (the answer's note names only records that exist, J8)."""
+    wrote = []
     when = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    by_result = {str(r.get("instance_id")): r for r in results or []}
+    by_base = {str(r.get("instance_id")): r for r in baseline_results or []}
+    by_target = {str(t.get("instance_id")): t for t in (receipt or {}).get("targets") or []}
+    bindings = None
     for proof in proofs:
         iid = str(proof["instance_id"])
         info = placed.get(iid)
@@ -1542,14 +1599,26 @@ def _write_product_records(task_root: Path, dispatch: str, placed: dict, targets
                   "verdict": product_verdict(proof),
                   "recorded_at": when, "dispatch_id": dispatch, "test_file_sha256": now["input_hash"],
                   "test_code_sha": now["test_code_sha"], "instance_identity": now["instance_identity"],
-                  "mutated_files": files}
+                  "mutated_files": files, "task": task_root.name, "case": info.get("case")}
+        row = (rows_of or {}).get(iid)
+        if judgment_owed(proof, by_result.get(iid) or {}, by_base.get(iid), row):
+            if bindings is None:
+                try:
+                    bindings = manifest_bindings(task_root, receipt)
+                except Exception as exc:  # an OSError of the manifest read too: a record is written for every target (J5 names no type)
+                    bindings = {"_why": f"the receipt bindings could not be read ({type(exc).__name__}): {str(exc)[:200]}"}
+            record.update(_owed_extras(iid, proof, by_target.get(iid) or {}, row, by_result.get(iid) or {}, files, placed,
+                                       receipt, bindings))
         path = proof_level.probe_record_path(task_root, iid, "product")
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             atomic_json(path, record)
+            if record.get("cause") == "judgment":
+                wrote.append(iid)
         except OSError as exc:
             notes.append(f"{iid}: the product record could not be written ({type(exc).__name__}): a repeat of "
                          "this probe is not answered")
+    return wrote
 
 
 def probe(repo, request_path, task_root, *, destination=None, dispatch: str = "",
@@ -1733,7 +1802,7 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
                               _is_pytest(summary.get("command")), summary)
     by_author = {r["instance_id"]: r for r in author_results}
 
-    results, baseline_results, unrun = [], [], []
+    results, baseline_results, unrun, rows_of = [], [], [], {}
     for target in mutated_receipt["targets"]:
         iid = str(target.get("instance_id") or "")
         node_id = (target.get("node_id") or next(iter(target.get("node_ids") or []), None)
@@ -1744,6 +1813,7 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
             or ([], {}, False, {}))
         row, note = bind_row(bind_target, mut_contracts, mut_rows, mut_summary.get("reporter"),
                              task_root.name, pytest_command=mut_pytest)
+        rows_of[iid] = row
         results.append(target_result(target, row, mut_summary.get("reporter"), mutated_receipt["sandbox"],
                                      command=mut_summary.get("command") or []))
         if not row and note:
@@ -1768,8 +1838,10 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
                 notes.append(f"{iid}: the baseline run's report row carries no outcome (not_run)")
 
     verdict = verify(mutated_receipt, results, baseline_results)
+    owed: list = []
     if placed:  # a launched run leaves its verdict on record, for every target (D11)
-        _write_product_records(task_root, dispatch, placed, targets, verdict["proofs"], repo, notes)
+        owed = _write_product_records(task_root, dispatch, placed, targets, verdict["proofs"], repo, notes, rows_of=rows_of,
+                                      results=results, baseline_results=baseline_results, receipt=mutated_receipt)
     by_result = {str(r["instance_id"]): r for r in results}
     by_baseline = {str(r["instance_id"]): r for r in baseline_results}
     instances = {p["instance_id"]: {**p, "mutated": by_result.get(p["instance_id"]),
@@ -1832,11 +1904,20 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
                         "repeat"]}
         # The mutated run FAILED and the factory cannot yet say where (B-337): not a test that
         # let the mutation through, so never `survived`. The failure itself is readable.
+        owed_note = []     # `owed`: the records written with `cause: judgment` (none when the write failed, J8)
+        if owed:
+            # RD1-37: the product record of an owed instance says `cause: judgment`; the code critic judges it with probe_by_code's
+            # `--judge` and `--product` (flags only: the door's text is probe_by_code's, red_sandbox never imports it, C7)
+            owed_note = [f"{', '.join(owed)}: the failure text is stored in the product record "
+                         f"({', '.join(proof_level.probe_record_path(task_root, i, 'product').as_posix() for i in owed)}) and its judgment "
+                         "is owed: the code critic judges it with probe_by_code.py's `--judge` and `--product` flags (which assertion "
+                         "fired); no receipt is published until it does"]
+        tooling = [] if owed and all(p["instance_id"] in owed for p in verdict["proofs"] if p.get("site_unread")) else [
+            "the run's own failure text is readable (`run_suite.py --mine <case> --detail <test>`); "
+            "no receipt is published until the site is read. Record it as a `tooling` finding "
+            "(the factory's gap, nobody's round), never `test_defect`"]
         return {"status": "incomplete", "instances": instances, "receipts": [],
-                "notes": notes + why + [
-                    "the run's own failure text is readable (`run_suite.py --mine <case> --detail <test>`); "
-                    "no receipt is published until the site is read. Record it as a `tooling` finding "
-                    "(the factory's gap, nobody's round), never `test_defect`"]}
+                "notes": notes + why + owed_note + tooling}
 
     receipts, refs = [], {}
     try:
