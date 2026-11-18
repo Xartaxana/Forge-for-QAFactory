@@ -87,14 +87,29 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -q pytest
-      - run: |
+      - id: setup           # FG7-90: the marker of the setup steps; the four checks below each start only when it succeeded
+        run: |
           git config --global user.name "forge-ci"
           git config --global user.email "forge-ci@invalid.example"
           git config --global init.defaultBranch main
-      - name: the tables and the walker's self-check
-        run: |
-          T=ai-packages/qa-factory/scripts/tests
-          python -B $T/dry_exits.py --check
-          python -B $T/dry_exits.py --selftest
-          python -B $T/dry_stub.py --selftest
-          python -B $T/test_scenario_dry_1.py --part exits:selftest --exits-root $T/fixtures/stories/dry-1/selftest --ledger $T/fixtures/stories/dry-1/selftest/known_red.json
+      # one step per command (was one `bash -e` step: a red first command hid the other three); the path stays one word in env
+      - name: the tables (dry_exits --check)
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        env:
+          T: ai-packages/qa-factory/scripts/tests
+        run: python -B $T/dry_exits.py --check
+      - name: the tables (dry_exits --selftest)
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        env:
+          T: ai-packages/qa-factory/scripts/tests
+        run: python -B $T/dry_exits.py --selftest
+      - name: the walker's self-check (dry_stub)
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        env:
+          T: ai-packages/qa-factory/scripts/tests
+        run: python -B $T/dry_stub.py --selftest
+      - name: the walker's self-check (exits:selftest)
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        env:
+          T: ai-packages/qa-factory/scripts/tests
+        run: python -B $T/test_scenario_dry_1.py --part exits:selftest --exits-root $T/fixtures/stories/dry-1/selftest --ledger $T/fixtures/stories/dry-1/selftest/known_red.json
