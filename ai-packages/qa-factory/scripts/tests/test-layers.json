@@ -1983,6 +1983,7 @@
     "README.md",
     "skills/qa-story/phases/s4.md",
     "tests/harness.py",
+    "tests/story_run_common.py",
     "tests/test_http_client.py",
     "tests/test_bug_records.py"
    ]
@@ -6201,6 +6202,7 @@
     "proof_level.py",
     "report_facts.py",
     "run_suite.py",
+    "stage_close.py",
     "stage_done.py",
     "story_run.py",
     "driver_conductor.py",
@@ -6368,6 +6370,7 @@
    "layer": "data_join",
    "why": "held by import: the test_controller_rework parts, test_s6_lane_admission.py import it; leaves the canon when the import is cut (TD-15.8)",
    "covers": [
+    "stage_close.py",
     "tests/harness.py",
     "tests/test_controller_rework_scope.py",
     "tests/test_controller_state.py",

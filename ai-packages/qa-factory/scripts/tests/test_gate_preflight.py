@@ -144,6 +144,13 @@ def story(prefix: str, *, with_fixes: bool = True) -> Path:
     return root
 
 
+def name_the_plan_row(root: Path) -> None:
+    """B-006 (iii): the gate collects only for a story whose `automate` plan row (TS-1) is named by a case, and the one
+    reader (`contract.case_plan_row`) takes the body line `Plan row:`, not the front matter."""
+    case = root / "qa-factory" / "artifacts" / "TP1-15045" / "work" / "test-cases" / "workflows" / "TC-001.md"
+    case.write_text(case.read_text(encoding="utf-8") + "\nPlan row: TS-1\n", encoding="utf-8")
+
+
 def by_check(result: dict, name: str) -> list:
     return [f for f in result["findings"] if f["check"] == name]
 
@@ -1282,6 +1289,7 @@ def test_the_toolchain_of_the_next_stage_is_collected_before_the_gate() -> None:
             "quiet": f'"{_sys.executable}" "{fake}" pytest -m "<test-id>" --reruns 2'}
         (root / "qa-factory" / "config.json").write_text(json.dumps(config), encoding="utf-8")
         (root / "tests").mkdir(parents=True, exist_ok=True)
+        name_the_plan_row(root)
         command = gate_preflight.collect_command(config)
         check("the project's own command is what gets rehearsed", "--reruns" in command)
         check("with every placeholder dropped", "<test-id>" not in command)
@@ -1321,6 +1329,7 @@ def test_ep1_9_a_collect_that_counts_tests_and_lists_none_is_unavailable_never_s
         (root / "qa-factory" / "config.json").write_text(json.dumps(config), encoding="utf-8")
         (root / "tests").mkdir(parents=True, exist_ok=True)
         task = root / "qa-factory" / "artifacts" / "TP1-15045"
+        name_the_plan_row(root)
 
         def toolchain(script: str) -> list:
             fake.write_text(script, encoding="utf-8")
@@ -1367,6 +1376,7 @@ def test_rh1_3_a_broken_test_file_does_not_stop_the_gate_collect() -> None:
         (root / "qa-factory" / "config.json").write_text(json.dumps(config), encoding="utf-8")
         (root / "tests").mkdir(parents=True, exist_ok=True)
         task = root / "qa-factory" / "artifacts" / "TP1-15045"
+        name_the_plan_row(root)
         broken = "ERROR tests/test_bad.py\nERROR tests/servicenow_budget - ModuleNotFoundError: No module named 'sdk'"
 
         def script(body: str, code: int) -> str:
@@ -1470,6 +1480,7 @@ def test_rh1_4_a_difference_from_the_lock_is_a_note_and_one_phrase_of_the_collec
         (root / "qa-factory" / "config.json").write_text(json.dumps(config), encoding="utf-8")
         (root / "tests").mkdir(parents=True, exist_ok=True)
         task = root / "qa-factory" / "artifacts" / "TP1-15045"
+        name_the_plan_row(root)
 
         def gate(body: str, code: int, answer, switch=False):
             fake.write_text(f"import sys\n{body}\nsys.exit({code})\n", encoding="utf-8")
