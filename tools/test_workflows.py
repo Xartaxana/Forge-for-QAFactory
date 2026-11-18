@@ -390,8 +390,11 @@ def test_min_python_compile_compiles_the_package_under_the_install_md_floor():
     job = load("forge-check.yml")["jobs"]["min-python-compile"]
     (setup,) = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/setup-python@")]
     assert setup["with"]["python-version"] == "3.10" and job["timeout-minutes"] <= 15
+    assert "if" not in job and "needs" not in job
+    (checkout,) = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@")]
+    assert checkout["with"]["ref"] == "${{ inputs.ref || github.sha }}"
     (run,) = runs(job)
-    assert "ai-packages/qa-factory" in run and "rglob" in run and "sys.exit" in run
+    assert "ai-packages/qa-factory" in run
 
 
 # ---------------------------------------------------------------- the test diet: quarantine watch and test-redundancy

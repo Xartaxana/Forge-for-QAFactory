@@ -6,6 +6,7 @@
 #                 piles, install parity, the test quarantine check, the whole tools/ suite
 #   runner-facts  push to main and pull request only (not the canon): the runner probe, never blocking
 #   package-fast  same triggers, only when the package or the workflows changed
+#   min-python-compile  same triggers: every package .py compiled under Python 3.10, the INSTALL.md floor
 # GitLab variables are re-exported under their old names (CI_*), so the tools that read them need no change on day one.
 # A value that comes from a person (the canon's ref, a pull request's sha) reaches a shell only through env:,
 # never spliced into a run: string (tools/test_workflows.py pins it).
@@ -161,9 +162,9 @@ jobs:
           for f in files:
               try:
                   compile(f.read_bytes(), str(f), "exec")
-              except SyntaxError as e:
+              except (SyntaxError, ValueError) as e:
                   bad += 1
-                  print("%s:%s: %s" % (f, e.lineno, e.msg))
+                  print("%s:%s: %s" % (f, getattr(e, "lineno", "?"), e))
           print("compiled %d files under %s, %d failed" % (len(files), sys.version.split()[0], bad))
           sys.exit(1 if bad else 0)
           PY
