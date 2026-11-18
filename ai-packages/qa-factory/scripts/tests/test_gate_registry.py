@@ -1076,7 +1076,9 @@ D13_TRIPLES = [
     ("proof_level.py", "_run_freshness", "test_identity"),  # C3-b2 (t-1080): the two `('unknown', ...)` state returns, allowed (F-T1 (a) word `unknown`)
     ("proof_level.py", "already_probed", "test_identity"),
     ("proof_level.py", "novelty_of", "live_check_demand"),
+    ("proof_level.py", "probe_found_defect", "probe_verdict"),    # RD1-28 (t-1342): the repeat refusal, one literal comparison of the row's mismatched words
     ("proof_level.py", "same_test", "test_identity"),      # C3-b2 (t-1080): `verdict == 'same'` counts once the row's words gain `same`; `same_test` is a produce site
+    ("red_sandbox.py", "product_verdict", "probe_verdict"),    # RD1-28 (t-1342): `proof['verdict'] == 'probe_defect'`, the second producer
     ("run_history.py", "_compare_shas", "test_identity"),   # RD1-26 (t-1309): the returned unknown tuple (allowed), a state returned to the caller
     ("run_suite.py", "build_run_block", "equivalence_metric"),
     ("run_suite.py", "selection_line", "equivalence_metric"),
@@ -1137,7 +1139,11 @@ D13_TRIPLES = [
 # 150 -> 152 (RD1-26, t-1309, AR-20; `--sites` 150 / 53 triples before, 152 / 55 after), both allowed under `test_identity`: `green_on_current_bytes_why`
 # `word == 'raw'` (the E11 narrowing, F3 (a)) and `_compare_shas` `('unknown', 'unknown', ...)` (a state returned to the caller).
 # `_bound_to` and `_job_contract` add none (`basis == 'content'` is a word of no row).
-D13_ITEM_COUNT = 152
+# 152 -> 154 (RD1-28, t-1342, AR-20; `--sites` 152 / 55 triples before, 154 / 57 after): `probe_verdict` gains `survived` / `probe_defect`, so the scan
+# counts `proof_level.probe_found_defect` (`record.get('verdict') in ('no_failure', 'wrong_location', 'survived')`, a validate site: the one literal
+# the repeat refusal keeps, F1 (a)) and `red_sandbox.product_verdict` (`proof['verdict'] == 'probe_defect'`, a produce site, F2 (a)); no allow entry.
+# `probe_fired` compares no word; `already_probed`, `_product_receipt_repeat` and `validate_window` lose their probe comparisons (never counted).
+D13_ITEM_COUNT = 154
 
 
 def part_site_attribution() -> None:
@@ -1145,6 +1151,10 @@ def part_site_attribution() -> None:
     triples = sorted({(i["file"], i["function"], row) for i in result["items"] for row in i["rows"]})
     check_eq("D13: the set of (file, function, row) the scan attributes its comparisons to", triples, D13_TRIPLES)
     check_eq("D13: and the number of comparisons it counts", len(result["items"]), D13_ITEM_COUNT)
+    # RD1-28 (E28-6): no probe word is compared in the three old bodies; the control: probe_found_defect has its one item
+    rows = {(i["file"], i["function"]): i["rows"] for i in result["items"] if "probe_verdict" in i["rows"]}
+    check_eq("RD1-28 E28-6: probe_verdict items sit in the producers and probe_found_defect only", sorted(rows),
+             [("probe_by_code.py", "_judge_rows"), ("proof_level.py", "probe_found_defect"), ("red_sandbox.py", "product_verdict")])
     # B-283: the row below has no triple on purpose, and the pin says so, so the move that gives it one changes this line too
     # (the row's real consumers are the R7 callers - `_card_items` via `_environment_cover`, `_reporter_card`; B-283 moves them here
     # and updates this pin).

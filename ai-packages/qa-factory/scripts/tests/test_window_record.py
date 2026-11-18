@@ -2820,6 +2820,40 @@ def c3_b1_novelty_word_road():
     check_eq("B1 edge: no word, nothing goes", let_go(), [])
 
 
+def rd1_28_probe_word_through_the_registry():
+    """RD1-28 (E28-1/2/5, AR-28; row `probe_verdict`): a ran, new_or_changed item whose probe passes every other check closes its
+    sensitivity only on `intended_failure`; `no_failure`, `partial_product`, `model_changed`, "" , no word and an unreadable
+    registry are the gap `sensitivity:A`. Expected from the row's `decides` and AR-28, same patches and swap as C3-d."""
+    import acceptance
+    import gate_registry
+    import gate_template as GT
+    root = temp_dir("qa-probe-registry-")
+    real_blocked, real_handed, saved_read = acceptance.blocked_instances, acceptance.handed_instances, list(GT._READ)
+
+    def gap_for(word, readable=True) -> bool:
+        probe = {"input_hash": "h", "expected_location": "t:1", "actual_location": "t:1", "expected_reason": "r", "actual_reason": "r",
+                 "failure_kind": "assertion", **({} if word is None else {"verdict": word})}
+        item = {"instance_id": "A", "input_hash": "h", "change_disposition": "new_or_changed", "evidence_refs": [], "outcome": "passed",
+                "review": {"verdict": "approved"}, "probe": probe}
+        window = pure_window(instances=[item], scope_instances={"TC-1": ["A"]}, not_applicable_reason="")
+        acceptance.blocked_instances = lambda *a, **k: {}
+        acceptance.handed_instances = lambda *a, **k: {}
+        try:
+            if not readable:
+                GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+            return "sensitivity:A" in validate_window(window, root)
+        finally:
+            GT._READ[:] = saved_read
+            acceptance.blocked_instances, acceptance.handed_instances = real_blocked, real_handed
+
+    try:
+        for word in ("intended_failure", "no_failure", "partial_product", "model_changed", "", None):
+            check_eq(f"RD1-28 window probe {word!r}: sensitivity gap", gap_for(word), word != "intended_failure")
+        check_eq("RD1-28 E28-2 unreadable registry, intended_failure: sensitivity gap", gap_for("intended_failure", readable=False), True)
+    finally:
+        cleanup(root)
+
+
 def c3_d_review_word_through_the_registry():
     """C3-d (FR-59, AR-28; registry row `s5_window`, waits at window acceptance): `validate_window` closes an instance's review only
     with a word the row's consumers take - `approved` for a test that ran, `unverified` (a static review) for one the stand blocked or
@@ -2904,6 +2938,7 @@ def c3_d_review_word_through_the_registry():
 
 def pure_group():
     c3_d_review_word_through_the_registry()
+    rd1_28_probe_word_through_the_registry()
     c3_b1_novelty_word_road()
     c3_b1_novelty_question_gap()
     fv1_30b_n6_the_three_judges_read_the_one_survivor()

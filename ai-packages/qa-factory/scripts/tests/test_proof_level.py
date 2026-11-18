@@ -1903,6 +1903,34 @@ def rd1_26_the_identity_word_is_read_through_its_row():
         cleanup(tmp)
 
 
+def rd1_28_the_probe_word_is_read_through_its_row():
+    import gate_registry as GR
+    import gate_template as GT
+    reg = json.loads(json.dumps(GR.load_registry(GR.PLUGIN_ROOT)[0]))
+    row = next(r for r in reg["rows"] if r["id"] == "probe_verdict")
+    row["words"].remove("intended_failure")             # a registry whose row lacks the word fires nothing
+    GT.registry_problem()
+    bad, saved = ({"rows": "x"}, GR.structural_error({"rows": "x"})), list(GT._READ)
+    words = ["intended_failure", "no_failure", "wrong_location", "not_executed", "incomplete", "survived", "probe_defect", "partial_product",
+             "model_changed", "incomplete_or_wrong_failure", "Intended_failure", " intended_failure", "", None, ["intended_failure"],
+             "\u0438ntended_failure", "x" * 10000]
+    defect = ("no_failure", "wrong_location", "survived")
+    try:
+        for label, state in (("live", saved[0]), ("unreadable", bad), ("no word", (reg, None))):
+            GT._READ[:] = [state]
+            for w in words:
+                check_eq(f"E28 probe_fired {w!r:.24} [{label}]", PL.probe_fired({"verdict": w}), w == "intended_failure" and label == "live")
+                check_eq(f"E28 probe_found_defect {w!r:.24} [{label}]", PL.probe_found_defect({"verdict": w}), w in defect)
+            for rec in ({}, None, "intended_failure"):
+                check_eq(f"E28-3 probe_fired {rec!r} [{label}]", (PL.probe_fired(rec), PL.probe_found_defect(rec)), (False, False))
+    finally:
+        GT._READ[:] = saved
+    import red_sandbox as RS
+    got = {RS.product_verdict(p) for p in ({"valid": True}, {"valid": False, "verdict": "probe_defect"}, {"valid": False, "verdict": "x", "site_unread": 1},
+                                           {"valid": False, "verdict": "x"})}
+    check_eq("E28-9 every word product_verdict returns is a word of the row", got - set(row["words"]) - {"intended_failure"}, set())
+
+
 def main():
     root = the_project()
     try:
@@ -1936,6 +1964,7 @@ def main():
         the_own_stale_receipt_wins_over_the_neighbours()
         c3_b2_a_reuse_is_accepted_through_the_registry_row_and_an_unknown_runs_again()
         rd1_26_the_identity_word_is_read_through_its_row()
+        rd1_28_the_probe_word_is_read_through_its_row()
     finally:
         cleanup(root)
     ep1_37_the_file_of_a_selector_is_the_contracts()
