@@ -532,7 +532,7 @@ for the period, and diffs to DECISIONS.md.
     chars written after 07.10.2026 23:00 (`journal_echo` warns),
     CI reads through the browser instead of `tools/ci_read.py` (a red
     run: `ci_read.py why`); (e)
-    more than 4 WRITING workers alive at once (`dispatch_gate.py` blocks;
+    more than 6 WRITING workers alive at once (`dispatch_gate.py` blocks;
     D-0040: a worker is a writer when its `agent-<id>.meta.json` says
     `agentType: builder` or its first user line carries an owns line
     with a path — `transcripts.is_writer`; readers are not counted;
@@ -993,7 +993,7 @@ the source's own number.
     and the repeats metric (the same role/dispatch re-run on one task)
     — a feature whose index rose with no backlog row naming it is a
     finding. The merge gate (`.githooks/pre-merge-commit`,
-    `.gitlab-ci.yml` job `forge-check`) is re-verified by one pipeline
+    `.github/workflows/forge-check.yml` job `forge-check`) is re-verified by one pipeline
     of the window being green (the owner reads it on GitLab, project
     100001).
 

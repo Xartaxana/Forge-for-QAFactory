@@ -45,7 +45,7 @@ Confidence:
    CURRENT_CONTEXT.md overrides this stop.
 
 5. Last Calibration = the timestamp of the most recent `calibrated`
-   event in logs/routing-log.jsonl, or NONE. If routed traffic exists
+   event in logs/journal/<dev>.jsonl, or NONE. If routed traffic exists
    and more than 7 days have passed since that event (or since routed
    traffic began, when NONE), mark the line OVERDUE. This is the
    external detector for the calibration loop itself — the one
