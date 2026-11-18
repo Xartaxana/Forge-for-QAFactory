@@ -1,6 +1,6 @@
 # Живые прогоны и новые проекты (`live-runs`)
 
-приоритет: П1 | фичи: — | стенд: нужен (кучка владельца и dev2) | зона: `ai-packages/qa-factory/scripts/hooklib.py`, `scripts/install_smoke.py`, `hooks/run-py.cmd`, `references/http-answers.json`, `references/launch-causes.json`, `experiments/measurers/`
+приоритет: П1 | фичи: F15 | стенд: нужен (кучка владельца и dev2) | зона: `ai-packages/qa-factory/scripts/hooklib.py`, `scripts/install_smoke.py`, `hooks/run-py.cmd`, `references/http-answers.json`, `references/launch-causes.json`, `experiments/measurers/`
 
 ## Зачем
 
