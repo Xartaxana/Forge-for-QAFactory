@@ -426,7 +426,8 @@ class DriverStageBuild:
                             method=SI.method_words(row)), None
             return line("unread", error=str(record.get("error") or q["no_error"])), None
         if result == "mismatched":
-            sources = bool(record.get("differing_files")) or prov.get("deployed_source_revision") == "content_mismatch"
+            import profile_contract   # the import above runs only on the matched branch; a local name needs it here too
+            sources = profile_contract.content_differs(record)   # one predicate with refusal_text (critic t-1381 F2)
             return "", self.build_person(stage, kind, stand, profile, record, row, "mismatched_sources" if sources else "mismatched")
         return line("probe_unrecognised"), None
 

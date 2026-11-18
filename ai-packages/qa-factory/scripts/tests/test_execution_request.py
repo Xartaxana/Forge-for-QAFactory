@@ -1674,7 +1674,7 @@ def c3_k1_one_producer_names_the_provenance_word() -> None:
     for bad in (5, True, "src/a.vue"):   # critic t-1372 F7: `differing_files` is read only as a list; a mismatch is still said
         said = P.refusal_text({**s["MM"], "differing_files": bad})
         check_eq(f"C3-k1 F7 differing_files={bad!r}: a non-empty mismatch sentence", (P.provenance_word({**s["MM"], "differing_files": bad}),
-                 "runtime probe returned mismatched" in said), ("mismatched", True))
+                 "runtime probe returned mismatched" in said, "s, r, c" in said), ("mismatched", True, False))
     # P-7: an unreadable registry judged nothing, so refusal_text names it (registry_why) and quotes today's sentence
     said, saved = P.refusal_text(NA), list(GT._READ)
     GT._READ[:] = [({"rows": "x"}, GR.structural_error({"rows": "x"}))]
