@@ -784,6 +784,7 @@ def every_answer_leaves_one_record_and_a_rehearsal_none() -> None:
     A5 unknown at the end of the ladder) is a file that equals the printed record; a rehearsal and a reference stand write none;
     a written not_applicable is accepted, a written unknown never (I-1); a failed write is a warning, never a pass (I-5, FR-41)."""
     import profile_contract as P
+    from gate_template import acceptable
     root = temp_project()
     try:
         use_project(root)
@@ -820,7 +821,7 @@ def every_answer_leaves_one_record_and_a_rehearsal_none() -> None:
                     check(f"{row}: it says what was tried", bool(record.get("tried")))
                 written_files[answer] = json.loads(files[0].read_text(encoding="utf-8"))
         check_eq("written-accepts (I-1): not_applicable is accepted, no unknown ever is",
-                 [P.acceptable_provenance(written_files[a], P.ACCEPTS) for a in ("a3", "a4", "a5")], [True, False, False])
+                 [acceptable(P.provenance_word(written_files[a]), "provenance.run") for a in ("a3", "a4", "a5")], [True, False, False])
         # a reference stand: printed, never written (I-3)
         task = root / "story-ref"
         (task / "work").mkdir(parents=True)
@@ -1242,6 +1243,7 @@ def k10_a_label_equal_to_head_is_matched_and_remembered() -> None:
     from. Equal to HEAD it is `matched`; the probe REMEMBERS how it read it (a `probe discovered` row) - but only a run that
     writes evidence does, and a rehearsal writes nothing and says so."""
     import profile_contract as P
+    from gate_template import acceptable
     w = World()
     try:
         stand = Stand(app=False, labels={LABEL: HEAD})
@@ -1274,8 +1276,28 @@ def k10_a_label_equal_to_head_is_matched_and_remembered() -> None:
             check_eq("K10 rehearsal: and stderr names no registry write", "recorded it in" in said, False)
             strict = P.validate_runtime_provenance(quiet)
             check_eq("K10 rehearsal: the STRICT validator refuses that record (no evidence file): only the rehearsal reader takes it",
-                     (strict["valid"], P.acceptable_provenance(quiet, ("matched",)), P.acceptable_provenance(quiet, ("matched",), rehearsal=True)),
+                     # matched-only is the deploy proof's use (`environment_preparation.deploy_proof`), the one consumer that takes nothing else
+                     (strict["valid"], acceptable(P.provenance_word(quiet), "environment_preparation.deploy_proof"),
+                      acceptable(P.provenance_word(quiet, rehearsal=True), "environment_preparation.deploy_proof")),
                      (False, False, True))
+            # critic t-1501 F1 (E-S7): the build line of that same record says the registry could not be read, never "not one I know"
+            import driver_stage_build as DSB
+            import gate_template as GT
+            me = types.SimpleNamespace(project=str(temp_project()),build_method_words=lambda q, row, name: "w",
+                                       build_fit=lambda template, slots, plain, whole: template.format(**slots))
+
+            def build_line():
+                return DSB.DriverStageBuild.build_outcome(me, "S5", "", "localhost", "api", quiet, "")[0]
+            readable = build_line()
+            real = GT._registry_and_reason
+            GT._registry_and_reason = lambda registry=None: (None, "boom")
+            try:
+                unreadable = build_line()
+            finally:
+                GT._registry_and_reason = real
+            check_eq("K10 F1: a readable registry takes the rehearsal record; an unreadable one names the registry, not the answer",
+                     ("not one I know" in readable, "the gate registry cannot be read (boom)" in unreadable,
+                      "not one I know" in unreadable), (False, True, False))
         finally:
             r.close()
     finally:
@@ -1363,6 +1385,7 @@ def k13_a_person_confirms_stand_reads_nothing_and_binds_the_word() -> None:
     """K13 (t-300 Q6, C5): `person_confirms` is the person's decision "I check this stand myself": no label, no file, no
     sources, no command - only the image digest is read, to BIND the word to the bytes it was given for."""
     import profile_contract as P
+    from gate_template import acceptable
     w = World()
     try:
         w.row("person_confirms", words="I check this stand myself")
@@ -1386,7 +1409,9 @@ def k13_a_person_confirms_stand_reads_nothing_and_binds_the_word() -> None:
                  (IDENT, False, "person_confirmed", "yes, it is deployed", HEAD, False))
         check_eq("K13: still only the digest was read (the label that would say OTHER was never looked at)", calls_of(stand), ["inspect"])
         check_eq("K13: and it is NEVER taken for matched by a caller that wants a verified build",
-                 (P.acceptable_provenance(rec, ("matched",)), P.acceptable_provenance(rec, ("matched", "person_confirmed"))), (False, True))
+                 # matched-only: the deploy proof's use; matched or person_confirmed: the identity use
+                 (acceptable(P.provenance_word(rec), "environment_preparation.deploy_proof"),
+                  acceptable(P.provenance_word(rec), "provenance.identity")), (False, True))
         # the binding moves
         code, rec, _said = w.probe(Stand(), "--no-evidence", expected=OTHER)
         check_eq("K13: HEAD moved: unknown, asks again, `voided` names the checkout and when the word was given",

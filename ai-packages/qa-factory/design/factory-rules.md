@@ -62,7 +62,7 @@ a pass over a factory-owned block reaches `factory-backlog.md`.
 command builds it, and the refusal names that command. *Why:* S5 completion demanded a window
 acceptance record no person's word could create and no allowed command produced: three answers and a
 halt before the gate learned to read a person's word like every other check. *Check:* for each new
-completion requirement, name the command that produces it and the words that pass it.
+completion requirement, name the command that produces it and the words that pass it; an item that may be empty is declared in `references/null-outcomes.json` and walked by `scripts/tests/test_null_outcomes.py`.
 
 **FR-46 — The class of a refusal says whose fault it is: the call's, or the story's.** A
 malformed request and a story that is not ready are different answers and take different routes.
@@ -338,7 +338,7 @@ failures. The report itself had to say "its bug proposal is unfiled". *Check:* n
 "nothing to file", "no failures to triage" are results. *Why:* the delivery step knows a branch,
 commits, a push and a Draft MR; when the gate's decision forbade all four it could only stop and ask
 — correctly, but there was nothing to ask. S7 by contrast closed itself by code with "no failures —
-nothing to triage". *Check:* the step's states include the empty one, recorded, not escalated.
+nothing to triage". *Check:* the step's states include the empty one, recorded, not escalated; the declaration is `references/null-outcomes.json`, held by `scripts/tests/test_null_outcomes.py`.
 
 **FR-35 — A report never changes the meaning of a role's own verdict.** Each distinct verdict
 keeps its own word. *Why:* the critic's 19 instances carried 11 `approved`, 5 `unverified` and 3

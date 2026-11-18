@@ -54,7 +54,7 @@ runs is read in this order, and the first rung that answers decides:
 
 `--no-evidence` is the rehearsal's way (gate A, the S6 freshness read, the build check): it compares and
 prints, writes nothing, and says so - `observed_without_evidence: true` - so that only a reader that
-asked for a rehearsal (profile_contract.acceptable_provenance(rehearsal=True)) takes the `matched` it
+asked for a rehearsal (`acceptable(provenance_word(.., rehearsal=True), "provenance.rehearsal")`) takes the `matched` it
 prints. `rehearsal_argv` is the one place that adds the flag, and only to this script.
 
 The entry `--suggest --write` stores is PORTABLE: `{python}` and `{plugin_root}` stand for this

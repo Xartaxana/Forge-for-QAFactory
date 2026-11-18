@@ -643,31 +643,27 @@ QUESTION_SITE_RE = re.compile(r'\b(?:closed_question|priced_section)\(\s*"([^"]+
 # with C1-5b1 (S5) and C1-5b2 (S7), which take them off this list (and list them in PINNED_ELSEWHERE). A key listed here that the code
 # already raises is a defect of THIS list, not a pass (the negative control below uses a synthetic list).
 REPAIR_LIMIT_KEYS = ("s5.repair_limit", "s5.nobody_review", "s5.nobody_environment", "s5.nobody_tooling", "s7.repair_limit")
-# C1-5b1 (S5) took the four `s5.*` keys off this list: their sites are `Driver.repair_limit_person`, pinned in
-# test_story_run_repair_limit.py (PINNED_ELSEWHERE below). `s7.repair_limit` was listed here until C1-5b2 wrote the S7 site (`Driver.repair_limit_person`
+# C1-5b1 (S5) took the four `s5.*` keys off this list: their sites are `Driver.repair_limit_person`; only `s5.repair_limit` is pinned in
+# test_story_run_repair_limit.py (PINNED_ELSEWHERE below), the three `s5.nobody_*` are driven by the dry story. `s7.repair_limit` was listed here until C1-5b2 wrote the S7 site (`Driver.repair_limit_person`
 # through `s7_limit`); it is in PINNED_ELSEWHERE now (RL8), and a key listed here that the code already raises is a defect of THIS list.
 AWAITING_ITS_SITE: set = {"awaiting.stop"}  # PC-7 (t-2181): the row is data and priced (test_human_reading.py H9); no driver site asks it yet - the stop of a wait is the person's word through `controller.py --operation stop_waiting`. TR3-10 part D: `s6.walk_supply`, `s6.data_change` (test_walk_supply.py) and `s6.walk_account` (test_walk_account.py) have their builders and branches; the census counts them as raised
 # Keys the code raises that this process cannot drive; each is raised, and its question text pinned, by the named file.
+# FV3-10 (N4c): the keys the dry story drives (`dry_exits.driven_keys()`) are not listed - the census takes them as driven.
 PINNED_ELSEWHERE = {"package.copies": "test_package_generation.py (D3)", "s0.flags": "test_story_run_s0_snapshot.py",
                     "s0.key_form": "test_s0_key_form.py", "s0.no_change": "test_no_mr_entry.py",
                     "sides.deliverable": "test_no_mr_entry.py (not_built_yet_and_the_sides_at_launch: the question, its form, ours / another team's)",
                     "s0.stand": "test_story_run_s0_stand_trace.py", "s0.readiness": "test_story_run_s0_snapshot.py",
                     "questions": "test_question_stop.py (T1..T5)",
                     "questions.blocking": "test_story_run_loop_b_answers.py (HF2-7 K2: the blocking stop's priced options and unverified line)",
-                    "s5.repair_limit": "test_story_run_repair_limit.py (RL1-RL4, RL6)", "s5.nobody_review": "test_story_run_repair_limit.py (RL5)",
-                    "s5.nobody_environment": "test_story_run_repair_limit.py (RL5)", "s5.nobody_tooling": "test_story_run_repair_limit.py (RL5)",
+                    "s5.repair_limit": "test_story_run_repair_limit.py (RL1-RL4, RL6)",
                     "exit.resume_limit": "test_story_run_exit_limit.py (EL1-EL7, EL10, EL14)", "s7.repair_limit": "test_story_run_repair_limit.py (RL8)",
                     "s4.repair_limit": "test_no_move_seam_n2b_n15.py",
                     "exit.resume_limit_halted": "test_exit_limit_halt_answered.py (t-1955 N4: the halted variant of the exit-limit question)",
                     "s7.open_work": "test_story_run_s7_live.py (FX-2)", "s7.extra_instance": "test_no_move_seam_sites.py (E7)",
-                    "code_close.stage": "test_story_run_refusals_cc.py (CC1, CC8)", "code_close.closed_story": "test_story_run_refusals_cc.py (CC13)",
-                    "code_close.factory_file": "test_story_run_refusals_cc.py (CC14)",
+                    "code_close.closed_story": "test_story_run_refusals_cc.py (CC13)",
                     "code_close.behind": "test_code_close_behind.py (t-1988 N3: the close refused behind an earlier stage)",
                     "closed.held": "test_story_closed.py (C1-6a: the question and its three executors)",
                     "s6.stand_login": "test_story_run_s6_c16b.py (C1-6b: C16b stand_login, 3 x 3 lines, two records)",
-                    "s6.walk_account": "test_walk_account.py (TR3-10 D3a step 3: the account question, its tokens and executors)",
-                    "s6.walk_supply": "test_walk_supply.py (TR3-10 D3a: the way question, its tokens and executors)",
-                    "s6.data_change": "test_walk_supply.py (TR3-10 D3a step 2: the data-change question, its tokens and executor)",
                     "s6.stand_confirm": "test_story_run_s6_c16b.py (C1-6b: C16b stand_confirm, the price section and the executors)",
                     "s6.stand_confirm.login": "test_human_questions.py (FV1-15: the stand-login variant, its find-the-way-in token and executor)",
                     "s6.gate_a_dry": "test_story_run_s6_c16b.py (C1-6b: C16b gate A dry, reapprove / go on / stop, edge 10)",
@@ -825,7 +821,11 @@ def the_question_prices_are_data() -> None:
     sites = set()
     for path in sorted((PLUGIN_ROOT / "scripts").glob("*.py")):
         sites |= set(QUESTION_SITE_RE.findall(path.read_text(encoding="utf-8")))
-    census = lambda raised, data_keys: census_problems(raised, data_keys, set(offered), AWAITING_ITS_SITE, set(PINNED_ELSEWHERE))
+    import dry_exits
+    dry_driven = dry_exits.driven_keys()
+    # an empty set is a NOTE (the pins of undriven keys stay), never a PASS of the shrink
+    print(f"K15 driven by the dry story ({len(dry_driven)}): {sorted(dry_driven)}" if dry_driven else "NOTE K15: dry_exits.driven_keys() is empty - no key counts as driven by the dry story; a key whose pin left PINNED_ELSEWHERE is red in the census below")
+    census = lambda raised, data_keys: census_problems(raised, data_keys, set(offered) | dry_driven, AWAITING_ITS_SITE, set(PINNED_ELSEWHERE))
     check_eq("K15: the census - every raised id has its rows and every row its site, both ways",
              census(sites, set(raw["questions"])), [])
     check("K15: the census reads the sites (not an empty scan)", len(sites) >= 16, sorted(sites))

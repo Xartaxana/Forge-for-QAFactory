@@ -648,3 +648,14 @@ def test_the_redundancy_rule_pin_can_fail():
     ]
     for mutant in mutants:
         assert redundancy_rule_violations(mutant), mutant.get("if")
+
+
+def test_fg7_96_a_push_to_main_is_never_cancelled_by_a_newer_run_and_every_other_run_still_is():
+    """FG7-94 card F1 (c): a main push run is the red-main record the fixer reads; a newer push must not cancel it.
+    Reads forge-check.yml.proposed while the Lead has not placed it, forge-check.yml after (the row stays green)."""
+    folder = workflows_dir()
+    name = "forge-check.yml.proposed" if (folder / "forge-check.yml.proposed").is_file() else "forge-check.yml"
+    yaml = pytest.importorskip("yaml")
+    conc = yaml.safe_load((folder / name).read_text(encoding="utf-8"))["concurrency"]
+    assert conc["group"] == "forge-check-${{ github.ref }}-${{ inputs.ref }}"
+    assert conc["cancel-in-progress"] == "${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}"

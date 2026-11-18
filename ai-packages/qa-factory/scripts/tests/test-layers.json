@@ -33,6 +33,7 @@
  "fixture_owners": {
   "driver-layers.json": "test_driver_layers.py",
   "env-facts-baseline.json": "test_state_portability.py",
+  "knowledge-read-baseline.json": "test_config_migration.py",
   "s6-w1-frozen/calls.json": "test_story_run_s6_w1_frozen.py",
   "s6-w1-frozen/console.json": "test_story_run_s6_w1_frozen.py",
   "s6-w1-frozen/events.json": "test_story_run_s6_w1_frozen.py",
@@ -703,6 +704,8 @@
     "references/human-questions.md",
     "references/question-prices.json",
     "tests/harness.py",
+    "tests/dry_exits.py",
+    "scripts/tests/fixtures/stories/dry-1/exits",
     "tests/story_run_common.py",
     "tests/test_no_move_seam.py"
    ]

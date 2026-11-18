@@ -137,7 +137,8 @@ def test_block_leaves_the_manifest_reads_unchanged(capsys, monkeypatch):
     assert code == 0 and out.endswith("\n\n" + EXAMPLE_B)
     headers = out[:-len("\n" + EXAMPLE_B)]
     payload = lambda text: {"tool_input": {"subagent_type": "builder", "prompt": text}}  # noqa: E731
-    assert dm.check(payload(out)) == dm.check(payload(headers))
+    # FG7-95: the headers alone owe a readers line (else a READERS NOTE); a hand-typed one stands in for the block
+    assert dm.check(payload(out)) == dm.check(payload(headers + "\nreaders: unknown -- fixture"))
     cut_a, cut_b = dm.section_cut(out), dm.section_cut(headers)
     assert dm.header_ids(cut_a) == dm.header_ids(cut_b)
     assert dm.designer_threshold(cut_a) == dm.designer_threshold(cut_b)
