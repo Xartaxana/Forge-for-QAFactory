@@ -10,10 +10,12 @@ Mutations named, NOT run; one killing file each (this one):
 import json
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import harness  # noqa: E402
 from harness import (  # noqa: E402
     BAD, GOOD, SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, run_script,
     temp_project,
@@ -2366,6 +2368,32 @@ def an_unprepared_manual_walk_reaches_delivery_as_a_check_left_with_the_person()
                               ("no need", {"case": "A", "reason": "r", "walked": True},
                                "the factory could not prepare this check and the agent walked it without a result: r")):
         check_eq(f"E7 Q-B unprepared_records: {label}", [r["to_check"] for r in D.unprepared_records({"unprepared_walks": [walk]})], [want])
+    # E7-3b (§2.6): the world the S7 step noted per case replaces the fixed middle; no note, a bad note or another case -> the fixed words
+    walk = dict(need, prepared=True, walked=True)
+    fixed = "no answer about starting one was recorded"
+    for label, outcomes, middle in (("no", {"A": {"answer": "no", "why": "the person said the factory may not start one"}}, "the person said the factory may not start one"),
+                                    ("refused", {"A": {"answer": "yes", "why": "the person allowed it, but the factory could not start the new walk: x"}},
+                                     "the person allowed it, but the factory could not start the new walk: x"),
+                                    ("no note", {}, fixed), ("another case", {"B": {"why": "the person said the factory may not start one"}}, fixed),
+                                    ("a note with no words", {"A": {"answer": "no", "why": 7}}, fixed), ("outcomes not a table", ["A"], fixed)):
+        check_eq(f"E7-3b unprepared_records: {label}", [r["to_check"] for r in D.unprepared_records({"unprepared_walks": [walk]}, outcomes)],
+                 ["the factory prepared this check, but it" + start.replace(fixed, middle)])
+    check_eq("E7-3b: a need-less row ignores the notes", D.unprepared_records({"unprepared_walks": [{"case": "A", "reason": "r"}]}, {"A": {"why": "x"}}),
+             D.unprepared_records({"unprepared_walks": [{"case": "A", "reason": "r"}]}))
+    with tempfile.TemporaryDirectory() as tmp:
+        note = Path(tmp) / "work" / "extra-instance.json"
+        note.parent.mkdir()
+        for label, text, want in (("absent", None, {}), ("a note", '{"schema_version": 1, "cases": {"A": {"answer": "no", "why": "w"}, "B": 3}}', {"A": {"answer": "no", "why": "w"}}),
+                                  ("another schema", '{"schema_version": 2, "cases": {"A": {"why": "w"}}}', {}), ("unreadable", "{", {}), ("not a table", "[1]", {})):
+            if text is not None:
+                note.write_text(text, encoding="utf-8")
+            check_eq(f"E7-3b extra_instance_outcomes: {label}", D.extra_instance_outcomes(tmp), want)
+
+
+def test_f5_unprepared_walk_is_a_left_item() -> None:
+    n = len(harness.RESULTS)
+    f5_unprepared_walk_is_a_left_item()
+    assert all(ok for ok, _ in harness.RESULTS[n:]), [name for ok, name in harness.RESULTS[n:] if not ok]
 
 
 if __name__ == "__main__":
