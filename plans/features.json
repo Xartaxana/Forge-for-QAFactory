@@ -546,6 +546,7 @@
         "scripts/tests/test_grounding_schema.py",
         "scripts/contract.py",
         "scripts/tests/test_contract.py",
+        "scripts/tests/test_contract_one_line.py",
         "scripts/s5_precheck.py",
         "scripts/copy_detector.py",
         "scripts/tests/test_copy_detector.py",
