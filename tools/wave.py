@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
 import re
 import shutil
 import subprocess
@@ -118,7 +117,7 @@ def _atomic_write(path, data):
     tmp = path.with_name(path.name + ".wave-tmp")
     try:
         tmp.write_bytes(data)
-        os.replace(tmp, path)
+        jl.replace_retrying(tmp, path)       # t-1414: another process held the journal for a moment (WinError 5/32)
     except OSError:
         tmp.unlink(missing_ok=True)
         raise
@@ -520,6 +519,7 @@ class Wave:
                 return "journal restore mismatch"
         except OSError as exc:
             self.mismatch = "JOURNAL RESTORE FAILED (%s): copy kept at %s" % (exc, copy)
+            self.mismatch += self._recovery_clause(rel, copy)
             return "journal restore failed"
         if kept:
             self.say("a line written during the window was appended to the journal; the copy is kept at %s" % copy)
@@ -529,6 +529,16 @@ class Wave:
             return None
         self.ff_text = err or o
         return self.ff_text
+
+    def _recovery_clause(self, rel, copy):
+        """E6: the kept copy equals origin/main's journal -> name the manual recovery; any failure -> no clause."""
+        try:
+            rc, ob = git_bytes(self.root, "show", "origin/%s:%s" % (MAIN, rel))
+            if rc == 0 and copy.read_bytes() == ob:
+                return "; the copy equals origin/%s: stage %s and fast-forward the root by hand" % (MAIN, rel)
+        except Exception:
+            pass
+        return ""
 
     def worktree_of(self):
         out = git(self.root, "worktree", "list", "--porcelain")[1]

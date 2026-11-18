@@ -78,7 +78,7 @@ def _write_registry_line(path: Path, ts, session_key, cwd: str, description: str
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _writing_payload(owns_text: str, session_id="s-1", cwd="D:\\repo", description="sonnet: write") -> dict:
+def _writing_payload(owns_text: str, session_id="s-1", cwd="D:\\repo", description="builder: write") -> dict:
     prompt = (
         "DoD: the test is green, witness attached.\n"
         "Given: the whole repo.\n"
@@ -107,7 +107,7 @@ def test_same_session_superset_owns_excluded_real_case(tmp_path):
     # coordinator session) declares the SAME three plus a fourth d.py.
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
-        registry, _ts(_NOW), "s-lead-1", "D:\\repo", "sonnet: attempt 1 (rejected)",
+        registry, _ts(_NOW), "s-lead-1", "D:\\repo", "builder: attempt 1 (rejected)",
         [
             "D:\\repo\\tools\\a.py",
             "D:\\repo\\tools\\b.py",
@@ -128,7 +128,7 @@ def test_same_session_equal_owns_excluded_no_expansion(tmp_path):
     # "equal is a subset too, excluded").
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
-        registry, _ts(_NOW), "s-1", "D:\\repo", "sonnet: attempt 1 (rejected)",
+        registry, _ts(_NOW), "s-1", "D:\\repo", "builder: attempt 1 (rejected)",
         ["D:\\repo\\tools\\a.py", "D:\\repo\\tools\\b.py"],
     )
     payload = _writing_payload(
@@ -144,7 +144,7 @@ def test_same_session_subset_owns_different_case_and_separator(tmp_path):
     # normalize_path, not by raw string equality.
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
-        registry, _ts(_NOW), "s-1", "D:\\repo", "sonnet: attempt 1 (rejected)",
+        registry, _ts(_NOW), "s-1", "D:\\repo", "builder: attempt 1 (rejected)",
         ["D:/REPO/TOOLS/a.py"],
     )
     payload = _writing_payload(
@@ -165,7 +165,7 @@ def test_same_session_subset_owns_different_case_and_separator(tmp_path):
 def test_partial_overlap_same_session_still_warns_not_full_subset(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
-        registry, _ts(_NOW), "s-1", "D:\\repo", "sonnet: prior write",
+        registry, _ts(_NOW), "s-1", "D:\\repo", "builder: prior write",
         ["D:\\repo\\tools\\a.py", "D:\\repo\\tools\\b.py"],
     )
     # The new dispatch owns {b.py, c.py} -- overlaps via b.py, but
@@ -197,7 +197,7 @@ def test_d1_narrowing_retry_residual_gap_still_warns_documented_limitation(tmp_p
     # purpose (widening K1 would make it indistinguishable from K2).
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
-        registry, _ts(_NOW), "s-1", "D:\\repo", "sonnet: attempt 1 (rejected, wider)",
+        registry, _ts(_NOW), "s-1", "D:\\repo", "builder: attempt 1 (rejected, wider)",
         ["D:\\repo\\tools\\a.py", "D:\\repo\\tools\\b.py"],
     )
     payload = _writing_payload(
@@ -220,7 +220,7 @@ def test_d2_cross_session_retry_residual_gap_still_warns_documented_limitation(t
     # window (as here -- the same ts) the gap is live.
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
-        registry, _ts(_NOW), "s-lead-OLD-SESSION", "D:\\repo", "sonnet: attempt 1 (rejected, session died)",
+        registry, _ts(_NOW), "s-lead-OLD-SESSION", "D:\\repo", "builder: attempt 1 (rejected, session died)",
         ["D:\\repo\\tools\\a.py", "D:\\repo\\tools\\b.py"],
     )
     # A new coordinator session, the SAME or a WIDER owns declaration
@@ -244,7 +244,7 @@ def test_d2_cross_session_retry_residual_gap_still_warns_documented_limitation(t
 def test_different_session_subset_owns_still_warns(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
-        registry, _ts(_NOW), "s-OTHER", "D:\\repo", "sonnet: a different session",
+        registry, _ts(_NOW), "s-OTHER", "D:\\repo", "builder: a different session",
         ["D:\\repo\\tools\\a.py"],
     )
     # A new dispatch that's a superset {a.py, b.py}, but a DIFFERENT
@@ -271,7 +271,7 @@ def test_record_missing_session_key_fail_closed_still_warns(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     # session_key field is ABSENT from the record entirely.
     entry = {
-        "ts": _ts(_NOW), "cwd": "D:\\repo", "description": "sonnet: no session_key",
+        "ts": _ts(_NOW), "cwd": "D:\\repo", "description": "builder: no session_key",
         "owns": ["D:\\repo\\tools\\a.py"],
     }
     registry.parent.mkdir(parents=True, exist_ok=True)
@@ -289,7 +289,7 @@ def test_record_missing_session_key_fail_closed_still_warns(tmp_path):
 def test_record_session_key_none_fail_closed_still_warns(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
-        registry, _ts(_NOW), None, "D:\\repo", "sonnet: session_key explicitly None",
+        registry, _ts(_NOW), None, "D:\\repo", "builder: session_key explicitly None",
         ["D:\\repo\\tools\\a.py"],
     )
     payload = _writing_payload(
@@ -319,7 +319,7 @@ def test_helper_is_own_session_both_none_is_still_false_fail_closed():
 def test_record_with_empty_owns_list_never_overlaps_stays_silent(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
-        registry, _ts(_NOW), "s-1", "D:\\repo", "sonnet: empty owns", [],
+        registry, _ts(_NOW), "s-1", "D:\\repo", "builder: empty owns", [],
     )
     payload = _writing_payload("D:\\repo\\tools\\a.py", session_id="s-1", cwd="D:\\repo")
     exit_code, output = m.decide(payload, registry_path=registry, now=_NOW)
@@ -347,7 +347,7 @@ def test_helper_is_self_retry_record_empty_owns_returns_false_explicit():
 def test_owns_overlap_literal_prefix_preserved_byte_for_byte(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
-        registry, _ts(_NOW), "s-1", "D:\\repo", "sonnet: prior write",
+        registry, _ts(_NOW), "s-1", "D:\\repo", "builder: prior write",
         ["D:\\repo\\tools\\a.py"],
     )
     payload = _writing_payload(

@@ -64,7 +64,7 @@ _FORM_TAIL = (
 )
 
 
-def _writing_payload(owns_text: str, session_id="s-1", cwd="D:\\ctl", description="sonnet: write") -> dict:
+def _writing_payload(owns_text: str, session_id="s-1", cwd="D:\\ctl", description="builder: write") -> dict:
     # owns is on ITS OWN line (a realistic manifest form for this kit:
     # each manifest item is a separate bullet line).
     prompt = (
@@ -227,7 +227,7 @@ def test_decide_bold_marker_writes_declared_paths_to_sidecar(tmp_path):
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -254,7 +254,7 @@ def test_two_bold_marker_manifests_with_overlap_detected(tmp_path):
     )
     payload1 = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt1, "description": "sonnet: write A"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt1, "description": "builder: write A"},
         "session_id": "s-A",
         "cwd": "D:\\ctl",
     }
@@ -272,7 +272,7 @@ def test_two_bold_marker_manifests_with_overlap_detected(tmp_path):
     )
     payload2 = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt2, "description": "sonnet: write B"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt2, "description": "builder: write B"},
         "session_id": "s-B",
         "cwd": "D:\\ctl",
     }
@@ -324,7 +324,7 @@ def test_decide_prose_with_bare_star_does_not_register_in_sidecar(tmp_path):
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -377,7 +377,7 @@ def test_decide_given_line_with_owns_in_filename_writes_declared_owns_only(tmp_p
         "tool_input": {
             "subagent_type": "builder",
             "prompt": _CONTROL_INPUT_PROMPT,
-            "description": "sonnet: write",
+            "description": "builder: write",
         },
         "session_id": "s-1",
         "cwd": "D:\\ctl",
@@ -514,7 +514,7 @@ def test_decide_multiline_owns_block_writes_declared_paths_to_sidecar(tmp_path):
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -554,7 +554,7 @@ def test_decide_continuation_limit_hit_gives_blind_owns_warn(tmp_path):
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -594,7 +594,7 @@ def test_decide_regression_prose_owns_word_sidecar_gets_real_target(tmp_path):
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -614,7 +614,7 @@ def test_prose_owns_word_mid_sentence_alone_gives_blind_warn_not_silence(tmp_pat
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -714,7 +714,7 @@ def test_window_on_boundary_still_live(tmp_path):
     # A DIFFERENT session than the new dispatch below -- same-session
     # retry exclusion (K1) would otherwise silence an equal owns set,
     # which is not what this test is checking (the window boundary).
-    _write_registry_line(registry, boundary_ts, "s-OTHER", "D:\\ctl", "sonnet: prior write", ["D:\\repo\\tools\\x.py"])
+    _write_registry_line(registry, boundary_ts, "s-OTHER", "D:\\ctl", "builder: prior write", ["D:\\repo\\tools\\x.py"])
 
     payload = _writing_payload("D:\\repo\\tools\\x.py", session_id="s-1", cwd="D:\\ctl")
     exit_code, output = owns_gate.decide(payload, registry_path=registry, now=now)
@@ -728,7 +728,7 @@ def test_window_beyond_boundary_is_stale(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     now = datetime(2026, 7, 28, 12, 0, 0)
     stale_ts = (now - timedelta(seconds=owns_gate.WINDOW_SECONDS + 1)).strftime(owns_gate._TS_FORMAT)
-    _write_registry_line(registry, stale_ts, "s-1", "D:\\ctl", "sonnet: prior write", ["D:\\repo\\tools\\x.py"])
+    _write_registry_line(registry, stale_ts, "s-1", "D:\\ctl", "builder: prior write", ["D:\\repo\\tools\\x.py"])
 
     payload = _writing_payload("D:\\repo\\tools\\x.py", session_id="s-1", cwd="D:\\ctl")
     exit_code, output = owns_gate.decide(payload, registry_path=registry, now=now)
@@ -745,7 +745,7 @@ def test_scope_different_cwd_is_ignored(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     now = datetime(2026, 7, 28, 12, 0, 0)
     fresh_ts = now.strftime(owns_gate._TS_FORMAT)
-    _write_registry_line(registry, fresh_ts, "s-1", "D:\\OTHER_REPO", "sonnet: prior write", ["D:\\repo\\tools\\x.py"])
+    _write_registry_line(registry, fresh_ts, "s-1", "D:\\OTHER_REPO", "builder: prior write", ["D:\\repo\\tools\\x.py"])
 
     # Same session_key ("s-1"), but a DIFFERENT cwd -- ignored: the
     # check scope is the repo (cwd), not the session.
@@ -759,7 +759,7 @@ def test_scope_same_cwd_different_session_key_warns_with_parallel_session_label(
     registry = tmp_path / "owns_registry.jsonl"
     now = datetime(2026, 7, 28, 12, 0, 0)
     fresh_ts = now.strftime(owns_gate._TS_FORMAT)
-    _write_registry_line(registry, fresh_ts, "s-OTHER", "D:\\ctl", "sonnet: prior write", ["D:\\repo\\tools\\x.py"])
+    _write_registry_line(registry, fresh_ts, "s-OTHER", "D:\\ctl", "builder: prior write", ["D:\\repo\\tools\\x.py"])
 
     payload = _writing_payload("D:\\repo\\tools\\x.py", session_id="s-1", cwd="D:\\ctl")
     exit_code, output = owns_gate.decide(payload, registry_path=registry, now=now)
@@ -780,7 +780,7 @@ def test_dedup_single_path_multiple_live_records_one_warn_line(tmp_path):
     fresh_ts = now.strftime(owns_gate._TS_FORMAT)
     for i in range(3):
         _write_registry_line(
-            registry, fresh_ts, f"s-other-{i}", "D:\\ctl", f"sonnet: prior write {i}",
+            registry, fresh_ts, f"s-other-{i}", "D:\\ctl", f"builder: prior write {i}",
             ["D:\\repo\\tools\\shared.py"],
         )
 
@@ -809,7 +809,7 @@ def test_decide_blind_owns_warn_when_marker_present_but_no_paths_parsed(tmp_path
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -825,7 +825,7 @@ def test_decide_true_readonly_no_marker_no_write_indicator_is_silent(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "scout", "prompt": "Find the file and read it.", "description": "haiku: scout"},
+        "tool_input": {"subagent_type": "scout", "prompt": "Find the file and read it.", "description": "scout: scout"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -844,7 +844,7 @@ def test_readonly_dispatch_is_silent_and_sidecar_not_grown(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "scout", "prompt": "Find the file and read it.", "description": "haiku: scout"},
+        "tool_input": {"subagent_type": "scout", "prompt": "Find the file and read it.", "description": "scout: scout"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -1229,7 +1229,7 @@ def _k5_blocked_payload(session_id="s-k5-blocked"):
         "tool_input": {
             "subagent_type": "builder",
             "prompt": _K5_BLOCKED_PROMPT,
-            "description": "sonnet: x",
+            "description": "builder: x",
         },
         "session_id": session_id,
         "cwd": "D:\\ctl",
@@ -1295,7 +1295,7 @@ def test_k5_temporal_edge_pre_fix_registry_line_not_purged(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     _write_registry_line(
         registry, "2026-08-25T15:35:06", "pre-fix-session", "D:\\ctl",
-        "sonnet: EXPERIMENT-BLOCK D-0105 probe, dispatch should not have run",
+        "builder: EXPERIMENT-BLOCK D-0105 probe, dispatch should not have run",
         ["D:/repo/tools/EXP_D0105_PROBE.txt"],
     )
     before = registry.read_text(encoding="utf-8")
@@ -1347,7 +1347,7 @@ def _rows(root):
 def test_run_after_gate_registers_the_dispatch_and_prints_the_overlap_warning_like_main(tmp_path, capsys):
     registry = tmp_path / "logs" / "owns_registry.jsonl"
     _write_registry_line(registry, datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "other-session", str(tmp_path),
-                         "sonnet: live", ["D:/repo/tools/cap_x.py"])
+                         "builder: live", ["D:/repo/tools/cap_x.py"])
     payload = _id_payload(tmp_path, "toolu_ra")
     assert owns_gate.run_after_gate(payload) == 0
     out = capsys.readouterr().out

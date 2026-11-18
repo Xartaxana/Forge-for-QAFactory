@@ -426,17 +426,47 @@ def test_unlocked_appender_in_the_window_is_carried_over_Q5a(env, monkeypatch):
     assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2
 
 
-def test_oserror_in_the_window_names_the_copy_Q5c(env, monkeypatch):
-    branch(env, "b17b", {"f.txt": "x\n"})
+@pytest.mark.parametrize("main_has_copy", [True, False])       # FG7-82 E6: clause only when the kept copy == origin/main's journal
+def test_oserror_in_the_window_names_the_copy_Q5c(env, monkeypatch, main_has_copy):
+    branch(env, "b17b", {"f.txt": "x\n", **({REL: L1 + L2} if main_has_copy else {})})
     (env.root / REL).write_bytes(L1 + L2)
 
     def hook(n):
         if n == "step9-locked":
+            if not main_has_copy:        # the wave commits the root journal into main, so the copy is made to differ
+                with open(next(jl.lock_dir(env.root).glob("wave-copy-*")), "ab") as f:
+                    f.write(L3)
             raise OSError("disk says no")
     monkeypatch.setattr(wave, "_hook", hook)
     rc, out, _ = go(env, "b17b")
     assert rc == 1 and "JOURNAL RESTORE FAILED (disk says no): copy kept at" in out and "merge: " in out
-    assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2
+    assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2 + (b"" if main_has_copy else L3)
+    assert ("fast-forward the root by hand" in out) == main_has_copy
+
+
+@pytest.mark.parametrize("errs,exc,retried,ok", [          # FG7-82: t-1414 WinError 5 on os.replace
+    ([PermissionError(5, "denied")], None, True, True),                    # E1: once, then works
+    ([PermissionError(32, "busy")] * 9999, PermissionError, True, False),     # E2: always fails -> raised, tmp gone
+    ([OSError("disk")] * 9999, OSError, False, False),                         # E3: other OSError, no retry
+])
+def test_atomic_write_retries_permission_error_only(tmp_path, monkeypatch, errs, exc, retried, ok):
+    real, seen = os.replace, []
+
+    def rep(a, b):
+        seen.append(1)
+        if len(seen) <= len(errs):
+            raise errs[len(seen) - 1]
+        real(a, b)
+    monkeypatch.setattr(wave.os, "replace", rep)
+    monkeypatch.setattr(jl, "REPLACE_RETRY_SECONDS", 0.05)       # the shared rule, shortened
+    monkeypatch.setattr(jl, "REPLACE_PAUSE", 0.005)
+    p = tmp_path / "j.jsonl"
+    if exc:
+        with pytest.raises(exc):
+            wave._atomic_write(p, b"new")
+    else:
+        wave._atomic_write(p, b"new")
+    assert (len(seen) > 1) == retried and p.exists() == ok and not (tmp_path / "j.jsonl.wave-tmp").exists()
 
 
 def test_fetch_failure_in_step_9_after_the_push_still_finishes_C3_1(env, monkeypatch):

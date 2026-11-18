@@ -44,7 +44,7 @@ _REST = ("given: x", "non-goals: none", "handoff: r", "edges: none -- x", "DoD: 
 def registered(eol, tmp_path, *lines):
     """The `owns` of the registry line a complete dispatch gets through owns_gate.decide (None: no line)."""
     registry = tmp_path / "reg.jsonl"
-    payload = {"tool_name": "Task", "tool_input": {"prompt": text(eol, *lines, *_REST), "description": "sonnet: t"},
+    payload = {"tool_name": "Task", "tool_input": {"subagent_type": "builder", "prompt": text(eol, *lines, *_REST), "description": "builder: t"},
                "cwd": "D:\\ctl"}
     owns_gate.decide(payload, registry_path=registry)
     return json.loads(registry.read_text(encoding="utf-8").splitlines()[-1])["owns"] if registry.exists() else None
@@ -220,7 +220,7 @@ def test_P2c_a_typo_path_beside_a_marked_one_on_a_continuation_line_is_refused(t
                         "non-goals: none", "handoff: r", "edges: none -- x",
                         "DoD: `python -m pytest x.py -q`", "siblings: none -- standalone"]) + "\n"
     d = dispatch_gate.decide_full({"tool_name": "Task", "cwd": str(tmp_path),
-                                   "tool_input": {"prompt": prompt, "description": "sonnet: t"}})
+                                   "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: t"}})
     assert d.code == 2 and "missing.py" in d.message
     assert [(Path(p.path).name, p.status) for p in d.paths] == [("missing.py", "missing")]
 

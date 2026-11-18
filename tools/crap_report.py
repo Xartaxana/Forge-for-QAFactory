@@ -51,14 +51,16 @@ What is measured
 
 Coverage sources, and what refuses a file (a refused file is unmeasured, never partly counted)
   - an entry is attributed to the ONE scanned path its key ends with at a `/` boundary (an absolute key under
-    --repo is made relative first; the golden's basename key `story_run.py` is attributed to the one scanned
-    path that ends with it). No candidate: unmatched. Several: ambiguous. A file claimed by two entries:
+    --repo is made relative first; each golden `driver_files` basename key, e.g. `story_run.py`, is attributed to the
+    one scanned path that ends with it). No candidate: unmatched. Several: ambiguous. A file claimed by two entries:
     both ambiguous.
-  - a recorded line beyond the file's last line; (golden) `story_run_sha256` not the sha256 of the file's bytes
+  - a recorded line beyond the file's last line; (golden) `driver_files.<name>.sha256` not the sha256 of the file's bytes
     as read, with CRLF turned into LF, or with every lone LF turned into CRLF; (hashes file) the same test
     against the file's hash, and a scanned file with no hash line ("no hash").
   - the golden itself: the hits file names (`.json` removed) must equal the `test_files_in_the_record`
-    entries (`.py` removed), and the distinct lines of every hits file must number `covered_lines`.
+    entries (`.py` removed), and per driver file the distinct lines of the hits files must number that
+    file's `covered_lines` (a hits file without the file's key adds nothing). A schema-1 record
+    (`story_run_sha256`, no `driver_files`) is refused: re-record.
   Without --coverage-hashes a coverage.py record is not checked against bytes (the head says "bytes not
   verified"): a stale JSON whose lines all fit reads as current, which errs toward LESS CRAP -- the one hole.
   Everything else errs toward more CRAP.
@@ -245,11 +247,11 @@ def crap(complexity: int, cov: float) -> float:
 
 class Entry:
     """One file of a record: executed lines, missing lines as (first, last) runs, what must hold for it."""
-    __slots__ = ("name", "executed", "missing", "sha", "basename_key", "error")
+    __slots__ = ("name", "executed", "missing", "sha", "basename_key", "error", "sha_label")
 
-    def __init__(self, name, executed=(), missing=(), sha=None, basename_key=False, error=None):
+    def __init__(self, name, executed=(), missing=(), sha=None, basename_key=False, error=None, sha_label="sha256"):
         self.name, self.executed, self.missing = name.replace("\\", "/"), set(executed), list(missing)
-        self.sha, self.basename_key, self.error = sha, basename_key, error
+        self.sha, self.basename_key, self.error, self.sha_label = sha, basename_key, error, sha_label
 
     def max_line(self) -> int:
         return max(max(self.executed, default=0), max((b for _, b in self.missing), default=0))
@@ -308,10 +310,9 @@ def stems_of(names, suffix) -> set:
     return {n[:-len(suffix)] if n.endswith(suffix) else n for n in names}
 
 
-def hits_union(directory: Path, doc: dict) -> set:
-    """The executed lines of the golden: the union of `<dir>/coverage-hits/*.json`, accepted only when the
-    hits file names match the record's test files and the union has `covered_lines` lines (the recorder
-    writes `run.name[:-3] + ".json"`, driver_golden.py:744)."""
+def hits_files(directory: Path, doc: dict) -> list:
+    """The hits files of the golden, accepted only when their names match the record's test files (the recorder
+    writes `run.name[:-3] + ".json"`); a ValueError names what is wrong. -> [(path, {basename: lines})]."""
     tests = doc.get("test_files_in_the_record")
     if not (isinstance(tests, list) and all(isinstance(t, str) for t in tests)):
         raise ValueError("`test_files_in_the_record` is not a list of names")
@@ -324,34 +325,60 @@ def hits_union(directory: Path, doc: dict) -> set:
         raise ValueError(f"the {HITS_DIR} files do not match test_files_in_the_record "
                          f"(only in the record: {', '.join(sorted(want - have)[:3]) or '-'}; "
                          f"only in {HITS_DIR}: {', '.join(sorted(have - want)[:3]) or '-'})")
-    union = set()
+    out = []
     for path in files:
-        union.update(read_hits_file(path))
-    if len(union) != doc.get("covered_lines"):
-        raise ValueError(f"the {HITS_DIR} files hold {len(union)} distinct lines, the record says "
-                         f"covered_lines {doc.get('covered_lines')}")
+        try:
+            keyed = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(keyed, dict):
+                raise ValueError("the JSON is not an object")
+        except (OSError, ValueError, RecursionError) as exc:
+            raise ValueError(f"{path.name} cannot be read ({describe_error(exc)})") from exc
+        out.append((path, keyed))
+    return out
+
+
+def hits_union(hits: list, name: str, block: dict) -> set:
+    """The executed lines of ONE driver file: the union over the hits files, whose key set may miss the file (a
+    test that never touched it is no error); it must have the block's `covered_lines` lines."""
+    union = set()
+    for path, keyed in hits:
+        lines = keyed.get(name, [])
+        if not lines_ok(lines):
+            raise ValueError(f"{path.name} holds no list of line numbers for {name}")
+        union.update(lines)
+    if len(union) != block.get("covered_lines"):
+        raise ValueError(f"the {HITS_DIR} files hold {len(union)} distinct lines for {name}, the record says "
+                         f"covered_lines {block.get('covered_lines')}")
     return union
 
 
-def read_hits_file(path: Path) -> list:
-    """The `story_run.py` line numbers of one hits file; ValueError with a sentence when it cannot be read."""
+def golden_entries(doc: dict, directory: Path) -> list:
+    """One Entry per `driver_files` key, basename-attributed, each with its own sha check and hits union. A record
+    of the old shape (`story_run_sha256`, no `driver_files`) is one refused entry that says re-record (E13)."""
+    files = doc.get("driver_files")
+    if not isinstance(files, dict):
+        return [Entry(GOLDEN_FILE, basename_key=True, error="a schema-1 record (`story_run_sha256`, no `driver_files`) "
+                                                           "does not vouch for the driver: re-record the golden")]
     try:
-        lines = json.loads(path.read_text(encoding="utf-8")).get(GOLDEN_FILE, [])
-    except (OSError, ValueError, RecursionError, AttributeError) as exc:
-        raise ValueError(f"{path.name} cannot be read ({describe_error(exc)})") from exc
-    if not lines_ok(lines):
-        raise ValueError(f"{path.name} holds no list of line numbers for {GOLDEN_FILE}")
-    return lines
-
-
-def golden_entry(doc: dict, directory: Path) -> Entry:
-    sha = doc.get("story_run_sha256")
-    try:
-        if not isinstance(sha, str):
-            raise ValueError("`story_run_sha256` is not a string")
-        return Entry(GOLDEN_FILE, hits_union(directory, doc), never_run_runs(doc["never_run"]), sha, True)
+        hits = hits_files(directory, doc)
+        whole = None
     except ValueError as exc:
-        return Entry(GOLDEN_FILE, sha=sha if isinstance(sha, str) else None, basename_key=True, error=str(exc))
+        hits, whole = [], str(exc)
+    out = []
+    for name, block in sorted(files.items()):
+        sha = block.get("sha256") if isinstance(block, dict) else None
+        label = f"driver_files.{name}.sha256"
+        try:
+            if whole:
+                raise ValueError(whole)
+            if not isinstance(sha, str):
+                raise ValueError(f"`{label}` is not a string")
+            out.append(Entry(name, hits_union(hits, name, block), never_run_runs(block.get("never_run")), sha, True,
+                             sha_label=label))
+        except ValueError as exc:
+            out.append(Entry(name, sha=sha if isinstance(sha, str) else None, basename_key=True, error=str(exc),
+                             sha_label=label))
+    return out
 
 
 def read_source(path: Path, repo: Path) -> Source:
@@ -362,8 +389,8 @@ def read_source(path: Path, repo: Path) -> Source:
         return Source(label, error=describe_error(exc))
     if not isinstance(doc, dict):
         return Source(label, error="the JSON is not an object")
-    if all(k in doc for k in GOLDEN_KEYS):
-        return Source(label, "driver golden", [golden_entry(doc, path.resolve().parent)])
+    if all(k in doc for k in GOLDEN_KEYS) or ("schema" in doc and "driver_files" in doc):
+        return Source(label, "driver golden", golden_entries(doc, path.resolve().parent))
     if isinstance(doc.get("files"), dict):
         return Source(label, "coverage.py", coverage_entries(doc["files"]))
     return Source(label, error="unknown shape: neither a coverage.py JSON (`files`) nor a driver golden "
@@ -465,7 +492,7 @@ def refusal(entry, data, hexes, hashes_given):
         return None
     forms = sha_forms(data)
     if entry.sha is not None and entry.sha.lower() not in forms:
-        return (f"story_run_sha256 {entry.sha[:8]} is not the sha256 of the file "
+        return (f"{entry.sha_label} {entry.sha[:8]} is not the sha256 of the file "
                 f"({hashlib.sha256(data).hexdigest()[:8]}): the record measured other bytes")
     if hexes and not all(h in forms for h in hexes):
         return "the sha256 differs from the hashes file: the record measured other bytes"

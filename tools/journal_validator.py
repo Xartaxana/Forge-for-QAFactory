@@ -242,6 +242,13 @@ log" section):
     ignored, the defect stays refused), is a WARN. Lines
     already in HEAD are never judged (unchanged). The count is the WARN-channel line `order-known: N declared`
     (decide_with_warnings; calibration check 13(m)). tools/journal_echo.py calls decide(), so it shares the door.
+21. RETURN ORDER (FG7-22; WARN only, in matrix_warnings; decide() and journal_echo never see it). A NEW accepted or rejected
+    line on a task that still has a hook-era worker (a `delegated` dated RETURNED_WARN_FROM or later, worker_ref `agent:<id>`)
+    with no `returned` line of that (task_id, worker_ref) earlier in the logical file draws one WARN listing every owed ref.
+    Owed = the latest worker of EVERY agent kind on the task; a later delegated of the same (task, agent) or
+    `replaces_worker:<h>` supersedes. Producers of `returned` (AR-22): journal_hooks._write_returned (SubagentStop, exit 0)
+    and `journal_write.py returned`. KNOWN MISS (E3): a RESUMED worker has one `returned` from its first stop (the hook
+    is idempotent), so a verdict after a resume is silent. A lost end WARNs the same as a running worker.
 """
 from __future__ import annotations
 
@@ -742,7 +749,9 @@ def matrix_warnings(new_lines: list[str], head_lines: list[str], *, seed_lines=(
     (b) agent in {critic, designer} accepted at rank(by) >= lead rank when no earlier `delegated` of that agent on that
         task carries a worker_ref starting `agent:` -- a review must come from a separate worker context (spec 2.4
         (ii), the INDEPENDENT CONTEXT detector; calibration check 6 lists these WARNs). Earlier = earlier in the logical
-        journal: the seed, HEAD, then the new lines before this one."""
+        journal: the seed, HEAD, then the new lines before this one;
+    (c) rule 21: returned_order_warnings -- a verdict before the worker's `returned` line. This is now the one channel of
+        every accepted-line WARN (the name stays)."""
     config_text = _resolve_config(config_text)
     lead_rank = _tl.rank_of_function("lead")
     isolated: set = set()            # (task_id, agent) with an earlier delegated whose worker_ref starts `agent:`
@@ -774,6 +783,55 @@ def matrix_warnings(new_lines: list[str], head_lines: list[str], *, seed_lines=(
                     tag, f"INDEPENDENT CONTEXT: {task_id} accepted at by={by} with no agent:<id> delegated of {agent} "
                          "-- a review must come from a separate worker context"))
         _note(obj)
+    return warns + returned_order_warnings(new_lines, head_lines, seed_lines=seed_lines)
+
+
+# FG7-22: a verdict written before the worker's end was journaled (t-057 class; t-1407/t-1410 lost ends). RETURNED_WARN_FROM is
+# compared on the DELEGATED line: no `returned` line exists before the hook era (2026-11-16T23:09), so an older worker owes none.
+RETURNED_WARN_FROM = "2026-11-17"
+RETURN_ORDER_EVENTS = {"accepted", "rejected"}
+
+
+def returned_order_warnings(new_lines: list[str], head_lines: list[str], *, seed_lines=()) -> list[str]:
+    """Rule 21 (docstring): WARN texts for NEW accepted/rejected lines whose task still has a hook-era `agent:` worker with no
+    `returned` line before the verdict. Pure, never raises. Owed = the LATEST such worker per (task, agent kind); a later
+    delegated of the same pair, or `replaces_worker:<h>`, supersedes. Refs compared stripped."""
+    warns: list[str] = []
+    try:
+        owed: dict = {}           # task_id -> {agent: ref}
+        returned_refs: set = set()
+        new_from = len(list(seed_lines)) + len(head_lines)
+        for pos, line in enumerate(list(seed_lines) + list(head_lines) + list(new_lines)):
+            obj = _try_parse_obj(line)
+            if obj is None:
+                continue
+            ev, tid, ref = obj.get("event"), obj.get("task_id"), obj.get("worker_ref")
+            if not isinstance(ev, str) or not isinstance(tid, str):
+                continue
+            ref = ref.strip() if isinstance(ref, str) else None
+            if pos >= new_from and ev in RETURN_ORDER_EVENTS and TASK_ID_RE.match(tid):
+                due = [(r, a) for a, r in owed.get(tid, {}).items() if (tid, r) not in returned_refs]
+                if due:
+                    who = ", ".join(f"{r} ({a})" for r, a in due)
+                    tag = f"line {pos - len(list(seed_lines)) + 1} event={ev!r} task_id={tid!r}"
+                    warns.append(_warn_line(
+                        tag, f"{ev} before the worker returned: {who} has no `returned` line for {tid} -- the verdict was "
+                             "written before the worker's end was journaled (after an accepted, rule 9f refuses that worker's "
+                             "`returned`) -- wait for the worker's stop line; a worker whose stop was lost gets "
+                             f"`python -B tools/journal_write.py returned --task {tid} --worker <ref>` before the verdict"))
+            if ev == "returned" and ref:
+                returned_refs.add((tid, ref))
+            elif ev == "delegated":
+                agent, ts = obj.get("agent"), obj.get("ts")
+                gone = extract_replaces_worker(obj.get("notes"))
+                if gone and tid in owed:
+                    for a in [a for a, r in owed[tid].items() if r == gone.strip()]:
+                        del owed[tid][a]
+                if (isinstance(agent, str) and ref and ref.startswith("agent:")
+                        and parse_ts(ts) is not None and ts[:10] >= RETURNED_WARN_FROM):
+                    owed.setdefault(tid, {})[agent] = ref
+    except Exception:  # noqa: BLE001 -- a WARN reader never takes the feature/node WARNs of the same block down
+        return warns
     return warns
 
 

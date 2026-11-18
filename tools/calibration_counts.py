@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -705,6 +706,98 @@ def analyze_journal(path: str, window_start: Optional[datetime], window_end: Opt
     }
 
 
+# FG7-27 (P31): the day the one-road line entered critic Q12 on this main, measured with
+# `git log --format="%h %cI" -S"ONE ROAD" -- .claude/agents/critic.md` (earliest: 9616b6f4). A verdict older than the
+# rule is never a finding.
+ONE_ROAD_SINCE = "2026-11-17T13:51:09+01:00"
+ONE_ROAD_DIR = "docs/tasks/specs/reviews"
+ONE_ROAD_LITERAL = b"ONE ROAD:"
+ONE_ROAD_TITLE = "Critic verdicts without a `ONE ROAD:` line (candidates; the Lead judges)"
+_GIT_SEP = "\x01"
+
+
+def _naive(ts: Optional[datetime]) -> Optional[datetime]:
+    """Wall clock, as journal `ts`: an aware window value loses its tzinfo."""
+    return ts.replace(tzinfo=None) if ts is not None else None
+
+
+def _first_adds(root: Path) -> Tuple[Dict[str, datetime], Optional[str]]:
+    """{path: committer date of its FIRST add} from ONE git call, or (.., first stderr line) when git fails.
+    A timeout is a failure too (E12): an unknown is a line of the report, never an empty list."""
+    cmd = ["git", "-C", str(root), "-c", "core.quotepath=false", "log", "--no-renames", "--diff-filter=A",
+           "--name-only", "--date=format:%Y-%m-%dT%H:%M:%S", f"--format={_GIT_SEP}%cd", "--", ONE_ROAD_DIR]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              timeout=60, shell=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {}, str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+    if proc.returncode != 0:
+        lines = proc.stderr.strip().splitlines()
+        return {}, lines[0] if lines else f"exit {proc.returncode}"
+    added: Dict[str, datetime] = {}
+    current: Optional[datetime] = None
+    for line in proc.stdout.splitlines():
+        if line.startswith(_GIT_SEP):
+            current = parse_ts(line[len(_GIT_SEP):].strip())
+        elif line.strip() and current is not None:
+            old = added.get(line.strip())
+            if old is None or current < old:
+                added[line.strip()] = current
+    return added, None
+
+
+def verdicts_without_one_road(root: Path, start: Optional[datetime], end: Optional[datetime]) -> Dict[str, Any]:
+    """FG7-27 D6: reviews/*.md whose BYTES lack the literal `ONE ROAD:` (case-sensitive, nothing decoded), first added
+    in [max(start, ONE_ROAD_SINCE), end). Advice only (exit stays 0): `problem` holds the E12 line when unknown."""
+    result: Dict[str, Any] = {"dir": ONE_ROAD_DIR, "since": ONE_ROAD_SINCE, "listed": [], "problem": None}
+    folder = root / ONE_ROAD_DIR
+    if not folder.is_dir():
+        result["problem"] = f"(no verdict directory at {ONE_ROAD_DIR})"
+        return result
+    added, err = _first_adds(root)
+    if err is not None:
+        result["problem"] = f"cannot judge: git log failed ({err})"
+        return result
+    floor = _naive(parse_ts(ONE_ROAD_SINCE))
+    lo = max(_naive(start), floor) if start is not None else floor
+    hi = _naive(end)
+    for path in sorted(folder.glob("*.md")):
+        rel = f"{ONE_ROAD_DIR}/{path.name}"
+        when = added.get(rel)
+        if when is None:                                  # uncommitted: newer than any past end
+            if hi is not None:
+                continue
+            date = "uncommitted"
+        elif lo <= when and (hi is None or when < hi):
+            date = when.isoformat()
+        else:
+            continue
+        try:
+            if ONE_ROAD_LITERAL in path.read_bytes():
+                continue
+        except OSError as exc:                            # E11: unreadable is a candidate, never dropped
+            result["listed"].append({"path": rel, "added": date,
+                                     "unreadable": (str(exc).splitlines() or [type(exc).__name__])[0]})
+            continue
+        result["listed"].append({"path": rel, "added": date})
+    return result
+
+
+def _line_one_road(item: Dict[str, Any]) -> str:
+    tail = f" (unreadable: {item['unreadable']})" if item.get("unreadable") else ""
+    return f"  {item['path']} (added {item['added']}){tail}"
+
+
+def _print_one_road(section: Dict[str, Any]) -> None:
+    out: List[str] = []
+    if section["problem"]:
+        out.append(_fmt_section(ONE_ROAD_TITLE))
+        out.append(section["problem"])
+    else:
+        _list_section(out, ONE_ROAD_TITLE, section["listed"], _line_one_road, "(none)")
+    print("\n".join(out))
+
+
 def _fmt_section(title: str) -> str:
     return f"\n=== {title} ===\n"
 
@@ -1019,9 +1112,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     tables = [skip_table([pl for pl in load_journal(r["journal"]) if pl.data is not None], window_start, window_end)
               for r in reports]                                  # FG7-21: beside the report, the report dict stays as it was
 
+    one_road = None                    # FG7-27: default mode only, after the reports loaded (every early exit 2 stays)
+    if not args.journal:
+        root = Path(args.root) if args.root else Path(__file__).resolve().parent.parent
+        one_road = verdicts_without_one_road(root, window_start, window_end)
+
     if args.json:
-        print(json.dumps({"journals": [dict(r, dispatch_skipped=t) for r, t in zip(reports, tables)]},
-                         ensure_ascii=False, indent=2))
+        doc: Dict[str, Any] = {"journals": [dict(r, dispatch_skipped=t) for r, t in zip(reports, tables)]}
+        if one_road is not None:
+            doc["one_road_verdicts"] = one_road
+        print(json.dumps(doc, ensure_ascii=False, indent=2))
         return 0
 
     if not args.journal:
@@ -1032,6 +1132,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if len(reports) > 1:
         _print_summary(reports)
+
+    if one_road is not None:
+        _print_one_road(one_road)
 
     return 0
 

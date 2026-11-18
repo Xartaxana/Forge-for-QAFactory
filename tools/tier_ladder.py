@@ -117,6 +117,12 @@ def _effective(config_text) -> tuple[dict, str | None, bool]:
     return found, note, False
 
 
+def resolved_bindings(config_text) -> tuple[dict, str | None, bool]:
+    """effective_bindings() plus the DEFAULTED flag (True when DEFAULT_BINDINGS stand in for the config): the public
+    twin for readers that must say whether a binding was read or defaulted (the dispatch hook's note, savings_report)."""
+    return _effective(config_text)
+
+
 def effective_bindings(config_text) -> tuple[dict, str | None]:
     """bindings() or, when it yields none (or no lead), DEFAULT_BINDINGS with the
     note. EVERY reader goes through this one function."""
