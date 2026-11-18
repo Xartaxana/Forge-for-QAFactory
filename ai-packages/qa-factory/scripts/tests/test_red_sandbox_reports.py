@@ -1403,6 +1403,16 @@ def frames_from_the_table() -> None:
         check_eq("R12 (L11): a `.fs` TRX row (no entry) keeps the built-in read - never an unread site",
                  (got.get("location"), got.get("failure_kind"), "site_unread" in got, "frame" in got),
                  ("backend/Tests/ChecksTests.fs:42", "assertion", False, False))
+        # RD1-39: the same built-in read, a failed row with NO frame and a green baseline: incomplete with the reason, never survived
+        rows = rows_of(root, "fs-bare.trx", trx_failed("Suite.Checks.critical_check", ""))
+        row, _ = RS.bind_row(fs, contracts_for(fs, "Suite.Checks.critical_check"), rows, "trx")
+        got = RS.target_result(fs, row, "trx", clone)
+        proof = RS.verify({"repo": str(root), "original_hashes": {}, "targets": [fs]}, [got],
+                          [{"instance_id": fs["instance_id"], "status": "passed"}])
+        check_eq("RD1-39: a `.fs` TRX failed row with no frame: unread site, never survived",
+                 (got.get("site_unread"), proof["status"]), ("trx/unknown runtime", "incomplete"))
+        check_in("...the reason names the trx reporter and the missing frame", "trx reporter found no stack frame",
+                 got.get("site_unread_reason", ""))
         # a table that cannot be read: today's behaviour for every suffix, not a crash and not an unread site
         broken = root / "broken.json"
         broken.write_text("{nope", encoding="utf-8")

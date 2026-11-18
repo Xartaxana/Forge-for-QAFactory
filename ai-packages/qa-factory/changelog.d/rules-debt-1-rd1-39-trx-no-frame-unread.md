@@ -1,0 +1,1 @@
+- reporters (`reporters.py`): a failed or errored TRX row with no stack frame found by the built-in reader is now the typed `site_unread` answer (`trx/<runtime>`), as for a non-pytest JUnit row, instead of `{}`; with a green baseline the probe is incomplete, no longer `survived`

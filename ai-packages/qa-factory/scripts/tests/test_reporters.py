@@ -448,7 +448,9 @@ def sites() -> None:
     check_eq("failed, first located frame in product code: exception", site(product)["failure_kind"], "exception")
     check_eq("an error row with a frame in the test file: error", site(FRAME_CLONE, status="error")["failure_kind"], "error")
     check_eq("an error row with a product frame first: error", site(product, status="error")["failure_kind"], "error")
-    check_eq("an error row with no located frame is still {}", site("   at X.Y()", status="error"), {})
+    unread = {"site_unread": "trx/unknown runtime", "reason": "the assertion site of a trx/unknown runtime report was not read: "
+              "the trx reporter found no stack frame (B-337)"}  # RD1-39: a tooling gap is typed, never {} (FR-59)
+    check_eq("an error row with no located frame is the typed unread answer", site("   at X.Y()", status="error"), unread)
     skipped_row = {"status": "skipped", "problems": [{"kind": "skipped", "message": "m", "text": FRAME_CLONE}]}
     check_eq("a skipped row is never a failure site", R.assertion_site(skipped_row, "trx", CLONE_WIN, TEST_FILE), {})
     check_eq("a skipped JUnit row is never a failure site",
@@ -457,9 +459,11 @@ def sites() -> None:
                  "pytest", "/c", "tests/t.py"), {})
     check_eq("a different test file is not an assertion",
              site(FRAME_CLONE, test_file="backend/Tests/OtherTests.cs")["failure_kind"], "exception")
-    check_eq("no stack: {}", site(""), {})
+    check_eq("a failed row with no stack: the typed unread answer", site(""), unread)
+    check_eq("a failed row with no problem text at all: the typed unread answer", site(None), unread)
     check_eq("no problems (a passed row): {}", site(None, status="passed"), {})
-    check_eq("a stack with no located frame: {}", site("   at Xunit.Assert.Equal[T](T expected, T actual)"), {})
+    check_eq("a failed row, a stack with no located frame: the typed unread answer, the text not echoed",
+             site("   at Xunit.Assert.Equal[T](T expected, T actual)"), unread)
     check_eq("no clone root: nothing is stripped", site(FRAME_CLONE, root="")["location"],
              "C:\\clone\\backend\\Tests\\FeedbackTests.cs:42")
     try:

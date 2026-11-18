@@ -367,7 +367,12 @@ def assertion_site(row: dict, reporter: str, clone_root, test_file, *,
             kind = "assertion" if row.get("status") == "failed" and expected and compared == expected \
                 else "exception"
         return {"location": f"{shown}:{match.group('line')}", "failure_kind": kind}
-    return {}
+    if row.get("status") not in ("failed", "error"):
+        return {}  # a green or skipped row has no site to read
+    # RD1-39 (critic t-1348 RD24-b): a failed row with no frame was `{}`, which a green baseline read as `survived` - a tooling gap
+    # turned into a verdict (FR-59). Typed like the junit non-pytest branch; the failure text is never echoed.
+    unread = f"trx/{runtime or 'unknown runtime'}"
+    return {"site_unread": unread, "reason": f"the assertion site of a {unread} report was not read: the trx reporter found no stack frame (B-337)"}
 
 
 def _grammar(patterns, label: str) -> tuple:
