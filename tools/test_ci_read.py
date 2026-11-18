@@ -937,3 +937,209 @@ def test_start_with_a_var_never_asks_for_the_head(net):
     net.routes = [("/dispatches", _Resp(b"", status=204))]
     assert ci_read.main(["start", "--ref", "b", "--var", "TEST_REDUNDANCY=1"]) == 0
     assert [r.get_method() for r in net.requests] == ["POST"]
+
+
+# ---- FG7-94: main's red list --------------------------------------------------------------------------------------
+
+def _tips(*rows):
+    """rows: (sha, final, {job: verdict}) oldest first -> (order, tips); the task of a tip is t-<sha>."""
+    return [r[0] for r in rows], {s: {"final": f, "jobs": j, "task": "t-" + s, "branch": "b-" + s, "state": "green" if f else "pending"}
+                                  for s, f, j in rows}
+
+
+def _open_red(first="s1"):
+    return {"J": {"first_red": first, "last_green": None, "range": [], "opened_at": "x"}}
+
+
+FOLD = [      # (rows, prior, {job: (first_red, last_green, len(range))}, events)
+    ([("s1", True, {"J": "success"}), ("s2", True, {}), ("s3", True, {"J": "failure"})], {}, {"J": ("s3", "s1", 2)}, []),
+    ([("s1", True, {"J": "failure"}), ("s2", True, {"J": "failure", "K": "failure"})], _open_red(), {"J": ("s1", None, 1), "K": ("s2", None, 2)}, []),
+    ([("s1", True, {"J": "failure"}), ("s2", True, {"J": "success"})], _open_red(), {}, [("J", "closed", "s2")]),
+    ([("s1", True, {"J": "failure"}), ("s2", True, {"J": "cancelled"})], _open_red(), {"J": ("s1", None, 1)}, []),
+    ([("s1", True, {"J": "failure"}), ("s2", True, {"J": "skipped"})], _open_red(), {"J": ("s1", None, 1)}, []),
+    ([("s1", True, {"J": "failure"}), ("s2", False, {"J": "success"})], _open_red(), {"J": ("s1", None, 1)}, []),     # not final
+    ([("s1", True, {"J": "failure"}), ("s2", True, {"J": "unknown"})], _open_red(), {"J": ("s1", None, 1)}, []),
+    ([("s1", True, {"J": "success"}), ("s2", True, {"J": "cancelled"})], {}, {}, []),
+    ([("s1", True, {"J": "failure"}), ("s2", True, {"K": "success"})], _open_red(), {}, [("J", "gone", "s2")]),
+    ([("s0", True, {"J": "success"})] + [("m%d" % i, True, {}) for i in range(7)] + [("s8", True, {"J": "failure"})], {},
+     {"J": ("s8", "s0", 8)}, []),
+    ([("s1", True, {"J": "failure"}), ("s2", True, {"J": "failure"})], _open_red("old"), {"J": ("old", None, 0)}, []),   # began before the window
+    ([("s1", False, {"K": "success"})], _open_red("old"), {"J": ("old", None, 0)}, []),                                  # no verdict in the window
+    ([("s1", True, {"J": "failure"})], {}, {"J": ("s1", None, 1)}, [])]                                                 # no earlier success: null
+FOLD_IDS = ["opens-with-range", "second-red-joins", "self-heal", "cancelled", "skipped", "not-final", "unknown", "cancelled-opens-nothing",
+            "gone-at-green-head", "range-over-5", "outside-window-start", "outside-window-silent", "no-earlier-success"]
+
+
+@pytest.mark.parametrize("rows,prior,expect,events", FOLD, ids=FOLD_IDS)
+def test_main_red_fold(rows, prior, expect, events):
+    red, got = ci_read.main_red_fold(*_tips(*rows), prior)
+    assert {j: (r["first_red"], r["last_green"], len(r["range"])) for j, r in red.items()} == expect and got == events
+
+
+def _run(i, wf="forge-check.yml", **kw):
+    return dict({"id": i, "head_sha": SHA, "event": "push", "head_branch": "main", "path": ".github/workflows/" + wf,
+                 "status": "completed", "conclusion": "success", "created_at": "2026-11-18T10:00:0%dZ" % i}, **kw)
+
+
+PUSH = [      # (runs, jobs answered for any run, expected)
+    ([_run(1)], [{"name": "a", "conclusion": "success"}], ("read", {"forge-check.yml": 1}, {"a": "success"})),
+    ([_run(1, event="workflow_dispatch")], [], ("none", {}, {})),                                      # E7 a dispatched canon of another branch
+    ([_run(1, wf="quarantine-watch.yml")], [], ("none", {}, {})),                                      # E8
+    ([_run(1, head_sha="f" * 40)], [], ("none", {}, {})),
+    ([_run(1, head_branch="topic")], [], ("none", {}, {})),
+    ([], [], ("none", {}, {})),
+    ([_run(1, conclusion="startup_failure")], [], ("read", {"forge-check.yml": 1}, {"forge-check.yml: startup_failure": "failure"})),   # E9
+    ([_run(1)], [{"name": "a", "conclusion": "cancelled"}, {"name": "b", "conclusion": "timed_out"}, {"name": "c", "conclusion": "skipped"},
+                 {"name": "d", "conclusion": "neutral"}, {"name": "e", "conclusion": "stale"}, {"name": "f", "conclusion": None, "status": "queued"},
+                 {"name": "x" * 90 + "\n\x1b[31mé", "conclusion": "failure"}],
+     ("read", {"forge-check.yml": 1}, {"a": "cancelled", "b": "failure", "c": "skipped", "d": "unknown", "e": "unknown", "f": "pending",
+                                      "x" * 60: "failure"})),
+    ([_run(1, status="in_progress", conclusion=None)], [], ("read", {"forge-check.yml": 1}, {"forge-check.yml: run": "pending"})),
+    ([_run(2, conclusion="cancelled"), _run(1)], [], ("read", {"forge-check.yml": 2}, {"forge-check.yml: run": "cancelled"}))]
+
+
+@pytest.mark.parametrize("runs,jobs,expected", PUSH, ids=["success", "dispatch-run", "quarantine-watch", "other-sha", "other-branch", "no-runs",
+                                                         "startup-failure", "every-conclusion", "in-progress", "newest-run-wins"])
+def test_main_push_jobs(runs, jobs, expected, net):
+    net.routes = [("/jobs", json.dumps({"jobs": jobs})), ("/actions/runs?head_sha=", runs_json(*runs))]
+    assert ci_read.main_push_jobs(ci_read.ROOT, SHA) == expected
+    assert net.requests[0].full_url == BASE + "/actions/runs?head_sha=%s&event=push&branch=main&per_page=20" % SHA
+
+
+@pytest.mark.parametrize("how", ["http-error", "not-json", "bad-shape", "no-token", "no-origin"])
+def test_main_push_jobs_is_unknown_when_nothing_can_be_known(how, net, monkeypatch, set_origin):
+    net.routes = {"http-error": [("/actions/runs?", http_error(500))], "not-json": [("/actions/runs?", "<html>")],
+                  "bad-shape": [("/actions/runs?", json.dumps({"workflow_runs": "x"}))]}.get(how, [])
+    if how == "no-token":
+        monkeypatch.delenv("GITHUB_TOKEN")
+    if how == "no-origin":
+        set_origin(None)
+    assert ci_read.main_push_jobs(ci_read.ROOT, SHA) == ("unknown", {}, {})
+
+
+def _main_repo(tmp_path):
+    """A real clone-like repo: one commit, origin/main pointing at it. Returns (root, sha)."""
+    import subprocess
+    root = tmp_path / "repo"
+    root.mkdir()
+    for argv in (["init", "-q"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"]):
+        subprocess.run(["git", "-C", str(root), *argv], check=True)
+    sha = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, check=True).stdout.decode().strip()
+    subprocess.run(["git", "-C", str(root), "update-ref", "refs/remotes/origin/main", sha], check=True)
+    return root, sha
+
+
+def _seed(root, red=True, fixer=None, flaky=()):
+    def mutate(st):
+        st["red"] = {"J": {"first_red": "a" * 40, "last_green": None, "range": [], "opened_at": "x"}} if red else {}
+        st["fixer"] = {"task": fixer, "since": "x"} if fixer else None
+        st["flaky"] = [{"id": f, "why": "w", "added": "x"} for f in flaky]
+    ci_read.main_red_write(root, mutate)
+
+
+A200, A201 = "a" * 200, "a" * 201
+CLI = [      # (argv, red, fixer, flaky, code, said, writes)
+    (["fixer", "t-100"], True, None, (), 0, "fixer t-100 set", True),
+    (["fixer", "t-101"], True, "t-100", (), 1, "fixer t-100 is open", False),
+    (["fixer", "--done", "t-101"], True, "t-100", (), 1, "fixer t-100 is open", False),
+    (["fixer", "--done", "t-100"], True, "t-100", (), 0, "fixer t-100 done", True),
+    (["fixer", "t-100"], False, None, (), 1, "main is not red", False),
+    (["fixer", ""], True, None, (), 2, "fixer expects", False),
+    (["fixer", "t-1;x"], True, None, (), 2, "fixer expects", False),
+    (["fixer", "t-123\n"], True, None, (), 2, "fixer expects", False),
+    (["fixer", "t-１２３"], True, None, (), 2, "fixer expects", False),
+    (["flaky", "add", A200, "--why", "w"], True, None, (), 0, "flaky add", True),
+    (["flaky", "add", A201, "--why", "w"], True, None, (), 2, "printable ASCII", False),
+    (["flaky", "add", "", "--why", "w"], True, None, (), 2, "printable ASCII", False),
+    (["flaky", "add", "é", "--why", "w"], True, None, (), 2, "printable ASCII", False),
+    (["flaky", "add", "a\nb", "--why", "w"], True, None, (), 2, "printable ASCII", False),
+    (["flaky", "add", "x", "--why", "a" * 201], True, None, (), 2, "printable ASCII", False),
+    (["flaky", "add", "x", "--why", "w"], True, None, ("x",), 1, "already", False),
+    (["flaky", "done", "x", "--by", "t-9"], True, None, ("x",), 2, "needs --by", False),
+    (["flaky", "done", "x", "--by", "t-900"], True, None, ("x",), 0, "flaky done x", True)]
+
+
+@pytest.mark.parametrize("argv,red,fixer,flaky,code,said,writes", CLI, ids=[" ".join(c[0])[:30] + str(i) for i, c in enumerate(CLI)])
+def test_main_red_cli(argv, red, fixer, flaky, code, said, writes, tmp_path, capsys):
+    root, _ = _main_repo(tmp_path)
+    _seed(root, red, fixer, flaky)
+    before = ci_read._state_path(root).read_bytes()
+    assert ci_read.main(["main-red", "--repo", str(root), *argv]) == code
+    assert said in capsys.readouterr().out
+    assert (ci_read._state_path(root).read_bytes() != before) == writes          # a refusal leaves the carrier byte for byte
+
+
+# ---- FG7-94 fix round (critic t-1497): tip state, refresh, record, launch ------------------------------------------
+
+FC = {"forge-check.yml": 1}
+TIP_STATES = [      # (word, runs, jobs, age, state)
+    ("read", {"canon.yml": 1}, {"full": "success"}, 600, "superseded"),         # F9: green needs forge-check
+    ("read", FC, {"a": "success"}, 60, "pending"),                              # grace
+    ("read", FC, {"a": "success", "b": "skipped"}, 600, "green"),
+    ("read", FC, {"a": "cancelled"}, 600, "superseded"),
+    ("read", FC, {"a": "failure"}, 600, "red"),
+    ("read", FC, {"a": "failure", "b": "pending"}, 600, "pending"),             # pending outranks red
+    ("read", FC, {"a": "pending"}, 5401, "unknown"),
+    ("none", {}, {}, 500, "pending"),
+    ("none", {}, {}, 901, "unknown"),
+    ("unknown", {}, {}, 9999, "unknown")]
+
+
+@pytest.mark.parametrize("word,runs,jobs,age,state", TIP_STATES)
+def test_main_red_tip_state(word, runs, jobs, age, state):
+    assert ci_read.main_red_tip_state(word, runs, jobs, age) == state
+
+
+def _ct(root):
+    return int(gitcmd.as_text(gitcmd.git(root, "log", "-1", "--format=%ct")[1]).strip())
+
+
+def test_main_red_refresh_keeps_a_tip_recorded_during_the_read_and_names_the_reason(tmp_path, monkeypatch):
+    root, sha = _main_repo(tmp_path)
+    ct, now, late = _ct(root), _ct(root) + 1000, "c" * 40
+    ci_read.main_red_record(root, sha, task="t-5", branch="b5", now=ct)
+
+    def reads(root_, s):
+        ci_read.main_red_record(root, late, task="t-777", preflight=["census"], now=ct + 5)    # wave records during the read (F1)
+        return "none", {}, {}
+    monkeypatch.setattr(ci_read, "main_push_jobs", reads)
+    for _ in (1, 2):                                                          # the second refresh keeps it too
+        assert ci_read.main_red_refresh(root, now)[0] == 0
+        st = ci_read.main_red_read(root)[0]
+        assert st["tips"][late]["task"] == "t-777" and st["tips"][late]["preflight"] == ["census"] and st["order"][-1] == late
+    assert st["tips"][sha]["state"] == "unknown" and st["tips"][sha]["why"] == "no run after 15 min"     # F2
+
+
+def test_main_red_refresh_closes_with_the_task_and_renames_a_corrupt_carrier(tmp_path, monkeypatch):
+    root, sha = _main_repo(tmp_path)
+    ct = _ct(root)
+    ci_read.main_red_record(root, sha, task="t-5", now=ct)
+    _seed(root, red=True)
+    monkeypatch.setattr(ci_read, "main_push_jobs", lambda r, s: ("read", FC, {"J": "success"}))
+    assert ci_read.main_red_refresh(root, ct + 1000)[0] == 0
+    st = ci_read.main_red_read(root)[0]
+    assert st["red"] == {} and "J closed at %s (t-5)" % sha[:8] in [e["text"] for e in st["history"]]     # F5
+    path = ci_read._state_path(root)
+    path.write_text("{broken", encoding="utf-8")
+    code, text = ci_read.main_red_refresh(root, ct + 1000)
+    assert code == 0 and "kept as state.json.corrupt-" in text and list(path.parent.glob("state.json.corrupt-*"))
+
+
+def test_main_red_record_and_launch(tmp_path, monkeypatch):
+    root, sha = _main_repo(tmp_path)
+    assert ci_read.main_red_record(root, sha, task="t-5", branch="b", kind="piles", preflight=["a"]) is None
+    tip = ci_read.main_red_read(root)[0]["tips"][sha]
+    assert (tip["task"], tip["kind"], tip["preflight"], tip["state"]) == ("t-5", "piles", ["a"], "pending")
+    assert isinstance(ci_read.main_red_record(tmp_path / "nogit", sha), str)           # never raises: an error text
+    spawned = []
+    assert ci_read.main_red_launch(root, "t", spawn=lambda *a: spawned.append(a), now=1000.0) == "started"
+    assert ci_read.main_red_launch(root, "t", spawn=lambda *a: spawned.append(a), now=1299.0) == "throttled"
+    assert ci_read.main_red_launch(root, "t", spawn=lambda *a: spawned.append(a), now=1301.0) == "started"
+    assert len(spawned) == 2 and "refresh" in spawned[0][0]
+    import worktree_sweep                                                              # F4: the ONE spawner
+    calls = []
+    monkeypatch.setattr(worktree_sweep, "spawn_detached", lambda *a: calls.append(a))
+    assert ci_read.main_red_launch(root, "t", now=5000.0) == "started" and len(calls) == 1
+    nogit = tmp_path / "nogit"
+    nogit.mkdir(exist_ok=True)
+    assert ci_read.main_red_launch(nogit, "t", spawn=lambda *a: spawned.append(a)) == "no-origin" and len(spawned) == 2

@@ -330,6 +330,7 @@ def test_the_drift_report_reads_the_union_of_the_shards():
 
 RUNNER_FACTS_IF = "github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name == 'main')"
 CANON_REF = "${{ inputs.ref || github.ref_name }}"      # FG7-91 E2: inputs.ref on a dispatch, the pushed branch on a push
+CANON_SHA = "${{ inputs.ref || github.sha }}"           # FG7-94 D1: `full` and `clock` take the pushed sha, never the moving tip of main
 
 
 def _canon_ref_places(doc):
@@ -345,9 +346,9 @@ def test_fg7_91_the_canon_autostarts_on_a_push_to_an_agent_branch_and_names_the_
     doc = load("canon.yml")
     if what == "e1-trigger":
         on = doc[True]
-        assert on["push"] == {"branches": ["worktree-agent-**"]} and set(on) == {"push", "workflow_dispatch"}
+        assert on["push"] == {"branches": ["worktree-agent-**", "main"]} and set(on) == {"push", "workflow_dispatch"}   # FG7-94 D1: main too
     else:
-        assert _canon_ref_places(doc) == [CANON_REF] * 5
+        assert _canon_ref_places(doc) == [CANON_REF, CANON_REF, CANON_SHA, CANON_REF, CANON_SHA]
 
 
 def test_fg7_91_e4_a_push_run_cancels_the_older_push_of_its_branch_and_a_dispatch_run_is_alone():
@@ -355,7 +356,7 @@ def test_fg7_91_e4_a_push_run_cancels_the_older_push_of_its_branch_and_a_dispatc
     (one expression: cancel only on push), so a hand start is never cancelled, never cancels, and a push never meets it."""
     assert load("canon.yml")["concurrency"] == {
         "group": "${{ github.event_name == 'push' && format('canon-push-{0}', github.ref_name) || format('canon-dispatch-{0}', github.run_id) }}",
-        "cancel-in-progress": "${{ github.event_name == 'push' }}"}
+        "cancel-in-progress": "${{ github.event_name == 'push' && github.ref_name != 'main' }}"}     # FG7-94 F1(a): main's runs all finish
 
 
 
@@ -368,6 +369,8 @@ def test_the_canon_is_named_by_its_ref_and_its_clock_runs_after_a_red_job():
     jobs = doc["jobs"]
     assert jobs["start"]["outputs"] == {"created_at": "${{ steps.t.outputs.created_at }}"}
     assert jobs["checks"]["needs"] == "start" and jobs["full"]["needs"] == "start"
+    assert jobs["full"]["with"]["ref"] == CANON_SHA and doc[True]["push"]["branches"][-1] == "main"      # FG7-94 D1
+    assert doc["concurrency"]["cancel-in-progress"].endswith("&& github.ref_name != 'main' }}")
     clock = jobs["clock"]
     assert clock["if"] == "${{ always() && !inputs.dry_only }}" and set(clock["needs"]) == {"start", "checks", "full"}
     assert clock["env"] == {"CREATED_AT": "${{ needs.start.outputs.created_at }}"}
@@ -404,8 +407,8 @@ def test_canons_dry_only_door_calls_dry_story_and_skips_checks_full_clock():
     jobs = load("canon.yml")["jobs"]
     assert jobs["dry-story"]["uses"] == DRY_STORY and jobs["dry-story"]["if"] == "${{ inputs.dry_only }}"
     assert jobs["dry-story"]["with"] == {"ref": CANON_REF}
-    for name in ("checks", "full"):
-        assert jobs[name]["if"] == "${{ !inputs.dry_only }}", name
+    assert jobs["full"]["if"] == "${{ !inputs.dry_only }}"
+    assert jobs["checks"]["if"] == "${{ !inputs.dry_only && !(github.event_name == 'push' && github.ref_name == 'main') }}"   # FG7-94 F2: forge-check runs on main's push itself
     assert jobs["clock"]["if"] == "${{ always() && !inputs.dry_only }}"
 
 
