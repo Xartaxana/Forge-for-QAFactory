@@ -67,7 +67,7 @@ class Unknown(Refusal):
     """Something could not be established: never a pass (FR-59, AR-28)."""
 
 
-CI_HOSTS = ("github", "gitlab")          # the values of "ci" in plans/test-quarantine/config.json; ci_reader() picks the reader
+CI_HOSTS = ("github", "gitlab")          # the values of "ci" in plans/test-quarantine/config.json; ci_reader() picks the reader, ci_class() its words
 
 
 class CIError(Exception):
@@ -450,7 +450,7 @@ def status_data(root, today=None):
     """Everything `status` and the session line print, from local files only (no network)."""
     root, today = Path(root), today or date.today()
     out = {"no_quarantine": False, "unknown": None, "cohorts": [], "alerts": [], "complete_runs": 0, "runs": [], "pulls": [],
-           "head_version": None, "branch": None, "max_gap_days": 4}
+           "head_version": None, "branch": None, "max_gap_days": 4, "ci": None}
     if not (root / LAYERS_REL).is_file():                  # no test-layers.json: no quarantine, and no package needed to say so (D.5)
         out["no_quarantine"] = True
         return out
@@ -466,7 +466,7 @@ def status_data(root, today=None):
         cfg = _config(root)
         runs, pulls = _watch_rows(root)
         verdicts, lands = _verdict_rows(root)
-        out.update(runs=runs, pulls=pulls, branch=cfg["branch"], max_gap_days=cfg["max_gap_days"])
+        out.update(runs=runs, pulls=pulls, branch=cfg["branch"], max_gap_days=cfg["max_gap_days"], ci=cfg.get("ci"))
         try:
             out["head_version"] = _pkg_module(root, "install_paths").plugin_version(Path(root) / PKG)
         except ValueError:
@@ -544,7 +544,7 @@ def _cohort_line(c, d, today):
     done = [t for t in done if t]
     head = d.get("head_version")
     if head and done and _newer(head, max(done)):
-        line += "; release %s has no complete watch run yet -- start it: web pipeline with QUARANTINE_WATCH=1 on %s" % (head, d["branch"])
+        line += "; release %s has no complete watch run yet -- start it: %s" % (head, ci_class(d.get("ci")).START_WATCH % d["branch"])
     return line
 
 
@@ -573,7 +573,18 @@ def status_line(root, today=None):
 # --- enter / drop-keep ---------------------------------------------------------------------------------------------
 
 class GitlabCI:
-    """The reader of CI used by enter: ci_read's request, no other network code. Tests pass their own object."""
+    """The reader of CI used by enter: ci_read's request, no other network code. Tests pass their own object.
+    START_WATCH and SCHEDULE_DOOR are the host's words for starting a watch run and for creating the schedule (FG7-80): one place per
+    host, read through ci_class() so the status line and the enter refusal need no token."""
+
+    START_WATCH = "web pipeline with QUARANTINE_WATCH=1 on %s"
+    SCHEDULE_DOOR = 'Settings -> CI/CD -> Schedules, cron "0 3 * * 1,4", branch %s, variable QUARANTINE_WATCH=1'
+    # the enter refusals' doors (FG7-80 round 2); plain text, no format fields
+    RUN_HEAD = "run a web pipeline on the current HEAD"
+    RUN_COVERAGE = "run a web pipeline with TEST_REDUNDANCY=1 REDUNDANCY_SCOPE=keep"
+    RUN_SCOPE = "run a web pipeline with --var TEST_REDUNDANCY=1 --var REDUNDANCY_SCOPE=keep"
+    SCOPE_UNKNOWN_TAIL = ", then enter with its id (a token that reads pipeline variables is needed to confirm it)"
+    SCOPE_WRONG_TAIL = " on HEAD"
 
     def __init__(self, token=None):
         import ci_read
@@ -625,6 +636,14 @@ class GithubCI(GitlabCI):
     workflow is active on GitHub and its file here carries a cron. An unknown path is `missing`."""
 
     WATCH_WORKFLOW = "quarantine-watch.yml"
+    START_WATCH = "python tools/ci_read.py start --workflow quarantine-watch.yml --ref %s"
+    RUN_HEAD = "start a workflow run on the branch of HEAD: python tools/ci_read.py start --ref <branch>"
+    RUN_COVERAGE = "start a workflow run: python tools/ci_read.py start --ref <branch> --var TEST_REDUNDANCY=1 --var REDUNDANCY_SCOPE=keep"
+    RUN_SCOPE = RUN_COVERAGE                                    # the workflow inputs carry the names the GitLab variables had
+    SCOPE_UNKNOWN_TAIL = ", then enter with its id (the run's inputs must be readable to confirm it)"
+    SCOPE_WRONG_TAIL = " (the branch of HEAD)"
+    SCHEDULE_DOOR = ("the schedule is the cron of .github/workflows/quarantine-watch.yml on branch %s; check the workflow is active "
+                     "(Actions tab), or start one run: " + START_WATCH)
     EVENTS = {"schedule": "schedule", "workflow_dispatch": "web", "repository_dispatch": "api", "push": "push"}
 
     def __init__(self, token=None, root=None):
@@ -724,8 +743,21 @@ class GithubCI(GitlabCI):
             raise CIError("missing", f"the artifact {job} of run {pid} is not a readable zip") from None
 
 
+_GITLAB_HOST = GitlabCI                      # the words of GitLab; a test that replaces GitlabCI by a stub does not touch them
+
+
+def ci_class(host):
+    """The reader class of a host name ("ci" of the config); an unknown or absent host keeps the GitLab words (today's behaviour)."""
+    return GithubCI if host == "github" else _GITLAB_HOST
+
+
+def _host_words(root):
+    return ci_class(_config(root).get("ci"))
+
+
 def ci_reader(root=None):
-    """The CI reader the config names ("ci": github | gitlab). The one place that picks the host."""
+    """The CI reader INSTANCE the config names ("ci": github | gitlab), for reads. Its sibling ci_class() picks the same host as a CLASS,
+    for the host's words without a token (status line, enter doors); both read the same "ci" key, and the split is a stubbed GitlabCI."""
     root = Path(ROOT if root is None else root)
     return GithubCI(root=root) if _config(root).get("ci") == "github" else GitlabCI()
 
@@ -1147,7 +1179,7 @@ def cmd_enter(args, ctx):
         _refuse_enter("missing coverage: " + ", ".join(missing), "capture or record a story that walks them (TD-15.5.k / TD-15.5r)")
     head, pipe_sha, pipeline_sha = _head(root), _ci_call(lambda: _need_ci(ctx).pipeline_sha(args.pipeline), args.pipeline), ""
     if pipe_sha != head:
-        door = "run a web pipeline on the current HEAD, then enter again"
+        door = ci_class(cfg.get("ci")).RUN_HEAD + ", then enter again"
         rc, full = _git(root, "rev-parse", "--verify", pipe_sha + "^{commit}") if re.fullmatch(r"[0-9a-f]{40}", pipe_sha or "") else (1, "")
         if not word or rc or not full.strip():           # an unreadable pipeline commit is an unknown: never passed, even with the word
             _refuse_enter(f"pipeline {args.pipeline} did not run on HEAD",
@@ -1171,9 +1203,10 @@ def cmd_enter(args, ctx):
     schedule_passed = False
     if _schedules(cfg["branch"]) != "ok":
         if not word:
-            _refuse_enter("the watch schedule cannot be confirmed", 'ask the owner to create it: Settings -> CI/CD -> Schedules, cron "0 3 * * 1,4", '
-                          "branch %s, variable QUARANTINE_WATCH=1; then record it in docs/RUNBOOK.md section 7; or, if the owner says it may wait, "
-                          "pass --owner-word \"<the owner's words, who, date>\"" % cfg["branch"])
+            door = ci_class(cfg.get("ci")).SCHEDULE_DOOR
+            _refuse_enter("the watch schedule cannot be confirmed", "ask the owner to create it: " + door.replace("%s", cfg["branch"]) +
+                          "; then record it in docs/RUNBOOK.md section 7; or, if the owner says it may wait, "
+                          "pass --owner-word \"<the owner's words, who, date>\"")
         schedule_passed = True                              # a person's word passes this one gate and is recorded (P13)
         _say("schedule not confirmed -- passed by the owner's word: %s" % word)
     covered_lines, total, keep_set_line = _coverage(root, ctx, args, keep, word)
@@ -1207,15 +1240,14 @@ def _coverage(root, ctx, args, keep, word=""):
         report = ""
     m = re.search(r"product lines covered:\s*(\d+)", report)
     if not m:
-        _refuse_enter(f"pipeline {pid} has no coverage measurement ({COVERAGE_JOB})", "run a web pipeline with TEST_REDUNDANCY=1 REDUNDANCY_SCOPE=keep")
+        _refuse_enter(f"pipeline {pid} has no coverage measurement ({COVERAGE_JOB})", _host_words(root).RUN_COVERAGE)
     scope = _coverage_scope(ctx, pid, report)
     if scope is None:
         _refuse_enter(f"the scope of coverage pipeline {pid} could not be established (the report names none and the pipeline variables "
-                      "cannot be read)", "run a web pipeline with --var TEST_REDUNDANCY=1 --var REDUNDANCY_SCOPE=keep, then enter with its id "
-                      "(a token that reads pipeline variables is needed to confirm it)")
+                      "cannot be read)", _host_words(root).RUN_SCOPE + _host_words(root).SCOPE_UNKNOWN_TAIL)
     if scope != "keep":
         _refuse_enter(f"the coverage pipeline {pid} ran with scope {scope[:20]!r}, not keep",
-                      "run a web pipeline with --var TEST_REDUNDANCY=1 --var REDUNDANCY_SCOPE=keep on HEAD")
+                      _host_words(root).RUN_SCOPE + _host_words(root).SCOPE_WRONG_TAIL)
     t = re.search(r"product lines (?:total|in scope):\s*(\d+)", report)
     return int(m.group(1)), (t.group(1) if t else "?"), keep_set_line
 
@@ -1361,7 +1393,7 @@ def _enter_phase2(args, ctx):
     if name in _selftest(root).gate_named_files(forge_texts(root)):
         _refuse_enter(f"a carrier still names {name}", "edit the carrier (SIBLING_MAP, architecture.md, ...) in the same prepared commit")
     if _ci_call(lambda: _need_ci(ctx).pipeline_sha(args.pipeline), args.pipeline) != _head(root):
-        _refuse_enter(f"pipeline {args.pipeline} did not run on HEAD", "run a web pipeline on the current HEAD")
+        _refuse_enter(f"pipeline {args.pipeline} did not run on HEAD", _host_words(root).RUN_HEAD)
     if _selftest_results(_selftext(ctx, args.pipeline)).get(row) != "PASS":
         _refuse_enter(f"{row} is not green in pipeline {args.pipeline}", CI_DOOR % args.pipeline)
     cid = "%s-%s" % (args.pipeline, name[:-3])
