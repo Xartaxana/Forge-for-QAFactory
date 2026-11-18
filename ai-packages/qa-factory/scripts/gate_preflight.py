@@ -48,13 +48,12 @@ And it checks what each CASE needs from the stand — the `preconditions` of its
 (a feature flag, data, an account, a variable, a service) — on the stand itself, so "the flag
 is off here" is one grouped question inside the gate and not four partitions blocked in S5.
 
-Four more facts of the stand were found by cmp2 (TP1-15045, 01.10.2026) and are asked here
+Three more facts of the stand were found by cmp2 (TP1-15045, 01.10.2026) and are asked here
 and nowhere else: a precondition the case creates itself (`case_seeds`) or the stand's own
 account holds (`stand_account`, met only on positive evidence) is not a question, and the prose
 `none` of a story is ONE card; an integration's keys are asked only when the story needs the
 integration; a profile without a registered runtime probe has one derived and checked once
-(`check_s5_runtime_probe`, which writes nothing); and e2e rows whose page objects wait less than
-the stand takes to load a page are one card (`check_s5_stand_limits`).
+(`check_s5_runtime_probe`, which writes nothing).
 
 Gate B rehearses the BUG LIST the person is about to answer: every draft must rest on an
 `APP_BUG` triage verdict, on a case the critic actually read, and on steps a person can follow
@@ -77,7 +76,7 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from contract import HANDED_MATCH_PREFIX, STAND_GAP_MATCH_PREFIX, remedy_errors  # noqa: E402
+from contract import STAND_GAP_MATCH_PREFIX, remedy_errors  # noqa: E402
 # The onboarded project a story lives in, or None: found by its marker (`qa-factory/config.json`, the one
 # `hooklib.project_root` uses), never guessed - the ONE walk, shared with `case_stamp` and `sizing`.
 from critic_rollcall import project_root_of as _project_root  # noqa: E402
@@ -149,19 +148,9 @@ DELIVERY_OPTIONS = ("answer with your approval, one of three: (a) set the delive
 # `pytest`, however it is launched. Only a pytest-shaped command can be rehearsed by
 # `--collect-only`; a project on another runner simply has no cheap collect to rehearse.
 PYTEST_TOKENS = ("pytest", "py.test")
-# The plan level whose rows drive a browser (`contract.PLAN_LEVELS`): the only rows a page-load
-# limit is about.
+# The plan level whose rows drive a browser (`contract.PLAN_LEVELS`): the only rows whose page objects
+# use the stand's page load (`_page_load_due`).
 E2E_LEVEL = "e2e-ui"
-
-
-def limit_seconds(value):
-    """A recorded limit as a positive number of seconds, or None. A bool is not a number here,
-    a string is not one either, and zero, a negative and NaN are not limits."""
-    import math
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    value = float(value)
-    return value if math.isfinite(value) and value > 0 else None
 
 
 PROBE_TIMEOUT_S = 120   # what `runtime_probe.suggest` writes as the probe's own `timeout_s`
@@ -190,18 +179,6 @@ def run_probe(argv, cwd, timeout) -> dict:
     tail = [ln.strip() for ln in (out.stderr or text).splitlines() if ln.strip()]
     return {"unreadable": f"the probe answered no provenance JSON (exit {out.returncode}"
                           + (f": {tail[-1][:120]}" if tail else "") + ")"}
-
-
-def measurement_is_stale(at, verified) -> str:
-    """Why a measurement cannot stand for the stand as it is now, or ''. A stand verified AFTER
-    the measurement may be a different build; both are read as the date they START with and a
-    value that carries no date says nothing (it is never read as stale)."""
-    pattern = re.compile(r"\s*(\d{4}-\d{2}-\d{2})")
-    measured, checked = pattern.match(str(at or "")), pattern.match(str(verified or ""))
-    if measured and checked and measured.group(1) < checked.group(1):
-        return (f"the measurement of {measured.group(1)} is older than the stand's last "
-                f"verification ({checked.group(1)}), so it may describe another build")
-    return ""
 
 
 # The package's one JSON reader. This module's direction: whatever goes wrong while reading is `default`, None unless passed.
@@ -856,7 +833,7 @@ def s5_profiles(config: dict, task_root: Path, rows=None) -> dict:
     asked about the wrong profile is worse than no question.
 
     Users: `controller.Controller._handed_cases`, `check_s5_executor`, `check_s5_toolchain`
-    (its missing-launcher branch), `check_s5_reporter`, and since t-218 `check_s5_stand_limits`
+    (its missing-launcher branch), `check_s5_reporter`
     and `check_s5_runtime_probe`."""
     profiles = [p for p in (config.get("profiles") or [])
                 if isinstance(p, dict) and p.get("profile_id")]
@@ -1540,10 +1517,7 @@ def role_gap_id(stand, role, packet_forms=()) -> str:
 class Rehearsal:
     """One run's inputs, read once. Each check appends findings; nothing of the story's is written.
 
-    Two things are written, and both are the rehearsal's own: the reporter step's test report goes
-    to a temp directory that is removed afterwards, and a PROVEN reporter rehearsal is kept once
-    per project + command in `qa-factory/state/reporter-rehearsals.json`
-    (`_record_rehearsal`, through `atomic_json`; D-0019 item 2, B-220 F11, FR-45)."""
+    What the rehearsal writes is listed once, in the docstring of `run()`; this class docstring does not copy that list."""
 
     _declarations_read = False      # set by `_integration_keys`: were the cases' declarations looked at (F-3b); unknown says no
 
@@ -2860,7 +2834,7 @@ class Rehearsal:
         backend = MC.BACKEND_FACTORY() if MC.BACKEND_FACTORY is not None else MC.PlaywrightBackend()
         try:
             hosts = set(MC.stand_hosts(self.config, root=self.project_root))
-            backend.open(MC.timeout_for(stand), hosts, recipe.get("local_storage"), MC.element_wait_for(self.config))
+            backend.open(MC.timeout_for(self.project_root, self.config, stand), hosts, recipe.get("local_storage"), MC.element_wait_for(self.config))
             return MC.sign_in(backend, self.config, self.project_root, actor, stand, task_root=self.task_root, hosts=hosts)
         finally:
             backend.close()
@@ -3188,136 +3162,164 @@ class Rehearsal:
         except Exception:
             return {}
 
-    def _e2e_limit(self, profile_id: str, profile: dict, entry: dict) -> dict:
-        """What the recorded limits say about one profile's e2e rows: `{"state": ...}`.
-
-        `n/a` (no automate row of the profile is an e2e one, or the step is switched off),
-        `unmeasured` (a limit is not recorded, or is older than the stand - `why` says which, in
-        words a person reads, and `fields` names where it is recorded),
-        `unreadable` (recorded and not a positive number - `what` says which limit in words and
-        `fields` names the field), `incomplete` (a page load is recorded without how or when it
-        was measured: `missing` names the parts, t-224 Q2), `within`, or `over` (a full page
-        load takes longer than the page objects wait: `load`, `wait`, `route`, `stand`,
-        `cases`). The field paths stay in `fields`/`missing`: they are for the fix text and the
-        extra fields, never for a sentence a person reads (FR-6). Pure: the step that raises the
-        card and the reporter step that must not run a test on a stand this slow both ask it,
-        and neither writes.
-
-        cmp2 (TP1-15045, 01.10.2026): a full load of the workflow editor took 70-110 s under
-        Vite dev, the page objects wait 5-30 s, and about $2.3 of automator dispatches went
-        before S5 found out. The number is carried with how it was measured (command hygiene
-        6b); onboarding records it by hand (a headless-browser probe is a later B-line)."""
-        if self._gate_switch("skip_stand_limits"):
-            return {"state": "n/a"}
-        rows = dict(self.automate_rows())
-        cases = [c for c in entry.get("cases") or []
-                 if str((rows.get(c) or {}).get("level") or "") == E2E_LEVEL]
-        if not cases:
-            return {"state": "n/a"}
-        stand = self._selected_environment()
-        stand_name = str(stand.get("name") or "") or "this stand"
-        measured = stand.get("measured") if isinstance(stand.get("measured"), dict) else {}
-        record = measured.get("e2e_page_load_s")
-        wait_raw = profile.get("page_object_max_wait_s")
-        load_field = "environments[].measured.e2e_page_load_s"
-        wait_field = "profiles[].page_object_max_wait_s"
-        base = {"stand": stand_name, "cases": cases}
-        if record is None and wait_raw is None:
-            return dict(base, state="unmeasured", fields=[load_field, wait_field],
-                        why="neither the stand's page load nor the page objects' wait is recorded")
-        words, fields = [], []
-        load = None
-        if record is not None:
-            load = limit_seconds(record.get("value") if isinstance(record, dict) else None)
-            if load is None:
-                words.append(f"the page load recorded for {stand_name}")
-                fields.append(load_field + ".value")
-        wait = None
-        if wait_raw is not None:
-            wait = limit_seconds(wait_raw)
-            if wait is None:
-                words.append("the wait of the page objects")
-                fields.append(wait_field)
-        if words:
-            return dict(base, state="unreadable", what=words, fields=fields)
-        # A number nobody can trace is not a measurement (command hygiene 6b): the record says
-        # how it was measured and when, or it is the onboarding's defect. The route is NOT
-        # required - there is no reference route in the config to compare it with (t-224, Q2).
-        if isinstance(record, dict):
-            missing = [part for part in ("command", "at")
-                       if not (isinstance(record.get(part), str) and record[part].strip())]
-            if missing:
-                return dict(base, state="incomplete", missing=missing,
-                            fields=[f"{load_field}.{part}" for part in missing])
-        if load is None:
-            return dict(base, state="unmeasured", wait=wait, fields=[load_field],
-                        why=f"the page objects wait at most {wait:g} s, and the stand's page load "
-                            "is not recorded")
-        if wait is None:
-            return dict(base, state="unmeasured", load=load, fields=[wait_field],
-                        why=f"a full page load measured {load:g} s, and the page objects' wait is "
-                            "not recorded")
-        stale = measurement_is_stale(record.get("at"), stand.get("verified"))
-        if stale:
-            return dict(base, state="unmeasured", why=stale)
-        route = " ".join(str(record.get("route") or "").split())[:80]
-        if load > wait:
-            return dict(base, state="over", load=load, wait=wait, route=route)
-        return dict(base, state="within", load=load, wait=wait)
-
-    def check_s5_stand_limits(self) -> None:
-        """e2e rows whose page objects would time out on this stand become ONE card per profile.
-
-        The options are the answers this factory already has executors for (FR-9): (a) the
-        handed door `executor unavailable: <profile>` - S5 writes the tests and the person runs
-        them where the page loads in time; (b) `<case id>: manual` - the gate-A answer form that
-        moves the row to a check by an agent. A third door, "accept them as blocked" through
-        `waiver.py --stage S5 --block "e2e stand limit: <profile>"`, was dropped from the card
-        (t-224, C2): nothing outside this file reads that block yet (a reader that turns it into
-        `blocked_by_env` rows is queued behind t-226), so offering it was a door with no
-        executor (FR-9). A waiver file that already holds the block still passes the card, which
-        is `add()`'s own rule (FR-4). Nothing recorded is "not measured", an INFO line, never a
-        card (FR-41). Strict `>`: a load equal to the wait fits. `gate_rehearsal.
-        skip_stand_limits: true` turns it off."""
-        check = "e2e_stand_limit"
-        if self.project_root is None or self._gate_switch("skip_stand_limits"):
-            return
-        keyed = self.keyed_profiles()
+    def _page_load_due(self) -> bool:
+        """Does something of this story use the stand's page load? True when a keyed profile that is not handed has a case whose
+        automate row is an e2e one (the page objects' waits are fitted to it), or the plan holds a `manual-agent` row (every manual
+        capture takes its page limit from `timeout_for`). No browser opens for a number nothing uses."""
         handed = self._handed()
-        profiles = {str(p.get("profile_id")): p for p in (self.config.get("profiles") or [])
-                    if isinstance(p, dict) and p.get("profile_id")}
-        for profile_id, entry in sorted(keyed.items()):
+        rows = dict(self.automate_rows())
+        for profile_id, entry in sorted(self.keyed_profiles().items()):
             if profile_id in handed:
                 continue
-            limit = self._e2e_limit(profile_id, profiles.get(profile_id) or {}, entry)
-            state = limit["state"]
-            if state == "unmeasured":
-                self.note(check, f"`{profile_id}`: e2e page load on {limit['stand']} is not "
-                                 f"measured - {limit['why']}, so whether its page objects' waits "
-                                 "fit this stand is unknown", fields=limit.get("fields") or [])
-            elif state == "unreadable":
-                self.add(check, FACTORY_DEFECT,
-                         f"the recorded limit cannot be read: {' and '.join(limit['what'])} "
-                         f"{'is' if len(limit['what']) == 1 else 'are'} not a number above zero, "
-                         f"so the e2e rows of `{profile_id}` were not compared with the stand's "
-                         "page load",
-                         "the limit is onboarding's own record: record a positive number of "
-                         "seconds in " + ", ".join(f"`{f}`" for f in limit["fields"])
-                         + "; "
-                         + self.waiver_command("the recorded limit cannot be read"),
-                         profile=profile_id, fields=limit["fields"])
-            elif state == "incomplete":
-                self.add(check, FACTORY_DEFECT,
-                         f"the recorded limit is incomplete: the page load recorded for "
-                         f"{limit['stand']} does not say how or when it was measured, so the e2e "
-                         f"rows of `{profile_id}` were not compared with the page objects' wait",
-                         "the record is onboarding's own: add what is missing ("
-                         + " and ".join(f"`{part}`" for part in limit["missing"])
-                         + ") next to the number in `environments[].measured.e2e_page_load_s`; "
-                         + self.waiver_command("the recorded limit is incomplete"),
-                         profile=profile_id, missing=limit["missing"], fields=limit["fields"])
-            elif state == "over":
-                self._stand_limit_card(check, profile_id, limit)
+            if any(str((rows.get(case) or {}).get("level") or "") == E2E_LEVEL for case in entry.get("cases") or []):
+                return True
+        return bool(plan_rows_of(self.task_root, ("manual-agent",)))
+
+    def check_stand_page_load(self) -> None:
+        """Measure the chosen stand's page load once (headless, signed out) or reuse the measurement the project already holds, and say
+        so in ONE note. It blocks nothing and asks nobody anything (FR-3; the owner, 17.11.2026: the number is the factory's to
+        measure and use). The measurement is a FLOOR (pages behind the sign-in can be slower): it only lengthens a limit.
+
+        The ONE writer of the registry row `environments.page_load` (`project_knowledge.record`; refused in a story that leaves no
+        trace, P8). Reused while `project_knowledge.page_load` says `measured`. A failure keeps no number, names its owner in the
+        note, and keeps its REASON (one subject per stand; a kept reason is replaced in place, a measurement is a new row; cause, why, time, attempts; the owner, 17.11.2026): the second start tries once more,
+        a second failure of the same cause stops the tries and carries the reason in the note (never a pass,
+        AR-28) until the stand's definition or address changes or a person revokes the row. No project, `gate_rehearsal.skip_stand_limits: true`, nothing that uses the number, no stand, a stand with no web page
+        (a device or API-only stand): nothing, no note."""
+        if self.project_root is None or self._gate_switch("skip_stand_limits") or not self._page_load_due():
+            return
+        name = str(self._selected_environment().get("name") or "")
+        if not name:
+            return
+        import project_knowledge as PK
+        import manual_capture as MC
+        check = "stand_page_load"
+        card = PK.environment(name, cfg=self.config)
+        if not card["found"]:
+            if "two stands are named" in card["problem"]:
+                self.note(check, f"two stands are named {name}; the page load is not measured until one name is unique",
+                          state="none", why=card["problem"])
+            else:
+                self.note(check, f"the stand {name} could not be read ({card['problem']}); the page load is not measured this time",
+                          state="none", why=card["problem"])
+            return
+        got = PK.page_load(self.project_root, self.config, name)
+        if got["state"] == "measured":
+            self.note(check, self._page_load_text(got, "measured on " + str(got["at"])[:10]), state="measured", load_s=got["load_s"],
+                      at_least=got["at_least"], address=got["address"], why="reused")
+            return
+        if got["state"] == "unreadable":
+            self.note(check, f"what the factory keeps about this project could not be read ({got['why']}), so the page load is not "
+                             "measured this time", state="unreadable", why=got["why"])
+            return
+        kept = got.get("failed") if got["state"] == "failed" else None
+        if kept and kept["attempts"] >= PK.PAGE_LOAD_ATTEMPTS_MAX:
+            # the same failure was tried twice: no blind third try. The reason goes to the conductor in this note (AR-17); it is never a pass (AR-28).
+            # Something changed (the stand's definition or address) or a person's
+            # `revoke` of the row is what allows another attempt.
+            self.note(check, self._page_load_kept_text(kept), state="failed_kept", cause=kept["cause"], why=kept["why"],
+                      attempts=kept["attempts"], at=kept["at"], address=got["address"], door="project_knowledge.py revoke")
+            return
+        result = (MC.PAGE_LOAD or MC.measure_page_load)(self.config, name, self.project_root)
+        state = result.get("state")
+        if state == "n/a":
+            return
+        if state != "measured":
+            self._page_load_failed(check, name, result, kept)
+            return
+        value = {k: result[k] for k in ("load_s", "at_least", "address", "definition_sha", "at")}
+        try:
+            _, problem, _ = PK.record(self.project_root, key=PK.PAGE_LOAD_KEY, environment=name, element=PK.PAGE_LOAD_ELEMENT,
+                                      state=PK.KNOWN, scope="stand", value=value, words=PK.HOW_PAGE_LOAD, source="measured",
+                                      story=self.task_root.name, by="gate", where="gate A", task_root=self.task_root)
+        except TimeoutError:
+            problem = "the record was busy"
+        text = self._page_load_text(result, "measured now")
+        if problem:
+            text += f" It was not kept for the next stories ({problem})."
+        self.note(check, text, state="measured", load_s=result["load_s"], at_least=result["at_least"], address=result["address"],
+                  why=problem or "measured now")
+
+    @staticmethod
+    def _page_load_address(address) -> str:
+        import manual_capture as MC
+        return MC.shown_address(address)
+
+    def _page_load_text(self, got, when) -> str:
+        """The ONE sentence of a measurement, used by a fresh note and a reused one: it says SIGNED OUT, says the number is a floor,
+        and never writes an unfinished load as its true value (FR-41)."""
+        import manual_capture as MC
+        head = f"The stand's start page ({self._page_load_address(got.get('address'))}) "
+        if got.get("at_least"):
+            head += f"had not finished loading after {MC.DEFAULT_TIMEOUT_S} s (so it takes at least that long)"
+        else:
+            head += f"loaded in {got['load_s']:g} s"
+        return (head + f", {when} by the factory's browser while signed out; pages behind the sign-in can be slower. The S5 and S7 "
+                f"briefs carry it, and manual checks wait at least {MC.DEFAULT_TIMEOUT_S} s, longer when this load needs it.")
+
+    def _page_load_identity(self, name) -> tuple:
+        """`(definition_sha, safe address)` the stand has now, the identity a number or a kept reason belongs to; `("", "")` when
+        it cannot be read (then nothing is kept: a reason that cannot say which stand it was is no reason)."""
+        try:
+            import env_probe
+            import manual_capture as MC
+            import stand_identity
+            return (stand_identity.definition_sha_for(self.config, name),
+                    MC._safe_url(env_probe.frontend_of(self.config, name, root=self.project_root)["url"]))
+        except Exception:    # noqa: BLE001 - a note is never stopped by its own identity
+            return "", ""
+
+    @staticmethod
+    def _page_load_reason_words(cause, why, address="") -> str:
+        reasons = {"no_browser": "this machine has no browser the factory can start",
+                   "unreachable": f"the stand did not answer at {address}" if address else "the stand did not answer",
+                   "outside_hosts": "the start page leads to a host outside the stand's hosts",
+                   "credentials_in_address": "the stand's web address carries a user name or password, so it is not opened or kept"}
+        return reasons.get(cause) or f"a defect of the factory ({why})"
+
+    def _page_load_kept_text(self, kept) -> str:
+        """The ONE sentence of a kept reason, used by the stage's note (the owner, 17.11.2026)."""
+        import manual_capture as MC
+        return (f"The factory could not measure the stand's page load on {kept['attempts']} tries since {str(kept['at'])[:10]}: "
+                f"{self._page_load_reason_words(kept['cause'], kept['why'])}. It does not try again until the stand's definition or "
+                f"address changes, or a person asks for another try. Manual checks wait "
+                f"{MC.DEFAULT_TIMEOUT_S} s per page.")
+
+    def _page_load_failed(self, check, name, result, kept=None) -> None:
+        """ONE note for a failed measurement, by the owner of the failure (FR-19), and the kept REASON (the owner, 17.11.2026: no
+        circling): the reason (cause, one line, time, attempts) replaces the number's place in the registry row, under the stand's
+        definition and address. The same cause as the kept one makes `attempts` 2 (the one retry of the second start); another cause
+        starts at 1. The reason carries no address of a person's (the safe address only) and never a pass (AR-28). Only `factory`
+        says "a defect of the factory"."""
+        import manual_capture as MC
+        import project_knowledge as PK
+        cause = str(result.get("cause") or "factory")
+        if cause not in PK.PAGE_LOAD_CAUSES + ("no_browser",):
+            cause = "factory"
+        why = " ".join(str(result.get("why") or "").split())[:PK.PAGE_LOAD_WHY_MAX]
+        sha, address = self._page_load_identity(name)
+        shown = self._page_load_address(address) if cause == "unreachable" else ""
+        attempts = kept["attempts"] + 1 if kept and kept["cause"] == cause else 1
+        problem = ""
+        if cause == "no_browser":
+            problem = "the browser is a fact about this machine, so it is not kept"     # AR-4: noted per run, never carried
+        elif sha and address:
+            value = {"failed": {"cause": cause, "why": why, "at": MC._now(), "attempts": attempts}, "definition_sha": sha, "address": address}
+            try:
+                _, problem, _ = PK.record(self.project_root, key=PK.PAGE_LOAD_KEY, environment=name, element=PK.PAGE_LOAD_ELEMENT,
+                                          state=PK.KNOWN, scope="stand", value=value, words=PK.HOW_PAGE_LOAD, source="measured",
+                                          story=self.task_root.name, by="gate", where="gate A", task_root=self.task_root)
+            except TimeoutError:
+                problem = "the record was busy"
+        else:
+            problem = "the stand's identity could not be read"
+        text = (f"The factory could not measure the stand's page load: {self._page_load_reason_words(cause, why, shown)}. Manual checks "
+                f"wait {MC.DEFAULT_TIMEOUT_S} s per page; " + (
+                    "it is kept as the reason, tried once more at the next rehearsal, and then not again until something changes."
+                    if not problem and attempts < PK.PAGE_LOAD_ATTEMPTS_MAX else
+                    "it is kept as the reason and not tried again until something changes." if not problem else
+                    f"the reason could not be kept ({problem}), so it is tried again at the next rehearsal."))
+        self.note(check, text, state="failed", cause=cause, why=why, address=shown, attempts=attempts, kept=not problem)
 
     def check_stand_lessons(self) -> None:
         """ONE note with what a person taught about the chosen stand (`project_knowledge.py lesson`), so the approval sees it.
@@ -3341,38 +3343,6 @@ class Rehearsal:
         elif got["lines"]:
             self.note("stand_lessons", "What you taught about " + stand + " (the roles read it): " + "; ".join(got["lines"])
                       + ". To change it, say so.")
-
-    def _stand_limit_card(self, check: str, profile_id: str, limit: dict) -> None:
-        cases = limit["cases"]
-        stand, wait = limit["stand"], limit["wait"]
-        elsewhere = "another stand where the page loads in time"
-        for other in self.config.get("environments") or []:
-            if not isinstance(other, dict) or str(other.get("name") or "") in ("", limit["stand"]):
-                continue
-            record = (other.get("measured") or {}).get("e2e_page_load_s") \
-                if isinstance(other.get("measured"), dict) else None
-            value = limit_seconds(record.get("value") if isinstance(record, dict) else None)
-            if value is not None and value <= wait:
-                elsewhere = str(other["name"])
-                break
-        # The message still opens with this block text although the card no longer offers a
-        # waiver on it (C2): a waiver file written while it did must keep passing the card, and
-        # `add()` matches the block against the message (FR-4).
-        block = f"e2e stand limit: {profile_id}"
-        route = limit["route"] or "the page"
-        shown = named_ids(cases)
-        self.add(check, PERSON_DECIDES,
-                 f"{block} — e2e on {stand}: a full load of {route} measured {limit['load']:g} s and "
-                 f"the page objects of `{profile_id}` wait at most {wait:g} s, so {shown} cannot "
-                 "run here",
-                 "answer with your approval, one of two: "
-                 f"(a) the tests are written now and you run them on {elsewhere} — "
-                 + self.waiver_command(f"{HANDED_MATCH_PREFIX} {profile_id}", "S5", "handed") + "; "
-                 "(b) an agent checks these cases by hand here and shows you before and after — "
-                 f"answer `<case id>: manual` for each of {shown}",
-                 profile=profile_id, cases=list(cases), load_s=limit["load"], wait_s=wait,
-                 options=[{"id": "a", "action": EXECUTOR_OPTION_IDS[2]},
-                          {"id": "b", "action": "manual_by_agent"}])
 
     def check_s5_reporter(self) -> None:
         """ONE existing test, run through the profile's own one-test command, to prove that a
@@ -3421,14 +3391,6 @@ class Rehearsal:
         try:
             for profile_id, entry in sorted(keyed.items()):
                 if profile_id in handed:
-                    continue
-                if self._e2e_limit(profile_id, profiles.get(profile_id) or {}, entry)["state"] == "over":
-                    # A test through a stand whose page takes longer to load than the page
-                    # objects wait would time out and prove nothing about the report; the card
-                    # of `check_s5_stand_limits` already says why (t-218, C5).
-                    self.note(check, f"`{profile_id}`: one test was not run to prove its report - "
-                                     "a full page load on this stand takes longer than its page "
-                                     "objects wait (see the e2e stand limit above)")
                     continue
                 self._rehearse_reporter(check, profile_id, entry, profiles.get(profile_id) or {},
                                         root, temp, timeout, cfg.get("reporter_probe_test"))
@@ -6178,8 +6140,11 @@ class Rehearsal:
 
 
 def run(task_root, gate: str = "A") -> dict:
-    """The rehearsal. Read-only except for ONE file: gate A's `check_actor_sign_in` writes `state/sign-in-probe.json` (the
-    sign-in proof of each manual account, rewritten whole each run); no other state file is written by this call or anything it calls."""
+    """The rehearsal. Read-only except for these writes, the one list: gate A's `check_actor_sign_in` writes `state/sign-in-probe.json`
+    (the sign-in proof of each manual account, rewritten whole each run); the reporter check writes `state/reporter-rehearsals.json`
+    (the proofs of a test command's report) and `state/reporter-unread/` (a probe's report the code could not read); and gate A's
+    `check_stand_page_load` writes the stand's page load through `project_knowledge.record` (project level,
+    `records/project-knowledge.json`; refused in a story that leaves no trace). No other file is written by this call or anything it calls."""
     gate = str(gate or "A").upper()
     if gate not in GATE_STAGE:
         raise ValueError(f"gate must be one of: {', '.join(sorted(GATE_STAGE))}")
@@ -6188,8 +6153,8 @@ def run(task_root, gate: str = "A") -> dict:
         steps = (r.check_gate_decision, r.check_stage_guard, r.check_prepare,
                  r.check_role_permissions, r.check_cases, r.check_planning_contract,
                  r.check_vcs, r.check_stand, r.check_case_environment_gaps, r.check_role_accounts, r.check_actor_sign_in,
-                 r.check_s5_dependencies, r.check_s5_executor, r.check_s5_toolchain, r.check_s5_stand_limits,
-                 r.check_stand_lessons,
+                 r.check_s5_dependencies, r.check_s5_executor, r.check_s5_toolchain,
+                 r.check_stand_page_load, r.check_stand_lessons,
                  r.check_s5_reporter, r.check_s5_runtime_probe,
                  r.check_s5_credentials,
                  r.check_case_preconditions, r.check_open_questions, r.check_unraised_questions,
@@ -6492,12 +6457,8 @@ def selftest() -> int:
          account_keys(".env: AUTH_USERNAME / AUTH_PASSWORD - made by SUPERADMIN_EMAIL"),
          ["AUTH_USERNAME", "AUTH_PASSWORD"])
     case("`NOT provisioned locally` names no key", account_keys("NOT provisioned locally"), [])
-    case("a limit is a positive number, never a bool or a string",
-         [limit_seconds(v) for v in (30, 0.5, 0, -1, True, "30", None)], [30.0, 0.5, None, None, None, None, None])
     case("the line of what is not asked names six cases and counts the rest",
          not_asked_line([(f"TC_{n}", {}) for n in range(7)], []).count(" and 1 more"), 1)
-    case("a measurement older than the stand's last verification is stale",
-         bool(measurement_is_stale("2026-09-17", "2026-09-18: rebuilt")), True)
     case("the lead of the prose-`none` card fits the packet's cut for any count",
          all(len(none_card_lead(n, n)) <= BRIEF_CUT for n in (1, 15, 10 ** 9)), True)
     cut = brief_lines({"gate": "A", "next_stage": "S5", "can_proceed": False, "by_class": {},

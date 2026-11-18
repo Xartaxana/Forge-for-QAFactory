@@ -538,27 +538,6 @@
       "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
-      "id": "s5_stand_limits", "inventory": "F9", "vocabulary": "target",
-      "decides": "the stand's own limits (what the stand cannot do) are checked before S5 plans over it",
-      "sites": [
-        {"file": "gate_preflight.py", "function": "check_s5_stand_limits", "role": "accept"}
-      ],
-      "field": null,
-      "words": ["matched", "mismatched", "unknown"],
-      "verdict_map": {
-        "matched": {"class": "matched"},
-        "mismatched": {"class": "mismatched"},
-        "unknown": {"class": "unknown", "owner": "environment"}
-      },
-      "accepts": {},
-      "promotable": false,
-      "unknown_branch": "debt", "on_no_answer": "debt", "waits_at": null,
-      "closed_by": [], "addressee": ["code_routes"], "person_subject": null,
-      "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
-      "test": "scripts/tests/test_gate_preflight.py",
-      "status": "debt", "debt_ref": "B-282", "exempt_reason": ""
-    },
-    {
       "id": "reporter_rehearsal_identity", "inventory": "F9", "vocabulary": "code",
       "decides": "an earlier proof that a test command leaves a report the factory can read is reused only for exactly that command: the key holds the profile, the argv itself (its digest is what `onboarding_probe.earlier_proof` compares), the test, the report format, the folder and the dependency bytes - no stand and no deployed identity (B-220 F11). `matched`: the earlier proof is of the same command (`same_command`) AND the durable key hits - reused, the test is not run again; a `same_command` whose key misses is rehearsed again. `mismatched`: the same command is rehearsed again and leaves no report (it stopped working) - it goes to the factory's helper first, once per command since its last proof (B-416, D-0031: every reader the code has is tried, then the conductor reads the kept report and records what it changed or understood), and a card for the person comes only after the helper's turn, never a pass. `unknown`: no row of this command (`none`, or only rows of the old form), another command's rows only (`command_changed`), or a record or reader that cannot be read (`unreadable`) - nothing is reused: the command is rehearsed again, and a rehearsal that cannot finish says the record could not be read; a record of the helper's turns that cannot be read reads as a turn taken (the card), never as none. An unknown never keys a proof as the same",
       "sites": [

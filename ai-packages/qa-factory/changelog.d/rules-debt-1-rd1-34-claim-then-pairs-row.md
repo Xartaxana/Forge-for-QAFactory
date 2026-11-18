@@ -1,0 +1,1 @@
+- `manifest_put.py` now refuses a bad `claim_then_pairs` through a sourced `manifest_put:claim_then_pairs` check with its own joint row, and the K4 baseline for `manifest_put.py::run` is back at 16 bare sites. The problem text is unchanged; the refusal is printed in the same form as `probe_owed` and still exits with the bad-fragment code.
