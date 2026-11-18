@@ -34,7 +34,7 @@
 | FV3-4 | П1 | Задача CI `dry-story` в `dry-story.yml`, вызовы ночи и двери `dry_only`, спайк удалён (§4 N5; F-P2, F-P3, F-P6, F-P16, F-P20) | builder → critic | `.github/workflows/{dry-story,nightly,canon}.yml`, `tools/test_workflows.py` | FV3-2 | принято: 905e9735 (t-1021) |
 | FV3-5 | П1 | Заглушка критика кода S5 запускает `probe_by_code.py` (а) и метка главного прохода по CI (б) (§4 N2h; F-P7, F-P18); находка `findings/20261117-p1b-s5-zaglushka-kritika-ne-zapuskaet-probu.md` | builder → critic | `scripts/tests/dry_stub.py`, `scripts/tests/fixtures/stories/dry-1/story.json`; (б) `…/driver-exits/known_red.json` (`main/*`), `scripts/slow_tests.json` | FV3-2; (б) FV3-3 | принято: b1243561 (t-1022) |
 | FV3-6 | П1 | Строки обхода группы `gates` (§4 N4) | builder | `scripts/tests/fixtures/stories/dry-1/{exits,seeds}/gates.json`, `scripts/tests/fixtures/driver-exits/gates.json`, `…/driver-exits/known_red/gates.json` | FV3-3, FV3-4 | принято: b90b73a4 (t-1069) |
-| FV3-7 | П1 | Строки обхода группы `s5` (§4 N4) | builder | то же для `s5` | FV3-3, FV3-4, FV3-5 | ожидает |
+| FV3-7 | П1 | Строки обхода группы `s5` (§4 N4) | builder | то же для `s5` | FV3-3, FV3-4, FV3-5 | принято: 9418c560905701751db857caf94b14af9c193569 (t-1223) |
 | FV3-8 | П1 | Строки обхода группы `s6-s9` (§4 N4) | builder | то же для `s6-s9` | FV3-3, FV3-4, FV3-5 | ожидает |
 | FV3-9 | П1 | Строки ключей цен групп `s0`, `s1-s4` (F-P9) | builder | `…/stories/dry-1/exits/{s0,s1-s4}.json` | FV3-3 | ожидает |
 | FV3-10 | П1 | Перепись ключей вопросов: ключи сухой стори в `driven`, `PINNED_ELSEWHERE` сжимается (§4 N4c) | builder → critic | `scripts/tests/test_conductor_doors.py`, `scripts/tests/test-layers.json` (covers) | FV3-6…FV3-9 | ожидает |
