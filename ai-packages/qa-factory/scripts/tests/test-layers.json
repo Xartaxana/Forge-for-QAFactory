@@ -7980,6 +7980,7 @@
    "named_by": [],
    "replaced_by": null,
    "covers": [
+    "tests/harness.py",
     "tests/words_doors_common.py"
    ]
   },
