@@ -1865,6 +1865,59 @@ def c3_b2_a_reuse_is_accepted_through_the_registry_row_and_an_unknown_runs_again
         cleanup(tmp)
 
 
+def rd1_26_the_identity_word_is_read_through_its_row():
+    """RD1-26 (row `test_identity`, consumers `window_bound`, `mechanical_bytes`, `contract_twin`, `pair_same`): expected from the
+    matched set of `same_test`, the raw / content narrowings (E11, K-R6) and an unreadable registry binding, closing and picking nothing."""
+    import copy
+    import gate_registry as GR
+    import gate_template as GT
+    import run_history as RH
+    reg = copy.deepcopy(GR.load_registry(GR.PLUGIN_ROOT)[0])
+    next(r for r in reg["rows"] if r["id"] == "test_identity")["accepts"].pop("test_identity.window_bound")
+    GT.registry_problem()                           # fills the once-per-process cache
+    bad, saved = ({"rows": "x"}, GR.structural_error({"rows": "x"})), list(GT._READ)
+    ident = lambda c, h: {"instance_identity": {"instance_code_sha": c, "instance_content_sha": h}}  # noqa: E731
+    cases = [({"input_hash": "a"}, {"input_hash": "a"}, True), (ident("c", "h"), ident("c", "h"), True),
+             (ident("c", "h"), ident("c", "k"), True), ({"test_code_sha": "z"}, {"test_code_sha": "z"}, True),
+             (ident("c", "h"), ident("d", "h"), False), ({}, {}, False), ({"input_hash": "a"}, None, False)]
+    red = {"code": "c", "raw": "r", "file": "f"}
+    two = {"instance_code_sha": "c", "instance_content_sha": "h"}
+    job = {"request": {"instance_contracts": {"t.py::f[1]": two, "t.py::f[2]": dict(two)}}}
+    tmp = temp_dir("qa-rd126-")
+    write(tmp / "work" / "run-blocks" / "b.json", {"input_fingerprint": "fp", "dispatch_id": "au", "attempt_id": "j1",
+                                                   "results": [{"instance_id": "i1", "status": "passed"}]})
+    write(tmp / "state" / "execution-jobs" / "j1.json", {"job_id": "j1", "request": {"fingerprint_files": [
+        {"kind": "test_files", "path": "t.py", "sha256": "a"}]}})
+    win = {"mechanical_round": {"author_dispatch_id": "au", "reviewer_dispatch_id": "rv", "reviewed_input_hash": "old"}}
+    green = lambda h: acceptance.green_on_current_bytes_why(  # noqa: E731
+        {"outcome": "passed", "execution_fingerprint": "fp", "instance_id": "i1", "input_hash": h}, win, tmp)
+    real = PL.same_test, PL.compare_identity
+    try:
+        for label, state in (("live", saved[0]), ("unreadable", bad), ("no window_bound", (reg, None))):
+            GT._READ[:] = [state]
+            ok = state is not bad                      # a registry that reads: the other three consumers still answer
+            for item, proof, want in cases:
+                check_eq(f"E26 _bound_to {item} {proof} [{label}]", acceptance._bound_to(item, proof, {}, None), want and label == "live")
+            check_eq(f"E26 _compare_shas [{label}]", RH._compare_shas(red, dict(red))[:2], ("same", "code") if ok else ("unknown", "unknown"))
+            check_eq(f"E26 _job_contract [{label}]", RH._job_contract(job, "t.py::f[3]"), two if ok else {})
+            check_eq(f"E26 green on equal raw [{label}]", green("a")[0], ok)
+        GT._READ[:] = saved
+        check_in("E26 green: raw differs names the bytes", "ran the test file as sha256 a", green("b")[1])
+        PL.compare_identity = lambda a, b: ("same", "code")
+        check_eq("K-R6 same by code only picks no contract", RH._job_contract(job, "t.py::f[3]"), {})
+        PL.same_test = lambda *a: "instance"
+        check_eq("E11 an `instance` word is not green", green("a")[0], False)
+        PL.same_test, PL.compare_identity = real
+        GT._READ[:] = [bad]
+        why = green("a")[1]
+        check("E26-5 unreadable: the why names the registry, claims no bytes",
+              why.startswith("the gate registry cannot be read") and "ran the test file as sha256" not in why, why)
+    finally:
+        PL.same_test, PL.compare_identity = real
+        GT._READ[:] = saved
+        cleanup(tmp)
+
+
 def main():
     root = the_project()
     try:
@@ -1897,6 +1950,7 @@ def main():
         the_receipt_of_a_neighbour_through_the_obligation_binding()
         the_own_stale_receipt_wins_over_the_neighbours()
         c3_b2_a_reuse_is_accepted_through_the_registry_row_and_an_unknown_runs_again()
+        rd1_26_the_identity_word_is_read_through_its_row()
     finally:
         cleanup(root)
     ep1_37_the_file_of_a_selector_is_the_contracts()
