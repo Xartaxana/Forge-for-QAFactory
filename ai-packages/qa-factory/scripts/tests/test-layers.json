@@ -6576,9 +6576,9 @@
     "tests/story_run_refusals_common.py"
    ]
   },
-  "test_story_run_s0.py": {
+  "test_story_run_s0_snapshot.py": {
    "layer": "detector",
-   "why": "AR-6 detector (S0 read routes)",
+   "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
    "named_by": [
     "design/architecture.md:86"
    ],
@@ -6612,7 +6612,128 @@
     "references/jira-fields.json",
     "tests/harness.py",
     "tests/story_run_common.py",
-    "tests/test_story_run_refusals.py"
+    "tests/test_story_run_refusals.py",
+    "tests/story_run_s0_common.py"
+   ]
+  },
+  "test_story_run_s0_source_list.py": {
+   "layer": "detector",
+   "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
+   "named_by": [
+    "design/architecture.md:86"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "brief_pack.py",
+    "human_text.py",
+    "no_move.py",
+    "source_exclusions.py",
+    "source_inventory.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "ticket_adapter.py",
+    "ticket_light.py",
+    "vcs_evidence.py",
+    "evals/fixtures/tickets/QA-2.md",
+    "references/jira-fields.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/test_story_run_refusals.py",
+    "tests/story_run_s0_common.py"
+   ]
+  },
+  "test_story_run_s0_paste_owners.py": {
+   "layer": "detector",
+   "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
+   "named_by": [
+    "design/architecture.md:86"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "brief_pack.py",
+    "human_text.py",
+    "no_move.py",
+    "source_exclusions.py",
+    "source_inventory.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "ticket_adapter.py",
+    "ticket_light.py",
+    "vcs_evidence.py",
+    "evals/fixtures/tickets/QA-2.md",
+    "references/jira-fields.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/test_story_run_refusals.py",
+    "tests/story_run_s0_common.py"
+   ]
+  },
+  "test_story_run_s0_c29.py": {
+   "layer": "detector",
+   "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
+   "named_by": [
+    "design/architecture.md:86"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "brief_pack.py",
+    "human_text.py",
+    "no_move.py",
+    "source_exclusions.py",
+    "source_inventory.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "ticket_adapter.py",
+    "ticket_light.py",
+    "vcs_evidence.py",
+    "evals/fixtures/tickets/QA-2.md",
+    "references/jira-fields.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/test_story_run_refusals.py",
+    "tests/story_run_s0_common.py"
    ]
   },
   "test_story_run_s3_windows.py": {
