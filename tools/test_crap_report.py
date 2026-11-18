@@ -424,19 +424,36 @@ def test_files_absent_from_the_record_are_unmeasured_and_counted(tmp_path, capsy
 GOLDEN_SRC = "def f(x):\n    if x:\n        y = 1\n        z = 2\n    return x\n"
 
 
+TWO_SRC = "def g(x):\n    if x:\n        return 1\n    return 2\n"
+
+
 def make_golden(root, source=GOLDEN_SRC, sha=None, tests=("test_a.py", "test_b.py"), stems=None, covered=None,
-                scripts="scripts"):
-    """scripts/story_run.py plus golden/coverage-n0.json and golden/coverage-hits/*.json: lines 2, 3, 5 ran
-    (the two hits files overlap on line 3), line 4 never ran."""
+                scripts="scripts", two=False, sha_two=None, old=False):
+    """scripts/story_run.py plus golden/coverage-n0.json (schema 2, `driver_files`) and golden/coverage-hits/*.json:
+    lines 2, 3, 5 ran (the two hits files overlap on line 3), line 4 never ran. `two` adds scripts/driver_two.py
+    whose lines 2, 4 ran in test_b ONLY (test_a's hits file has no key for it), line 3 never ran. `old` writes the
+    schema-1 shape (`story_run_sha256`, no `driver_files`)."""
     raw = source if isinstance(source, bytes) else source.encode("utf-8")
     put(root, {f"{scripts}/story_run.py": raw})
     stems = [t[:-3] for t in tests] if stems is None else stems
-    for stem, lines in zip(stems, ([2, 3], [3, 5], [5])):
-        put(root, {f"golden/coverage-hits/{stem}.json": json.dumps({"story_run.py": lines})})
-    record = {"schema": 1, "python": "3.13", "story_run_sha256": sha or hashlib.sha256(raw).hexdigest(),
-              "covered_lines": 3 if covered is None else covered, "executable_lines": 4, "never_run_lines": 1,
-              "never_run": [{"function": "f", "guard": "if-body", "home": "", "lines": [4, 4]}],
-              "test_files_in_the_record": list(tests)}
+    for i, (stem, lines) in enumerate(zip(stems, ([2, 3], [3, 5], [5]))):
+        keyed = {"story_run.py": lines}
+        if two and i == 1:
+            keyed["driver_two.py"] = [2, 4]
+        put(root, {f"golden/coverage-hits/{stem}.json": json.dumps(keyed)})
+    block = {"sha256": sha or hashlib.sha256(raw).hexdigest(),
+             "covered_lines": 3 if covered is None else covered, "executable_lines": 4, "never_run_lines": 1,
+             "never_run": [{"function": "f", "guard": "if-body", "home": "", "lines": [4, 4]}]}
+    record = {"schema": 2, "python": "3.13", "test_files_in_the_record": list(tests), "driver_files": {"story_run.py": block}}
+    if two:
+        put(root, {f"{scripts}/driver_two.py": TWO_SRC})
+        record["driver_files"]["driver_two.py"] = {
+            "sha256": sha_two or hashlib.sha256(TWO_SRC.encode()).hexdigest(), "covered_lines": 2,
+            "executable_lines": 3, "never_run_lines": 1,
+            "never_run": [{"function": "g", "guard": "if-body", "home": "", "lines": [3, 3]}]}
+    if old:
+        record = {"schema": 1, "python": "3.13", "story_run_sha256": block["sha256"], "never_run": block["never_run"],
+                  "covered_lines": 3, "test_files_in_the_record": list(tests)}
     put(root, {"golden/coverage-n0.json": json.dumps(record, indent=1)})
     return root / "golden" / "coverage-n0.json"
 
@@ -478,7 +495,7 @@ def test_a_changed_byte_inside_a_line_refuses_the_golden_in_every_line_ending_fo
     for on_disk in (other, lf_to_crlf(other)):
         rc, rep = golden_run(tmp_path, capsys, make_golden(tmp_path, source=on_disk, sha=recorded))
         assert rc == 0 and rep["coverage"]["counts"]["refused"] == 1
-        assert "story_run_sha256" in rep["coverage"]["names"]["refused"][0]["reason"]
+        assert "driver_files.story_run.py.sha256" in rep["coverage"]["names"]["refused"][0]["reason"]
         assert row(rep, "f")["coverage"] is None and row(rep, "f")["crap_is_bound"]
 
 
@@ -493,6 +510,25 @@ def test_a_golden_whose_hits_do_not_match_its_record_is_refused_with_the_reason(
     assert rc == 0 and rep["coverage"]["counts"]["refused"] == 1 and reason in refused[0]["reason"]
     _, out, _ = go(tmp_path, capsys, "--coverage", str(tmp_path / "golden/coverage-n0.json"), paths=("scripts/*.py",))
     assert reason in out
+
+
+@pytest.mark.parametrize("kwargs,matched,refused,reason", [
+    ({"two": True}, 2, 0, None),
+    ({"two": True, "sha_two": "0" * 64}, 1, 1, "driver_files.driver_two.py.sha256"),
+    ({"old": True}, 0, 1, "re-record"),
+], ids=["two-files-each-on-its-own-lines", "one-sha-differs-the-other-measured", "schema-1-refused"])
+def test_a_golden_of_several_driver_files_is_judged_per_file(tmp_path, capsys, kwargs, matched, refused, reason):
+    rc, rep = golden_run(tmp_path, capsys, make_golden(tmp_path, **kwargs))
+    counts = rep["coverage"]["counts"]
+    assert rc == 0 and (counts["matched"], counts["refused"]) == (matched, refused)
+    if reason:
+        assert reason in rep["coverage"]["names"]["refused"][0]["reason"]
+    if kwargs.get("two") and not reason:
+        assert row(rep, "f")["coverage"] == 0.75 and row(rep, "g")["coverage"] == pytest.approx(2 / 3, abs=1e-3)
+    if kwargs.get("sha_two"):
+        assert row(rep, "f")["coverage"] == 0.75 and row(rep, "g")["coverage"] is None
+    if kwargs.get("old"):
+        assert row(rep, "f")["coverage"] is None and row(rep, "f")["crap_is_bound"]
 
 
 def test_a_golden_without_its_hits_directory_is_refused(tmp_path, capsys):
