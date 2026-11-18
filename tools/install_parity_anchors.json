@@ -550,6 +550,13 @@
     "kind": "path"
   },
   {
+    "unit_id": "ascii-line",
+    "kit_path": "toolkit/tools/ascii_line.py",
+    "host_path": "tools/ascii_line.py",
+    "anchors": [],
+    "kind": "path"
+  },
+  {
     "unit_id": "dispatch-gate",
     "kit_path": "toolkit/tools/dispatch_gate.py",
     "host_path": "tools/dispatch_gate.py",

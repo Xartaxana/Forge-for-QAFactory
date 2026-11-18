@@ -566,6 +566,7 @@ def _hook_copy(folder: Path, transcripts_source="real") -> Path:
     tools = Path(__file__).resolve().parent
     (folder / "tier_echo.py").write_bytes((tools / "tier_echo.py").read_bytes())
     (folder / "tier_ladder.py").write_bytes((tools / "tier_ladder.py").read_bytes())
+    (folder / "ascii_line.py").write_bytes((tools / "ascii_line.py").read_bytes())
     if transcripts_source == "real":
         (folder / "transcripts.py").write_bytes((tools / "transcripts.py").read_bytes())
     elif transcripts_source is not None:

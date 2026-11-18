@@ -100,11 +100,10 @@ through either sanitizer -- see build_context(). Sanitizing (in both
 forms) applies ONLY to the dynamic part -- each inserted validator
 message individually, BEFORE the join.
 
-LOCAL COPIES of _raw_sanitize/_ascii_sanitize (not an import of
-tier_echo -- every hook script in this toolkit is self-contained along
-this dimension; the explicit exceptions to self-containment in this
+_raw_sanitize/_ascii_sanitize are one-line wrappers over tools/ascii_line.py
+(FG7-56); the explicit exceptions to self-containment in this
 file are the journal_validator import, which is required by design,
-the tier_echo import (the measurement) and the transcripts import (the
+the ascii_line import (a stdlib leaf), the tier_echo import (the measurement) and the transcripts import (the
 shared reader of worker transcripts, B-467)). MAX_MESSAGE_LEN=500 applies to EACH message item
 INDIVIDUALLY (not to the final joined line), in BOTH variants --
 larger than tier_echo's 80 (a validator message is typically longer
@@ -252,6 +251,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import journal_validator  # noqa: E402
+import ascii_line  # noqa: E402  the one ASCII line helper (FG7-56), a stdlib leaf; plain sibling import (card F2 b)
 import tier_echo  # noqa: E402  -- TIER ECHO at write time (this port's extension):
 # imports iter_transcript_models/count_models (the measurement, with its
 # synthetic-line filter already built in) AND KNOWN_TIER_WORDS (the
@@ -479,21 +479,15 @@ def _raw_sanitize(s: str, max_len: int = MAX_MESSAGE_LEN) -> str:
     an ASCII-replace pass here would be pure, needless degradation. It
     is needed only where text goes RAW (not JSON-escaped) into a
     console stream that may not be UTF-8, see _ascii_sanitize."""
-    s = str(s).strip()
-    s = re.sub(r"[\x00-\x1f\x7f]", "", s)
-    return s[:max_len]
+    return ascii_line.clip(s, max_len, errors=None)
 
 
 def _ascii_sanitize(s: str, max_len: int = MAX_MESSAGE_LEN) -> str:
-    """Local copy of the tools/tier_echo.py._ascii_sanitize approach
-    (same principle: strip control chars, replace non-ASCII, cap
-    length) -- a copy, not an import, see the module docstring. Used
-    ONLY for the stderr duplicate (plain text, not JSON-escaped --
-    written directly into this machine's console stream)."""
-    s = str(s).strip()
-    s = re.sub(r"[\x00-\x1f\x7f]", "", s)
-    s = s.encode("ascii", "replace").decode("ascii")
-    return s[:max_len]
+    """The replace profile of the one helper tools/ascii_line.py (strip
+    control chars, replace non-ASCII, cap length), with this module's
+    default cap. Used ONLY for the stderr duplicate (plain text, not
+    JSON-escaped -- written directly into this machine's console stream)."""
+    return ascii_line.clip(s, max_len)
 
 
 def _extract_file_path(payload: dict):
