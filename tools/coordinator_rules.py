@@ -19,6 +19,8 @@ import os
 import re
 import stat
 
+import ascii_line  # noqa: E402  the one ASCII line helper (FG7-56), a stdlib leaf; plain sibling import (card F2 b)
+
 COORDINATOR_FILES = (
     "COORDINATOR.md",
     "PROJECT.md",
@@ -34,10 +36,8 @@ _WHEN = {
 _WHEN_DEFAULT = "before your first dispatch, acceptance or commit"
 
 
-def _ascii(text, max_len=200):
-    """ASCII, single line, capped: the root and an exception text are not ours."""
-    text = re.sub(r"[\x00-\x1f\x7f]", "", str(text).strip())
-    return text.encode("ascii", "replace").decode("ascii")[:max_len]
+# ASCII, single line, capped (the cap is required): the root and an exception text are not ours.
+_ascii = ascii_line.clip  # the replace profile is clip's defaults: no keywords to bind
 
 
 def _probe(root, name):

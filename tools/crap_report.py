@@ -99,10 +99,7 @@ sys.path.insert(0, str(TOOLS))
 from dup_report import (DEFAULT_PATHS, RECURSION_LIMIT, REPO, UsageError, describe_error,  # noqa: E402
                         normalise_patterns, physical_lines, resolve_files)
 import streams  # noqa: E402
-try:
-    from tools import ascii_line  # package-style
-except ImportError:
-    import ascii_line  # sibling-module fallback (a leaf: stdlib only)
+import ascii_line  # noqa: E402  the one ASCII line helper (FG7-56), a stdlib leaf; plain sibling import (card F2 b)
 
 DEFAULT_TOP = 40
 HITS_DIR = "coverage-hits"

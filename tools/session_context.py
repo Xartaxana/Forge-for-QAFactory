@@ -161,6 +161,18 @@ except Exception as _e:  # noqa: BLE001 -- deliberately broad, see comment above
     parse_ts = _reraise_import_error
     usage_in_window = _reraise_import_error
 
+# FG7-56: the one ASCII line helper (tools/ascii_line.py, a stdlib leaf). Same N4 deferral: a failed import binds a
+# stub whose clip() raises when CALLED, so main()'s one boundary degrades the context to its failure line.
+try:
+    import ascii_line
+except Exception as _e:  # noqa: BLE001 -- deliberately broad, see the N4 comment above
+    _ASCII_LINE_ERROR = _e
+
+    class ascii_line:  # noqa: N801 -- stands in for the module
+        @staticmethod
+        def clip(*_args, **_kwargs):
+            raise _ASCII_LINE_ERROR
+
 # B-402: the task key. Two clones issue task ids independently and `merge=union` joins their
 # journals, so a bare t-NNN can name two tasks; tools/journal_keys.py keys a journal event by
 # (label, task_id) through the declaration logs/journal-segments.json. Fail-open like the import
@@ -1069,10 +1081,7 @@ def _ascii_sanitize(s: str, max_len: int = 80) -> str:
     consumer -- task_id/agent/ts there are journal-sourced (a session
     could in principle write anything into those fields), so they route
     through this same helper rather than getting a parallel one."""
-    s = str(s).strip()
-    s = re.sub(r"[\x00-\x1f\x7f]", "", s)  # control chars incl. \n \r \t
-    s = s.encode("ascii", "replace").decode("ascii")
-    return s[:max_len]
+    return ascii_line.clip(s, max_len)
 
 
 def _read_capped(path: Path, cap: int = None):
@@ -2243,7 +2252,7 @@ def layer_a_lines(root: Path) -> list:
     st_size (os.stat), matching boot_budget_lines()'s own choice above.
     The FOOTER's byte total ("N bytes emitted") is DELIBERATELY a
     different measurement: st_size counts bytes ON DISK, while "emitted"
-    is accumulated per LINE (len(ascii_line) + 1 for the join separator)
+    is accumulated per LINE (len(safe_line) + 1 for the join separator)
     as each line is actually appended to this function's own return
     value -- the two are expected to diverge on content with CRLF line
     endings or transliterated characters; this is what makes the closing
@@ -2316,12 +2325,12 @@ def layer_a_lines(root: Path) -> list:
             file_translit = 0
             file_unmapped = 0
             for raw_line in raw_lines:
-                ascii_line, t_count, u_count = _ascii_content_line(raw_line)
+                safe_line, t_count, u_count = _ascii_content_line(raw_line)
                 file_translit += t_count
                 file_unmapped += u_count
-                block.append(ascii_line)
+                block.append(safe_line)
                 emitted_lines += 1
-                emitted_bytes += len(ascii_line) + 1
+                emitted_bytes += len(safe_line) + 1
             block.append(f"----- END {name} -----")
 
             emitted_files += 1

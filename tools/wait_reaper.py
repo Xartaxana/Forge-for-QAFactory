@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import calendar
 import dataclasses
+import functools
 import json
 import os
 import re
@@ -35,6 +36,7 @@ if str(_TOOLS) not in sys.path:
 
 import session_proc  # noqa: E402
 import worktree_sweep as ws  # noqa: E402
+import ascii_line  # noqa: E402  the one ASCII line helper (FG7-56), a stdlib leaf; plain sibling import (card F2 b)
 
 STATE_DIRNAME = "wait-reaper"
 DECODE_CAP = 65536                   # a command line over this is cut before decoding (the cut makes the decode fail, never widen)
@@ -56,10 +58,7 @@ class ListError(Exception):
     """The process list could not be read; the message is the reason (ASCII, clipped by the caller)."""
 
 
-def ascii_clip(text, n):
-    text = str(text if text is not None else "")
-    text = "".join(c if 32 <= ord(c) < 127 else ("?" if ord(c) > 127 else " ") for c in text)
-    return text[:n]
+ascii_clip = functools.partial(ascii_line.clip, control=" ", strip=False, none="")  # the reaper profile; n is required
 
 
 # --------------------------------------------------------------------------------------------------------- the process list

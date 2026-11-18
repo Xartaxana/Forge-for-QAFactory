@@ -71,16 +71,16 @@ main() logic:
     ("<word>: ...", word being exactly one of haiku/sonnet/opus/fable)
     AND no measured model-string contains that word as a
     case-insensitive substring -- appends " MISMATCH vs declared
-    '<word>'". The line goes through an ASCII sanitizer -- a local
-    copy, not a shared import. The ONE cross-file import of this file
-    is tools/transcripts.py (the shared reader of worker transcripts,
-    B-467). WITHOUT it (absent or broken, t-859 F6-20) the hook has
+    '<word>'". The line goes through the one ASCII line helper
+    (tools/ascii_line.py, a stdlib leaf). The cross-file imports of this file
+    are tools/transcripts.py (the shared reader of worker transcripts,
+    B-467), tier_ladder and ascii_line. WITHOUT transcripts (absent or broken, t-859 F6-20) the hook has
     nothing to measure: it still reads stdin, prints nothing on stdout,
     exits 0 -- silent when the module is simply absent, ONE stderr line
     "tier_echo: tier echo off -- transcripts <class>: <message>" when it
     exists but does not import (no traceback; journal_echo imports this
     file, so a broken reader must not take the journal validation down
-    with it); the sanitizers and the stdin helper stay local copies.
+    with it); the stdin helper stays a local copy.
  6. Prints the line to stderr (kept, see "OUTPUT CHANNEL" above) AND
     prints the JSON {"hookSpecificOutput": {"hookEventName":
     "SubagentStop", "additionalContext": "<same line>"}} as one line
@@ -91,7 +91,6 @@ main() logic:
 
 import json
 import os
-import re
 import sys
 import threading
 from pathlib import Path
@@ -128,6 +127,8 @@ try:
 except ImportError:
     import tier_ladder  # sibling-module fallback (a leaf: stdlib only, no pyyaml on this hook's path; the ladder home)
 
+import ascii_line  # noqa: E402  the one ASCII line helper (FG7-56), a stdlib leaf; plain sibling import (card F2 b)
+
 KNOWN_TIER_WORDS = tier_ladder.FAMILIES  # weakest -> strongest, the one home's order
 
 # Harness-internal stop-sequence transcript lines carry
@@ -138,15 +139,10 @@ KNOWN_TIER_WORDS = tier_ladder.FAMILIES  # weakest -> strongest, the one home's 
 SKIP_MODELS = transcripts.SKIP_MODELS if transcripts is not None else frozenset()
 
 
-def _ascii_sanitize(s: str, max_len: int = 80) -> str:
-    """Local copy of the console-safety pattern used across this
-    toolkit's hooks: any externally-sourced value gets its control
-    chars stripped, non-ASCII replaced, and length capped. A copy, not
-    an import -- see the module docstring (the one shared import is transcripts)."""
-    s = str(s).strip()
-    s = re.sub(r"[\x00-\x1f\x7f]", "", s)
-    s = s.encode("ascii", "replace").decode("ascii")
-    return s[:max_len]
+# The console-safety pattern used across this toolkit's hooks: any externally-sourced value gets its control
+# chars stripped, non-ASCII replaced, and length capped -- by the one helper tools/ascii_line.py (FG7-56), whose
+# defaults are this profile. The cap is required: every call below names 80.
+_ascii_sanitize = ascii_line.clip
 
 
 def _extract_agent_transcript_path(payload: dict):
@@ -216,14 +212,14 @@ def build_line(counts: dict, declared_tier) -> str:
     suffix (only when declared_tier is set AND no measured model
     contains it as a case-insensitive substring)."""
     parts = [
-        f"{_ascii_sanitize(model)}={count}" for model, count in counts.items()
+        f"{_ascii_sanitize(model, 80)}={count}" for model, count in counts.items()
     ]
     line = "TIER ECHO (measured): " + ", ".join(parts)
 
     if declared_tier:
         matched = any(declared_tier in model.lower() for model in counts)
         if not matched:
-            line += f" MISMATCH vs declared '{_ascii_sanitize(declared_tier)}'"
+            line += f" MISMATCH vs declared '{_ascii_sanitize(declared_tier, 80)}'"
 
     return line
 
