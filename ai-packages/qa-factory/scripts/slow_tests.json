@@ -149,11 +149,20 @@
     "test_story_run_loop_b_answers.py": 20.1,
     "test_story_run_loop_b_loop.py": 56.3,
     "test_story_run_loop_b_threshold.py": 57.9,
-    "test_story_run_refusals.py": 205.6,
+    "test_story_run_refusals_c24_n5.py": 25.9,
+    "test_story_run_refusals_cc.py": 21.0,
+    "test_story_run_refusals_core.py": 61.5,
+    "test_story_run_refusals_resume.py": 31.2,
+    "test_story_run_refusals_sources.py": 24.1,
+    "test_story_run_refusals_t667_c21.py": 41.9,
     "test_story_run_s0.py": 252.4,
     "test_story_run_s1_reference.py": 11.9,
     "test_story_run_s3_windows.py": 63.3,
-    "test_story_run_s6.py": 279.0,
+    "test_story_run_s6_c16b.py": 30.9,
+    "test_story_run_s6_d1.py": 21.5,
+    "test_story_run_s6_hf2_11b.py": 46.8,
+    "test_story_run_s6_manual.py": 103.9,
+    "test_story_run_s6_t292.py": 75.8,
     "test_story_run_s7.py": 91.4,
     "test_story_run_stand_identity_ep1.py": 53.9,
     "test_story_run_stand_identity_k35_k36.py": 85.1,
@@ -172,6 +181,9 @@
     "test_third_verdict.py": 39.7,
     "test_window_record.py": 77.0,
     "test_words_carry.py": 15.8,
-    "test_words_doors.py": 188.4
+    "test_words_doors_controller.py": 56.1,
+    "test_words_doors_detector.py": 22.4,
+    "test_words_doors_doors.py": 30.3,
+    "test_words_doors_flight_launcher.py": 79.6
   }
 }
