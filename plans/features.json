@@ -1357,6 +1357,7 @@
         "PROCESS/**",
         "logs/**",
         ".githooks/**",
+        ".github/**",
         "gateway/**",
         "kb/**",
         "*"
