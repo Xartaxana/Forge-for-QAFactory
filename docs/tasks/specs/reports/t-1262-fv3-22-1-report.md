@@ -86,3 +86,7 @@ Changelog fragment: `ai-packages/qa-factory/changelog.d/fv3-22-skill-road-s6-clo
 ## Canon fix
 
 Canon 44189216482 forge-check: `tools/test_forge_metrics.py` K1 listed `scripts/stage_close.py` as unattributed. Added one row `"scripts/stage_close.py"` in `plans/features.json`, right after `scripts/driver_*.py` (the feature that holds the driver_stage_s6 files). origin/main merged first (clean).
+
+## Fix F-B1
+
+`s6_settle_blockers` (driver_stage_s6.py ~1581) now calls `live_s6_scopes(ctl)` inside the same try instead of the inline status predicate (AR-15). Witness: `test_walk_lanes_parallel: 196/196 ok`.

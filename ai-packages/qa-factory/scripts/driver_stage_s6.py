@@ -1575,11 +1575,10 @@ class DriverStageS6:
             return "the model service limited one lane earlier in this run"
         try:
             ctl = self.controller_state()
-            rows = dispatch_identity.records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
+            if live_s6_scopes(ctl):
+                return self.S6_SETTLE_RUNNING
         except Exception:       # noqa: BLE001
             return "the state of the S6 dispatches cannot be read"
-        if any(r.get("stage") == "S6" and r.get("status") in ("running", "blocked", "paused") for r in rows):
-            return self.S6_SETTLE_RUNNING
         if view.get("waiting"):
             return "a question about a check, asked before gate B, holds a case of the plan"
         try:
