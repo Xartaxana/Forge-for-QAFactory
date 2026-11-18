@@ -113,7 +113,7 @@
   },
   "qa-failure-analyst@S7": {
    "verdict": "ok",
-   "result_text": "qa-failure-analyst S7 DRY-1 · ok\nTC-1 · passed · the S6 run is green; nothing to triage, nothing to repair\nTC-2 · NOT_EXECUTED · left unchecked by the person's word at S6; no run to triage\nwork/handoffs/S7-qa-failure-analyst-1.yaml",
+   "result_text": "qa-failure-analyst S7 DRY-1 · ok\nTC-1 · passed · the S6 run is green; nothing to triage, nothing to repair\nTC-2 · manual_skipped · left unchecked by the person's word at S6; no run to triage\nwork/handoffs/S7-qa-failure-analyst-1.yaml",
    "overrides": {
     "s7-analyst-to-automator": {
      "inputs_read[0].path": "work/handoffs/S6-qa-runner-1.yaml",

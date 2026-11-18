@@ -2,6 +2,9 @@
 
 Item: DONE (one stub row). File: `ai-packages/qa-factory/scripts/tests/fixtures/stories/dry-1/story.json` (new key `qa-failure-analyst@S7`, inserted before `qa-case-designer@S4`; every other row byte-identical). `dry_stub.py` unchanged. No test added (data row; the dry scenario file judges it in CI).
 
+## Round fix (critic t-1518 F5)
+TC-2's digest state `NOT_EXECUTED` (a triage verdict the empty triage does not hold) is now `manual_skipped` (a row state, not a verdict). The Lead's suggested `left_unchecked` is NOT a state of the form: `role_digest.check` refused it (`TC-2: left_unchecked is not a state of the form`), so `manual_skipped` was used. Witness: `check: []`; negative control without the TC-2 line -> `TC-2 was in this dispatch's scope and has no line`; handoff_check on the form -> `complete (54 fields checked)`. Digest lines above in this report that say NOT_EXECUTED are superseded.
+
 ## Cause (verified)
 `stub_control(..., "qa-failure-analyst", "S7")` returned `{}` -> `fill_role` used the default digest (no TC lines, no path) and the form was left unfilled (the form `s7-analyst-to-automator` has token `<the author's dispatch>` that no rule fills; the filler's default triage is a junk `APP_BUG` row for `test_removed_node[chromium]`). A missing row, so no STOP.
 
