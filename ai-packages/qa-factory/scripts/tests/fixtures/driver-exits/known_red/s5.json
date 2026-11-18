@@ -2,88 +2,88 @@
  "_about": "The label ledger of the walk group s5 (rows of exits/s5.json only), read by known_red.py through test_scenario_dry_1.py --part exits:s5; `pins.known_red` is the number of rows.",
  "known_red": {
   "s6.walk_supply/the app makes them": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.walk_supply/one at a time": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.walk_supply/I will add accounts": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.walk_supply/free words": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.walk_supply/empty": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.walk_account/added": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.walk_account/by hand": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.walk_account/go on": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.walk_account/free words": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.walk_account/empty": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.data_change/only use what exists": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.data_change/may create, never delete": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.data_change/may create and delete": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.data_change/free words": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "s6.data_change/empty": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "kind:data_change/free words": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "kind:data_change/empty": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "kind:walk_account/free words": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "kind:walk_account/empty": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "kind:walk_supply/free words": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "kind:walk_supply/empty": {
-   "node": "FV3-23",
-   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+   "node": "FV3-36",
+   "raised_by": "critic t-1331 F1 (docs/tasks/specs/reviews/t-1331-p1b-s5-dry-code.md): no dry seed move creates the S6 precondition (the parallel road, walkers != 1 with 2+ lanes, driver_stage_s6.py:1262, with a pool or data shortage :1480/:1485, or a stand account with no pair, walk_refuse_gaps); canon run 44211245394 prints \"seed did not reach the key: met the conductor at S7\", the stop it meets on the way, not the cause"
   },
   "code_close.stage/retry": {
    "node": "FV3-33",
