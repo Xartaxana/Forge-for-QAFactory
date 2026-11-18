@@ -78,7 +78,8 @@ def outside(paths, root: Path, layers=None, package=None) -> str:
 def witness(paths, absent=False, **canon) -> str:
     keep = {"test_gate.py": {"layer": "gate_named", "covers": ["z.py", "references/r.json", "scripts/tests/fixtures/x"]}}
     cls = {"slow": [], "globs": [], "no_list": False, "why": []} | canon
-    return "\n".join(W.witness_for(paths, package_tree(), {"absent": absent, "keep": {} if absent else keep}, {"exit_gate": ["a"]}, cls))
+    return "\n".join(W.witness_for(paths, package_tree(), {"absent": absent, "keep": {} if absent else keep}, {"exit_gate": ["a"]}, cls,
+                                  root=temp_dir("qa-root-")))  # an empty root: the run's cwd (it may hold a `references/`) never decides
 
 
 @contextlib.contextmanager
