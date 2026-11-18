@@ -147,13 +147,13 @@ def verdict(file="test_q1.py", sig=("a",), pipe=1, v="stale", **kw):
                  "reason": "r", "finding": "f.md" if v == "real_catch" else None, "task": None}, **kw)
 
 
-def apply(root, entry, head, runs=(), verdicts=(), pulls=(), cohort0=False, config=True, **lk):
+def apply(root, entry, head, runs=(), verdicts=(), pulls=(), cohort0=False, config=True, ci=None, **lk):
     W(root, "plans/test-quarantine/watch.jsonl", "".join(json.dumps(dict(r, sha=r.get("sha") or head)) + "\n" for r in (*runs, *pulls)))
     W(root, "plans/test-quarantine/verdicts.jsonl", "".join(json.dumps(v) + "\n" for v in verdicts))
     cfg = Path(root, tq.CONFIG_REL)
     cfg.unlink(missing_ok=True)
     if config:
-        W(root, tq.CONFIG_REL, json.dumps({"branch": "br", "max_gap_days": 4}))
+        W(root, tq.CONFIG_REL, json.dumps({"branch": "br", "max_gap_days": 4, **({"ci": ci} if ci else {})}))
     W(root, T + "test_k.py", lk.pop("kept_text", "# k\n"))
     W(root, tq.LAYERS_REL, layers_json(entry=entry, cohorts=("c1", "c0") if cohort0 else ("c1",), **lk))
 
@@ -299,6 +299,8 @@ LINES = {
     "pull-unreachable": (V2[:1], [], [], [pull(ci="unreachable")], {}, ["last pull 2026-11-24 could not reach CI (unreachable)"]),
     "incomplete": (V2[:1], [run_row(i, "0.11.0", complete=False, **GREEN) for i in (1, 2, 3)], [], [pull()], {}, ["last 3 watch runs incomplete"]),
     "release-without-run": (V2, [run_row(1, "0.11.0", **GREEN)], [], [pull()], {}, ["release 0.12.0 has no complete watch run yet -- start it: web pipeline with QUARANTINE_WATCH=1 on br"]),
+    "release-without-run-github": (V2, [run_row(1, "0.11.0", **GREEN)], [], [pull()], {"ci": "github"},
+                                   ["start it: python tools/ci_read.py start --workflow quarantine-watch.yml --ref br"]),
     "alert-catch": (V2, [run_row(1, **G1)], [verdict(v="real_catch")], [pull()], {}, ["TEST QUARANTINE ALERT: real catch 2026-11-24 -- test_q1.py: r (finding f.md)"]),
     "alert-watch-silent": (V2[:1], [], [], [pull(at="2026-11-30T08:00:00", newest="2026-11-20T03:00:00Z")], {},
                            ["ALERT: the watch has not run on CI for 10 d (last 2026-11-20, as of pull 2026-11-30)"]),
@@ -314,33 +316,6 @@ def test_status_line_table(hists, case):
     text = "\n".join(tq.status_line(root, TODAY))
     for tok in tokens:
         assert tok in text
-
-
-HOSTS = {"github": ("python tools/ci_read.py start --workflow quarantine-watch.yml --ref br", "quarantine-watch.yml", "Settings -> CI/CD"),
-         "gitlab": ("web pipeline with QUARANTINE_WATCH=1 on br", "Settings -> CI/CD -> Schedules", None)}
-
-
-def _host_config(root, host):
-    W(root, tq.CONFIG_REL, json.dumps({"branch": "br", "max_gap_days": 4, "ci": host}))
-
-
-@pytest.mark.parametrize("host", HOSTS)
-def test_status_line_start_words_follow_the_host(hists, host):           # FG7-80
-    root, entry, head = hists(V2)
-    apply(root, entry, head, [run_row(1, "0.11.0", **GREEN)], [], [pull()])
-    _host_config(root, host)
-    text = " ".join(tq.status_line(root, TODAY))
-    assert "start it: " + HOSTS[host][0] in text and ("QUARANTINE_WATCH=1" in text) == (host != "github")
-
-
-@pytest.mark.parametrize("host", HOSTS)
-def test_enter_schedule_door_follows_the_host(tmp_path, monkeypatch, capsys, host):          # FG7-80
-    root, ci = enter_world(tmp_path)
-    _host_config(root, host)
-    monkeypatch.setattr(tq, "_schedules", lambda branch: "missing")
-    assert tq.main(["enter", "--root", str(root), "--pipeline", "100", "--coverage-pipeline", "101"], ci=ci) == 1
-    out = capsys.readouterr().out
-    assert HOSTS[host][1] in out and ("Settings -> CI/CD" in out) == (host != "github") and "%s" not in out
 
 
 def test_status_line_empty_worlds_and_duplicates(hists, tmp_path):
@@ -464,6 +439,13 @@ def _sched(value):
     return lambda root, ci, mp: mp.setattr(tq, "_schedules", lambda branch: value)
 
 
+def _github(inner):
+    def mutate(root, ci, mp):
+        W(root, tq.CONFIG_REL, json.dumps({"branch": "br", "max_gap_days": 4, "ci": "github"}))
+        inner(root, ci, mp)
+    return mutate
+
+
 def _no_report(root, ci, mp):
     ci.report = None
 
@@ -499,6 +481,9 @@ ENTER = {
     "c5-all-pinned": (_all_pinned, "no test file is outside keep, quarantine and pin_holds"),
     "c6-schedule-unknown": (_sched("unknown"), "the watch schedule cannot be confirmed"),
     "c6-schedule-missing": (_sched("missing"), 'cron "0 3 * * 1,4", branch br, variable QUARANTINE_WATCH=1'),
+    "c6-schedule-missing-github": (_github(_sched("missing")), "the cron of .github/workflows/quarantine-watch.yml on branch br"),
+    "c4-not-head-github": (_github(_other_sha), "start a workflow run on the branch of HEAD: python tools/ci_read.py start --ref <branch>"),
+    "c7-no-report-github": (_github(_no_report), "ci_read.py start --ref <branch> --var TEST_REDUNDANCY=1 --var REDUNDANCY_SCOPE=keep"),
     "c7-no-report": (_no_report, "no coverage measurement"), "c7-other-keep-set": (_other_keep, "different keep set"),
     "c8-two-pipelines": (_two_pipelines, "run the full tier 1 more times"),
 }
