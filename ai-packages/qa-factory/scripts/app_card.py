@@ -153,9 +153,10 @@ def _stand_lines(task_root, project, cfg, cfg_why):
     if cfg_why:
         return [], [], cfg_why
     import brief_pack as BP
-    got = BP.manual_stand_lines(task_root, project, cfg, [], "", None)
+    pipeline = hooklib.read_json(Path(task_root) / "pipeline.json", None, errors=Exception, kind=dict) or {}    # the stand the manual brief names
+    got = BP.manual_stand_lines(task_root, project, cfg, [], str(pipeline.get("environment") or ""), None)
     stand = [scrub(x, tokens=False) for x in got if x.startswith(("- Stand:", "- API:", "- Frontend:"))]
-    stand += [scrub(x, tokens=False) for x in got if x.startswith("- Stand lessons:")]    # what a person taught (the walk road): whole
+    stand += [scrub(x, tokens=False) for x in got if x.startswith(("- Stand lessons:", "- Another instance"))]    # what a person taught and whether another instance may start (the walk road): whole
     accounts = [scrub(x, tokens=False) for x in got if x.startswith(("- Accounts:", "- Env keys:"))]
     return stand, accounts, ""
 

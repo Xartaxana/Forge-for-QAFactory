@@ -1251,7 +1251,7 @@ def validate_window(window, root):
             # (`explained`: no probe is asked of a red test - whether the mutated run fails at the intended assert
             # depends on the order of the asserts, F-20 (a); the item records `probe_not_applicable` instead)
             probe = item.get("probe", {})
-            if (probe.get("verdict") != "intended_failure" or
+            if (not proof_level.probe_fired(probe) or
                     not _bound_to(item, probe, window, root) or
                     not probe.get("expected_location") or
                     probe.get("expected_location") != probe.get("actual_location") or
