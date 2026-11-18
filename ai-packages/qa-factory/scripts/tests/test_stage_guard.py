@@ -279,9 +279,13 @@ def part_cx20_walker(event: dict) -> None:
         started = time.perf_counter()
         message = SG.rule_typed_runner(text, event, "X", dispatch)
         return time.perf_counter() - started, bool(message)
-    (t_small, hit_small), (t_big, hit_big) = took("$(" * 20000 + L), took("$(" * 200000 + L)
-    check_eq("CX1-20 33: 200 000 openers then a launch: refused, no exception", (hit_small, hit_big), (True, True))
-    check("CX1-20 33: ... and 10x the input costs under 25x the time", t_big / max(t_small, 1e-6) < 25, f"{t_big:.2f}s / {t_small:.2f}s")
+    # PC4-21: one timing per size failed under CI load (24.99 s / 0.99 s, canon 44193633984); three timings per size, minima compared
+    runs_small = [took("$(" * 20000 + L) for _ in range(3)]
+    runs_big = [took("$(" * 200000 + L) for _ in range(3)]
+    t_small, t_big = min(r[0] for r in runs_small), min(r[0] for r in runs_big)
+    check_eq("CX1-20 33: 200 000 openers then a launch: refused on every repetition, no exception",
+             sorted({r[1] for r in runs_small + runs_big}), [True])
+    check("CX1-20 33: ... and 10x the input costs under 25x the time (minima of three)", t_big / max(t_small, 1e-6) < 25, f"{t_big:.2f}s / {t_small:.2f}s")
     check_eq("CX1-20 33: bare openers, no launch: no exception", [took("<(" * 200000)[1], took("$(" * 200000)[1]], [False, False])
     check_eq("CX1-20 39: ~1 MB of commands then a launch is refused", took("rg x f; " * 125000 + L)[1], True)
     # R2 and R3: the answer per reader
