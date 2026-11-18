@@ -45,6 +45,7 @@ def realistic_persons(driver) -> dict:
             "verified_source_revisions": [HEAD]}), command_row),
         "mismatched_sources": make("mismatched_sources", sources_mismatched("e2e-ui", ["src/app/page.ts", "src/app/main.ts"])),
         "mismatched_sources, a script among them": make("mismatched_sources", sources_mismatched("e2e-ui", ["src/app/page.ts", "build.py"])),
+        "mismatched_sources, no file listed": make("mismatched_sources", sources_mismatched("e2e-ui", ["  ", None])),
         "confirm": make("confirm", unknown("e2e-ui", asks="confirm"), confirms_row),
         "method_failed": make("how", unknown("e2e-ui", tried=tried, registry_method_failed=out["command.failed"].format(
             why="python3: can't open file 'print_build.py'")), command_row),
@@ -97,6 +98,10 @@ def k35_the_question_and_its_texts() -> None:
         check_not_in("K35: `mismatched_sources` offers no `test deployed` (the build there has no commit to name)", "test deployed",
                      persons["mismatched_sources"].text)
         check_in("K35: a path with a folder in it (`src/app/main.ts`) breaks no rule and is named", "`src/app/main.ts`", persons["mismatched_sources"].text)
+        nameless = persons["mismatched_sources, no file listed"].text
+        check_in("K35: `mismatched_sources` with no file listed says the fallback words (RD1-42)", "the files of this story", nameless)
+        check("K35: ... in the {files} slot: no empty code span, no bare ` differ from` gap (RD1-42)",
+              "``" not in nameless and ": the files of this story differ from the ones in this story's commit" in nameless)
         scripted = persons["mismatched_sources, a script among them"]
         check_not_in("K35: a bare file name that is a script name breaks the rules - it is not named in the body (FR-6)", "build.py", scripted.text)
         check_in("K35: ... the count is said instead", "2 of the files this story changes", scripted.text)
