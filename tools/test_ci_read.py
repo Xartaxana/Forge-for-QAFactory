@@ -916,16 +916,16 @@ def _runs_at(*rows):
 
 
 @pytest.mark.parametrize("routes, dispatched, out", [
-    (_runs_at({"id": 77, "head_sha": HEAD, "status": "in_progress", "html_url": "https://gh/runs/77"}), 0,
+    (_runs_at({"id": 77, "head_sha": HEAD, "event": "push", "head_branch": "b", "status": "in_progress",
+               "html_url": "https://gh/runs/77"}), 0,
      "canon.yml already has a run for b at ab12cd34: 77 https://gh/runs/77; nothing started\n"),
-    (_runs_at({"id": 78, "head_sha": HEAD, "status": "completed", "conclusion": "success",
-               "html_url": "https://gh/runs/78"}), 0,
-     "canon.yml already has a run for b at ab12cd34: 78 https://gh/runs/78; nothing started\n"),
+    (_runs_at({"id": 91, "head_sha": HEAD, "event": "workflow_dispatch", "head_branch": "main", "html_url": "https://gh/runs/91"}), 1,
+     "dispatched canon.yml for b; find the run: ci_read.py pipelines\n"),
     (_runs_at({"id": 5, "head_sha": "f" * 40, "html_url": "u"}), 1,
      "dispatched canon.yml for b; find the run: ci_read.py pipelines\n"),
     ([("/commits/", http_error(500, "boom")), ("/dispatches", _Resp(b"", status=204))], 1,
      "note: the run listing failed"),
-], ids=["exists-running", "exists-done", "absent", "listing-failed"])
+], ids=["exists", "dispatch-run-at-the-same-head", "absent", "listing-failed"])
 def test_start_without_var_starts_nothing_when_the_head_already_has_a_canon_run(routes, dispatched, out, net, capsys):
     net.routes = routes
     assert ci_read.main(["start", "--ref", "b"]) == 0

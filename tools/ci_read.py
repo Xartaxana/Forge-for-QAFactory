@@ -226,7 +226,8 @@ def _canon_run_exists(base: str, token: str, ref: str) -> bool:
     except Exception as exc:  # noqa: BLE001 -- advisory: whatever fails, the start goes on as before
         emit_own("note: the run listing failed (%s); starting as before" % sanitize(str(exc)[:80] or type(exc).__name__))
         return False
-    rows = [r for r in rows if str(r.get("head_sha") or "") == head]
+    # only the push run of THIS branch counts: a dispatch run carries main's head_sha whatever it canonises (critic t-1478 F1)
+    rows = [r for r in rows if str(r.get("head_sha") or "") == head and r.get("event") == "push" and r.get("head_branch") == ref]
     if not rows:
         return False
     emit_own("%s already has a run for %s at %s: %s %s; nothing started" % (

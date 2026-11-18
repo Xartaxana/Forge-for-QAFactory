@@ -337,43 +337,26 @@ def _canon_ref_places(doc):
             j["dry-story"]["with"]["ref"], next(s for s in j["clock"]["steps"] if "checkout" in s.get("uses", ""))["with"]["ref"]]
 
 
-@pytest.mark.parametrize("what", ["e1-trigger", "e2-ref", "e3-push-is-the-canon-alone"])
-def test_fg7_91_the_canon_autostarts_on_a_push_to_an_agent_branch_and_a_newer_push_cancels_the_older_run(what):
-    """FG7-91: E1 push on worktree-agent-** next to the dispatch; E2 the canonised ref in every place; E3 a push carries no
-    input, so only the canon runs; E4 group canon-<ref>, cancelled by a newer push for every ref but main."""
+@pytest.mark.parametrize("what", ["e1-trigger", "e2-ref"])
+def test_fg7_91_the_canon_autostarts_on_a_push_to_an_agent_branch_and_names_the_ref_it_canonises(what):
+    """FG7-91: E1 push on worktree-agent-** next to the dispatch; E2 the canonised ref (inputs.ref or the pushed branch)
+    in every place."""
     doc = load("canon.yml")
-    on = doc[True]
     if what == "e1-trigger":
-        assert on["push"] == {"branches": ["worktree-agent-**"]} and "workflow_dispatch" in on and set(on) == {"push", "workflow_dispatch"}
-    elif what == "e2-ref":
-        assert _canon_ref_places(doc) == [CANON_REF] * 5
-    elif what == "e3-push-is-the-canon-alone":
-        # no input exists on a push: the redundancy inputs reach nightly empty and dry_only is false (null), so checks+full run
-        for key in ("TEST_REDUNDANCY", "REDUNDANCY_SCOPE"):
-            assert on["workflow_dispatch"]["inputs"][key]["default"] == ""
-        assert doc["jobs"]["checks"]["if"] == "${{ !inputs.dry_only }}" and doc["jobs"]["full"]["if"] == "${{ !inputs.dry_only }}"
-
-
-PUSH_GROUP = "format('canon-push-{0}', github.ref_name)"
-DISPATCH_GROUP = "format('canon-dispatch-{0}', github.run_id)"
-
-
-@pytest.mark.parametrize("what", ["push-same-branch-cancels", "dispatch-never-cancelled", "push-does-not-cancel-a-dispatch"])
-def test_fg7_91_e4_a_push_run_cancels_the_older_push_of_its_branch_and_a_dispatch_run_is_alone(what):
-    """E4: push -> group canon-push-<branch>, cancel true; dispatch -> a group of its own (run id), cancel false."""
-    c = load("canon.yml")["concurrency"]
-    if what == "push-same-branch-cancels":
-        assert c["group"].startswith("${{ github.event_name == 'push' && " + PUSH_GROUP) and c["cancel-in-progress"] == "${{ github.event_name == 'push' }}"
-    elif what == "dispatch-never-cancelled":
-        assert c["group"].endswith("|| " + DISPATCH_GROUP + " }}") and "inputs" not in c["group"]   # no ref in it: nothing shared
-        assert c["cancel-in-progress"] == "${{ github.event_name == 'push' }}"                       # false for a dispatch
+        on = doc[True]
+        assert on["push"] == {"branches": ["worktree-agent-**"]} and set(on) == {"push", "workflow_dispatch"}
     else:
-        assert "github.ref_name" in c["group"].split("||")[0] and "ref_name" not in c["group"].split("||")[1]   # a dispatch group never meets a push group
+        assert _canon_ref_places(doc) == [CANON_REF] * 5
 
 
-def test_fg7_91_runner_facts_does_not_run_under_a_push_canon_of_an_agent_branch():
-    job = load("forge-check.yml")["jobs"]["runner-facts"]
-    assert job["if"] == RUNNER_FACTS_IF and "ref_name == 'main'" in job["if"]
+def test_fg7_91_e4_a_push_run_cancels_the_older_push_of_its_branch_and_a_dispatch_run_is_alone():
+    """E4 (Round 2): push -> group canon-push-<branch>, cancel true; dispatch -> group canon-dispatch-<run_id>, cancel false
+    (one expression: cancel only on push), so a hand start is never cancelled, never cancels, and a push never meets it."""
+    assert load("canon.yml")["concurrency"] == {
+        "group": "${{ github.event_name == 'push' && format('canon-push-{0}', github.ref_name) || format('canon-dispatch-{0}', github.run_id) }}",
+        "cancel-in-progress": "${{ github.event_name == 'push' }}"}
+
+
 
 
 def test_the_canon_is_named_by_its_ref_and_its_clock_runs_after_a_red_job():
@@ -471,7 +454,7 @@ def test_the_f19e_pin_can_fail():
 
 def test_runner_facts_is_a_probe_on_pull_request_and_push_only():
     """.gitlab-ci.yml runner-facts: rules mr + main (never the canon), allow_failure, timeout 15m, the facts and the timed
-    `selftest.py --limits --lang`. A called run carries the caller's event (workflow_dispatch), so the canon skips it."""
+    `selftest.py --limits --lang`. A called run carries the caller's event: push under a push canon, so the ref_name test keeps the probe out of it."""
     job = load("forge-check.yml")["jobs"]["runner-facts"]
     assert job["if"] == RUNNER_FACTS_IF
     assert job["continue-on-error"] is True and job["timeout-minutes"] == 15
