@@ -1913,16 +1913,18 @@ def rd1_28_the_probe_word_is_read_through_its_row():
     bad, saved = ({"rows": "x"}, GR.structural_error({"rows": "x"})), list(GT._READ)
     words = ["intended_failure", "no_failure", "wrong_location", "not_executed", "incomplete", "survived", "probe_defect", "partial_product",
              "model_changed", "incomplete_or_wrong_failure", "Intended_failure", " intended_failure", "", None, ["intended_failure"],
-             "\u0438ntended_failure", "x" * 10000]
+             "\u0438ntended_failure", "x" * 10000, "not_reached", "not_owed", "gap", "already_probed", " no_failure"]
     defect = ("no_failure", "wrong_location", "survived")
+    judged = ("intended_failure", "no_failure", "wrong_location", "survived")     # RD1-33 F1 (a): no registry read, the same in every state
     try:
         for label, state in (("live", saved[0]), ("unreadable", bad), ("no word", (reg, None))):
             GT._READ[:] = [state]
             for w in words:
+                check_eq(f"E1-1 probe_judged {w!r:.24} [{label}]", PL.probe_judged({"verdict": w}), w in judged)
                 check_eq(f"E28 probe_fired {w!r:.24} [{label}]", PL.probe_fired({"verdict": w}), w == "intended_failure" and label == "live")
                 check_eq(f"E28 probe_found_defect {w!r:.24} [{label}]", PL.probe_found_defect({"verdict": w}), w in defect)
             for rec in ({}, None, "intended_failure"):
-                check_eq(f"E28-3 probe_fired {rec!r} [{label}]", (PL.probe_fired(rec), PL.probe_found_defect(rec)), (False, False))
+                check_eq(f"E28-3 probe_fired {rec!r} [{label}]", (PL.probe_fired(rec), PL.probe_found_defect(rec), PL.probe_judged(rec)), (False, False, False))
     finally:
         GT._READ[:] = saved
     import red_sandbox as RS

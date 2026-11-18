@@ -1113,9 +1113,6 @@ def tooling_gap_key(task_root, identity: str, current_hash: str) -> str:
         return ""
 
 
-PROBE_JUDGED_VERDICTS = ("intended_failure", "no_failure", "wrong_location")   # a record that JUDGED the test (E8)
-
-
 def probe_fired(record) -> bool:
     """The probe's broken check fired: `record` is a dict whose `verdict` the row `probe_verdict` accepts for `fired`
     (the one reader: the window, the repeat check and the product-receipt repeat all ask it). Error direction: False -
@@ -1129,6 +1126,15 @@ def probe_found_defect(record) -> bool:
     words) - a repeat of the same bytes is refused. It accepts nothing and reads no registry. Error direction: False - a
     non-dict, a missing or non-str verdict and every other word do not block, so the probe runs."""
     return isinstance(record, dict) and record.get("verdict") in ("no_failure", "wrong_location", "survived")
+
+
+def probe_judged(record) -> bool:
+    """A record that JUDGED the test (`intended_failure`, `no_failure`, `wrong_location`, `survived`: every word of the row
+    `probe_verdict` whose class is matched or mismatched) - a probe that caught something is not one that could not run. The one
+    reader of that set (RD1-33 F1). It accepts nothing and reads no registry. Error direction: False - a non-dict, a missing or
+    non-str verdict, a case or padding variant and every unknown or non-row word (`not_executed`, `incomplete`, `probe_defect`,
+    `not_reached`) are never judged."""
+    return isinstance(record, dict) and record.get("verdict") in ("intended_failure", "no_failure", "wrong_location", "survived")
 
 
 def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
@@ -1167,7 +1173,7 @@ def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
         state, why = "plan_unfinished", notes[-1] if notes else "the plan is not finished: the same call again continues it"
     elif verdict in ("not_executed", "incomplete"):
         state, why = verdict, notes[-1] if notes else "the probe did not run"
-    elif verdict in PROBE_JUDGED_VERDICTS:
+    elif probe_judged(record):
         state, why = "judged", ""
     else:
         state, why = "not_run", "the probe record has no verdict"
