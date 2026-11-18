@@ -34,3 +34,10 @@ test_current_audit_contract: first run FAILED on test_no_move_seam.py (300 != 60
 ```
 Not run locally: test_conductor_doors.py, test_selftest_slow_tests.py, test_quarantine.py check, canon judges.
 Open: test_words_doors_flight_launcher 79.6 s, s6 manual 103.9, s6 t292 75.8, refusals core 61.5 provisional (named, not re-split).
+
+needed beyond the manifest: driver-layers.json, test_silent_passes.py, mutations-c2-1s-fix-round.json, design/state-exits.md (owns widened by the Lead answer to t-1380); ci-out/keep-split-msg.txt (split-keep tool output, deleted)
+owns-skip: ai-packages/qa-factory/design/state-exits.md -- owns widened by the Lead in the t-1380 answer
+owns-skip: ai-packages/qa-factory/scripts/tests/fixtures/driver-layers.json -- owns widened by the Lead in the t-1380 answer
+owns-skip: ai-packages/qa-factory/scripts/tests/fixtures/mutations-c2-1s-fix-round.json -- owns widened by the Lead in the t-1380 answer
+owns-skip: ai-packages/qa-factory/scripts/tests/test_silent_passes.py -- owns widened by the Lead in the t-1380 answer
+owns-skip: ci-out/keep-split-msg.txt -- tool scratch output of split-keep, removed
