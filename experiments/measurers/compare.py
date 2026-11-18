@@ -139,8 +139,30 @@ def case_files(tree: Path) -> list:
     return found
 
 
+def requests_of(path: Path) -> dict:
+    """{message id (else uuid): (model, usage, timestamp)} of one transcript: the unique requests that carry a non-empty `usage` dict
+    (a duplicate id counts once, the last line wins; an empty marker is skipped). The one collection body (FG7-37: scan and
+    scoreboard_bar each had a copy). Non-JSON and non-object lines are skipped; raises OSError / UnicodeDecodeError."""
+    seen = {}
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                item = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(item, dict):
+                continue
+            message = item.get("message")
+            message = message if isinstance(message, dict) else {}
+            usage = message.get("usage")
+            if item.get("type") == "assistant" and isinstance(usage, dict) and usage and not is_empty_marker(message.get("model"), usage):
+                seen[message.get("id") or item.get("uuid")] = (message.get("model"), usage, item.get("timestamp"))
+    return seen
+
+
 def scan(path: Path, rate: dict) -> dict:
-    seen, role, tools = {}, None, collections.Counter()
+    seen = {key: (model, usage) for key, (model, usage, _stamp) in requests_of(path).items()}
+    role, tools = None, collections.Counter()
     first = last = None
     for line in path.open(encoding="utf-8"):
         try:
@@ -157,7 +179,6 @@ def scan(path: Path, rate: dict) -> dict:
             mm = re.search(r"qa-[a-z\-]+", txt or "")
             role = mm.group(0) if mm else "?"
         if o.get("type") == "assistant" and m.get("usage") and not is_empty_marker(m.get("model"), m["usage"]):
-            seen[m.get("id") or o.get("uuid")] = (m.get("model"), m["usage"])
             for b in m.get("content", []):
                 if isinstance(b, dict) and b.get("type") == "tool_use":
                     tools[b["name"]] += 1
