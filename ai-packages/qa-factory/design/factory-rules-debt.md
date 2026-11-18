@@ -196,7 +196,7 @@ Entries that code in the package cannot close; each keeps its text whole and say
   out (`py_stdout`), hashed by `initialize` as the controller's `source_revision`; the adapter's
   `--ticket-file` and `diff` read the JSON form (and the legacy form with a stderr tail), and a
   story in flight that has only the `.md` gets its `.json` once (`adopt_legacy_snapshot`). Held by
-  `test_story_run_s0.py` (`D1(a)`-`D1(e)`) and `test_ticket_adapter.py`. Not yet exercised by a live
+  `test_story_run_s0_snapshot.py` (`D1(a)`-`D1(e)`) and `test_ticket_adapter.py`. Not yet exercised by a live
   run (FR-33): the scout's brief on a live story is the proof. On the skill path the staleness
   check is one `ticket_adapter.py freshness` command with a `work/ticket-freshness.json` record
   beside the snapshot and no `.prev` copy; the driver runs the same command at the same trigger

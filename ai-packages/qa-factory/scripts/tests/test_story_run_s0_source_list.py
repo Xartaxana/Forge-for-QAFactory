@@ -28,7 +28,7 @@ UI_REPO = {"repo_id": "testproject1-ui", "local_path": "app", "remote_identity":
 def s0_source_list_clean() -> None:
     """The cmp2 shape: a list naming `testproject1-ui!1924` and a `ref`, given from ANOTHER folder than the project's
     (the driver changes into the project, so a relative path must have been made absolute first)."""
-    from test_story_run_refusals import git_fixture
+    from story_run_refusals_common import git_fixture
     task = "QA-1"
     root, task_root, env = s0_project(task)
     try:
@@ -304,7 +304,7 @@ def s0_source_list_units() -> None:
     import os
     import subprocess
     import story_run
-    from test_story_run_refusals import git_fixture
+    from story_run_refusals_common import git_fixture
     check_eq = eq
     task = "QA-1"
     root, task_root, env = s0_project(task)

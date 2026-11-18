@@ -186,7 +186,7 @@ def main() -> None:
         check_eq("K1: its top is the monorepo", os.path.normcase(os.path.realpath(top)), os.path.normcase(os.path.realpath(mono)))
         # the edge of the other kind: no `local_path` at all is no entry and no line
         check_eq("R1a: an empty local_path is (None, None, '')", driver.checkout_for(entry("testproject1", "", IDENTITY)), (None, None, ""))
-        # R1e: the top IS the folder: today's behaviour, no identity check and no `want` check (M5 is killed by test_story_run_s0 C2)
+        # R1e: the top IS the folder: today's behaviour, no identity check and no `want` check (M5 is killed by test_story_run_s0_source_list C2)
         checkout, top, why = driver.checkout_for(entry("testproject1-ui", str(mono), UI_IDENTITY), want="testproject1-ui")
         check("R1e: the top is the folder: used, whatever its origin and whatever `want` says", checkout == mono.resolve() and why == "", why)
         # R1b: a path that is not there / not a folder

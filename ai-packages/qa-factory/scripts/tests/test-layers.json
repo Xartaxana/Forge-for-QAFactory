@@ -6269,7 +6269,7 @@
   },
   "test_story_run_refusals.py": {
    "layer": "data_join",
-   "why": "split shim: re-exports for test_exit_ask_tools.py, test_story_run_s0.py; checks live in test_story_run_refusals_core.py, test_story_run_refusals_sources.py, test_story_run_refusals_resume.py, test_story_run_refusals_t667_c21.py, test_story_run_refusals_cc.py, test_story_run_refusals_c24_n5.py",
+   "why": "split shim: re-exports for test_exit_ask_tools.py; checks live in test_story_run_refusals_core.py, test_story_run_refusals_sources.py, test_story_run_refusals_resume.py, test_story_run_refusals_t667_c21.py, test_story_run_refusals_cc.py, test_story_run_refusals_c24_n5.py",
    "named_by": [],
    "replaced_by": null,
    "covers": [
@@ -6580,7 +6580,7 @@
    "layer": "detector",
    "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:86"
+    "design/architecture.md:125"
    ],
    "replaced_by": null,
    "covers": [
@@ -6612,7 +6612,6 @@
     "references/jira-fields.json",
     "tests/harness.py",
     "tests/story_run_common.py",
-    "tests/test_story_run_refusals.py",
     "tests/story_run_s0_common.py"
    ]
   },
@@ -6620,7 +6619,7 @@
    "layer": "detector",
    "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:86"
+    "design/architecture.md:125"
    ],
    "replaced_by": null,
    "covers": [
@@ -6652,7 +6651,7 @@
     "references/jira-fields.json",
     "tests/harness.py",
     "tests/story_run_common.py",
-    "tests/test_story_run_refusals.py",
+    "tests/story_run_refusals_common.py",
     "tests/story_run_s0_common.py"
    ]
   },
@@ -6660,7 +6659,7 @@
    "layer": "detector",
    "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:86"
+    "design/architecture.md:125"
    ],
    "replaced_by": null,
    "covers": [
@@ -6692,7 +6691,6 @@
     "references/jira-fields.json",
     "tests/harness.py",
     "tests/story_run_common.py",
-    "tests/test_story_run_refusals.py",
     "tests/story_run_s0_common.py"
    ]
   },
@@ -6700,7 +6698,7 @@
    "layer": "detector",
    "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:86"
+    "design/architecture.md:125"
    ],
    "replaced_by": null,
    "covers": [
@@ -6732,7 +6730,6 @@
     "references/jira-fields.json",
     "tests/harness.py",
     "tests/story_run_common.py",
-    "tests/test_story_run_refusals.py",
     "tests/story_run_s0_common.py"
    ]
   },

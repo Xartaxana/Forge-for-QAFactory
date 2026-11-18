@@ -123,10 +123,6 @@ TEST_TIMEOUTS = {
     # keeps a green file green.
     "test_red_sandbox_reports.py": 600,
     "test_state_portability.py": 600,
-    # 03.10: 513 cases, 305 s alone on the Lead's machine after the night's batches (the driver's
-    # launched row, line-buffered stdout, the resolver); timed out under load in the full run. The
-    # split is queued (B-297, the B-155 class); the ceiling only keeps a green file green.
-    "test_story_run_s0.py": 600,
     "test_story_run_gate_repair.py": 600,
     # 21.10: G1-2, 285.6 s in the builder's run against the default 300 s (it builds temp git repos, B21 alone 300 files twice); it
     # runs only in the nightly package-full, where a loaded runner would turn it red (FR-31). The cost cut is queued (the B-155 class);

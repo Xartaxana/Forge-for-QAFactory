@@ -1100,7 +1100,7 @@ def t331_owners_and_error_objects() -> None:
     try:
         # --- the project's own settings are `config`, never `tracker` (and say nothing of a retry) ---
         # (the agent / skill read route, `require_direct_read`, is NOT here: it keeps owner `tracker` until the driver's
-        # K5 text for it moves - see the report; test_story_run_s0 K5 pins that question's words)
+        # K5 text for it moves - see the report; test_story_run_s0_snapshot K5 pins that question's words)
         for label, adapter in (("no adapter", {}), ("an unknown kind", {"kind": "carrier-pigeon"})):
             write_config(root, adapter)
             p = cli(root, "get", KEY, "--json")

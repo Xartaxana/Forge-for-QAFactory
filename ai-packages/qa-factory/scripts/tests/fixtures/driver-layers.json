@@ -1335,7 +1335,7 @@
   {"file": "test_human_questions.py", "function": "main", "count": 11, "why": "command text in an answer block (lines 103, 104, 111, 129) and, since the integration commit 57b65fb (the B-220 F3 action-line test), two strings handed to `human_text.problems`: the line `the fix: run `story_run.py --resume`...` and its body-line twin (213, 217) - sample text for the rules, not a read of the source; and the section-checker samples (`story_run.py happened` inside and outside a fence, lines 479-491) - strings handed to `human_text.section_problems`"},
   {"file": "test_open_list_fields.py", "function": "test_the_factory_defects_section_refuses_ids_and_lets_a_phrase_about_a_tool_run_pass", "count": 1, "why": "sample text handed to the open-list checker (`The helper story_run.py stopped.`), not a read of the source"},
   {"file": "test_driver_journal.py", "function": "<module>", "count": 2, "why": "argv[0] of an in-process main() call and a driver command line (not a source read)"},
-  {"file": "test_story_run_s0.py", "function": "t287_config_owner_is_the_ticket_read_question", "count": 1, "why": "command text in an answer block"},
+  {"file": "test_story_run_s0_paste_owners.py", "function": "t287_config_owner_is_the_ticket_read_question", "count": 1, "why": "command text in an answer block"},
   {"file": "test_first_look_code_look.py", "function": "__init__", "count": 1, "why": "the rig's stub `continue_command` returns a driver command line (`python story_run.py --task QA-1`), not a read of the source"},
   {"file": "test_first_look_code_look.py", "function": "test_first_look_stop_packet_not_s5_packet", "count": 1, "why": "the restart command the packet must print (`python story_run.py --task QA-1 --branch`): command text"},
   {"file": "test_first_look_code_look.py", "function": "test_same_code_source_prints_command", "count": 1, "why": "the restart command the answer prints (`python story_run.py --task QA-1 --branch <...>`): command text"},
@@ -1345,8 +1345,8 @@
   {"file": "test_null_outcomes.py", "function": "the_never_empty_rows", "count": 4, "why": "a `guard` string of a null-outcome row (`story_run.py::stage_S5`), not a read of the source"},
   {"file": "test_package_generation.py", "function": "problems_of", "count": 1, "why": "the answer block's command text"},
   {"file": "test_stand_gaps.py", "function": "human_broken", "count": 1, "why": "the answer block's command text (the coordinator called it a source read; the line is `python story_run.py --task QA-1 --answer <file>` inside a string)"},
-  {"file": "test_story_run_s0.py", "function": "k10_a_dry_run_asks_and_reads_nothing", "count": 1, "why": "run_script of the driver as a child"},
-  {"file": "test_story_run_s0.py", "function": "s0_source_list_clean", "count": 1, "why": "run_script of the driver as a child"},
+  {"file": "test_story_run_s0_snapshot.py", "function": "k10_a_dry_run_asks_and_reads_nothing", "count": 1, "why": "run_script of the driver as a child"},
+  {"file": "test_story_run_s0_source_list.py", "function": "s0_source_list_clean", "count": 1, "why": "run_script of the driver as a child"},
   {"file": "test_console_encoding.py", "function": "<module>", "count": 1, "why": "B-413's defect carried here (B-364 F0): the file name as a key of the table `WHERE` (where each script's console setup lives); the module-level scan that reads it opens the file in another function, so it is a mention here"}
  ],
  "stdout_writers": []

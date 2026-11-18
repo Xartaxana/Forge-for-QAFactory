@@ -123,7 +123,7 @@ exit 3 with owner `config` (the project's own setting to complete: the sentence 
 with that sentence verbatim) - and so are the other settings of the project that no retry mends (no
 `adapters.ticket`, an unknown adapter kind, an `auth_type` the client cannot send): exit 3, owner `config`, never
 `tracker`. (The read route that is an agent or a skill, `require_direct_read`, is the same kind of fault and still says
-`tracker`: the driver's `ticket_read` question has its own text for it, pinned by test_story_run_s0 K5, that the
+`tracker`: the driver's `ticket_read` question has its own text for it, pinned by test_story_run_s0_snapshot K5, that the
 `config` branch would replace - t-331 left it for the driver's next batch.) 4 the FACTORY's own fault: a data table (jira-fields.json, reference-kinds.json) or a
 config key of the light form is missing or malformed, or an unexpected exception. 5 AUTH: the tracker stopped
 accepting the token (a 401/403, a login page or a CAPTCHA that a re-read of something already read confirms):
