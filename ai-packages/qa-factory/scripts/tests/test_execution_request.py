@@ -14,7 +14,6 @@ from execution_request import (JobStore, RequestError, request_digest, selector_
                                validate_request)
 from execution_fingerprint import file_hash  # noqa: E402
 from run_suite import template  # noqa: E402
-from profile_contract import ACCEPTS as ACCEPTS_OF_THE_PACKAGE  # noqa: E402
 
 
 # Outside the package: a local-directory marketplace copies whatever lies in it.
@@ -762,6 +761,18 @@ def n2_k2_validate_request_takes_a_word_bound_to_the_story(request: dict) -> Non
              verdict({**test_deployed, "person_confirmation": {**test_deployed["person_confirmation"], "story_revision": "elsewhere-1"}}, "n2k2-td3"))
     check_eq("K-N2.2 control: a `matched` record is accepted as it always was", verdict(shapes["M"], "n2k2-m"), "matched")
     check_in("K-N2.2 control: an `unknown` is refused, whatever it names", refused, verdict(shapes["U"], "n2k2-u"))
+    # RD1-14 k2 (item 1, E-S3, E-S7): the word is made by `provenance_word` and judged by the registry
+    local = {"runtime_required": False, "target_kind": "local_source"}
+    check_in("RD1-14 k2: ...an INVALID one (no timestamp) is refused", refused,
+             verdict({k: v for k, v in shapes["NA2"].items() if k != "timestamp"}, "n2k2-l2", **local))
+    import gate_registry as GR
+    import gate_template as GT
+    saved, GT._READ[:] = list(GT._READ), [({"rows": "x"}, GR.structural_error({"rows": "x"}))]
+    try:
+        blind = verdict(shapes["M"], "n2k2-r1")
+    finally:
+        GT._READ[:] = saved
+    check_in("RD1-14 k2 E-S7: a valid `matched` is refused when the registry cannot be read", refused, blind)
 
 
 def n2_k3_the_fingerprint_of_a_word_is_not_the_fingerprint_of_a_reading(request: dict) -> None:
@@ -1331,8 +1342,6 @@ def t300_k33_a_freshness_read_is_a_rehearsal_end_to_end() -> None:
                  "runtime probe returned unverified provenance: ", unmarked)
         check_in("K33 CONTROL: and the refusal says what is missing", "evidence_refs must be a non-empty array", unmarked)
         # K-N2.5 (S5, t-300 N2): the rehearsal reader takes what the run path takes - ONE set (X4)
-        check("K-N2.5: `rehearsal_probe`'s default accepts IS `profile_contract.ACCEPTS` (one set, not a copy)",
-              er.rehearsal_probe.__defaults__[0] is ACCEPTS_OF_THE_PACKAGE)
         (probe_dir / "mode.txt").write_text("person_confirmed", encoding="utf-8")
         check_eq("K-N2.5 (flips K33): a person_confirmed answer - the word, with the kind, the story and the revision it was "
                  "given for - is TAKEN by a freshness read: what the stage entry accepts, the run accepts", refusal(), "")

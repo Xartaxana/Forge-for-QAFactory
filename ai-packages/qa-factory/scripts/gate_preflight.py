@@ -83,7 +83,7 @@ from critic_rollcall import project_root_of as _project_root  # noqa: E402
 import hooklib  # noqa: E402  (`read_json`, the one JSON reader)
 from stand_gaps import GATE_STAGE, ROLE_NAMED, ROLE_SCOPES  # noqa: E402 (gate -> the stage it stands in front of: the ONE table)
 from hooklib import sorted_paths  # noqa: E402
-from gate_template import acceptable  # noqa: E402  (the ONE predicate a gate word is accepted through: the reuse of a proof reads the registry row)
+from gate_template import acceptable, registry_problem, registry_why  # noqa: E402  (the ONE predicate a gate word is accepted through: the reuse of a proof reads the registry row)
 
 FACTORY_FIXABLE = "factory_fixable"
 PERSON_DECIDES = "person_decides"
@@ -3498,6 +3498,7 @@ class Rehearsal:
         try:
             import execution_request
             import runtime_probe
+            from profile_contract import provenance_word
             cwd = Path(str(spec.get("cwd") or "."))
             observed = execution_request.rehearsal_probe({
                 # the stored argv is portable (t-238 W5): this machine's python and plugin path
@@ -3505,7 +3506,11 @@ class Rehearsal:
                 "argv": [str(a) for a in runtime_probe.resolve_argv(spec["argv"])],
                 "cwd": str(cwd if cwd.is_absolute() else Path(root) / cwd),
                 "timeout_s": spec.get("timeout_s") or 30,
-                "task_root": str(Path(self.task_root).resolve())}, accepts=("matched", "person_confirmed"))
+                "task_root": str(Path(self.task_root).resolve())})
+            # the rehearsal reader took the record (`provenance.rehearsal`); the identity of gate A is judged here by its own
+            # consumer, which takes a build and a person's word but not a probe that compared nothing (AR-13, RD1-14)
+            if not acceptable(provenance_word(observed, rehearsal=True), "provenance.identity"):
+                return ""
             return str((observed or {}).get("observed_runtime_identity") or "").strip()
         except Exception:
             return ""
@@ -3917,6 +3922,9 @@ class Rehearsal:
             else:
                 # Observed only now, for the record: it no longer keys a proof, so a reuse never asks the stand.
                 identity = self._observed_identity(profile_id, root)
+                if not identity and (problem := registry_problem()):
+                    # an unjudged identity is never stated as a fact (E-k2.2): the note names the registry, not the stand
+                    self._note_once(check, registry_why(problem, "the stand's build is not recorded with this rehearsal"))
                 self._rehearsing_argv = list(command_id)
                 # the variables go only when the command sets some: a probe that is given none is called exactly as before
                 outcome = (self._probe_reporter(launch, cwd, ctx.timeout, report, fmt, env=launch_env) if launch_env
