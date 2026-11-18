@@ -1551,6 +1551,24 @@ def test_order_known_door_table(case):
         assert not any(w.startswith("order-known: ") for w in warnings)
 
 
+# FG7-34: the count line is printed by ONE producer on the commit, merge and --all paths: a row per path x count.
+def _order_known_warns(path, staged):
+    if path == "commit":
+        return jv.decide_with_warnings(staged, HEAD_TEXT, NOW, known=set())[2]
+    if path == "merge":
+        return jv.decide_merge(staged, HEAD_TEXT, None, NOW, known=set())[2]
+    return jv._developer_file_result("logs/journal/x.jsonl", staged, HEAD_TEXT, None, NOW, drift=False,
+                                     one_writer=False)[1]
+
+
+@pytest.mark.parametrize("path", ["commit", "merge", "all"])
+@pytest.mark.parametrize("declared", [0, 1])
+def test_order_known_count_on_every_path(path, declared):
+    lines = [_id_bad(), _tok("09:00:00", "10:30:00")] if declared else [_id_bad(ts="10:00:00", tid="t-002")]
+    counts = [w for w in _order_known_warns(path, _staged(*lines)) if w.startswith("order-known: ")]
+    assert (len(counts) == 1 and counts[0].startswith("order-known: 1 declared")) if declared else not counts
+
+
 # ================ offload B0: `returned` (rule 9f, E-B0-6), rule 20 fields, E-B0-1 form, E-B0-5 both worlds ================
 # HEAD holds t-001 delegated to builder with worker_ref cli:2026-07-10T08:00:00 (an OPEN task).
 _WREF = "cli:2026-07-10T08:00:00"
