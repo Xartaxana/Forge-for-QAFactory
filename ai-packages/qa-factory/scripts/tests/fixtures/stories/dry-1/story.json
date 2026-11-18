@@ -111,6 +111,30 @@
     }
    }
   },
+  "qa-failure-analyst@S7": {
+   "verdict": "ok",
+   "result_text": "qa-failure-analyst S7 DRY-1 · ok\nTC-1 · passed · the S6 run is green; nothing to triage, nothing to repair\nTC-2 · NOT_EXECUTED · left unchecked by the person's word at S6; no run to triage\nwork/handoffs/S7-qa-failure-analyst-1.yaml",
+   "overrides": {
+    "s7-analyst-to-automator": {
+     "inputs_read[0].path": "work/handoffs/S6-qa-runner-1.yaml",
+     "inputs_read[1].failures": "0",
+     "inputs_read[2].path": "<newest:evidence/runtime-provenance-*.json>",
+     "header.window": "none",
+     "stage_acceptance.failure_class": {"$absent": true},
+     "stage_acceptance.quote": {"$absent": true},
+     "stage_acceptance.witness_paths[0]": {"$absent": true},
+     "scope": [],
+     "repairs": [],
+     "not_for_repair": [],
+     "unresolved": [],
+     "blocked": {"$absent": true},
+     "claims.every_repair_names_evidence_expected_and_check": true,
+     "claims.no_app_bug_expectation_was_handed_for_repair": true,
+     "claims.every_flaky_verdict_carries_three_isolated_reruns_and_a_mechanism": true
+    },
+    "work/triage.json": {"triage": []}
+   }
+  },
   "qa-case-designer@S4": {
    "result_text": "qa-case-designer S4 DRY-1 · ok\nTC-1 · created · the case checks the cart total with a quantity\nwork/handoffs/S4-qa-case-designer-1.yaml",
    "overrides": {
