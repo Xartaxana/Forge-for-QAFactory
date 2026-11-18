@@ -1780,26 +1780,34 @@ def handed_plan_rows(artifacts: Path) -> frozenset:
 UNREAD_GAP = "current sufficient evidence incomplete"   # the coverage projection's gap text for an obligation with no verified run
 
 
+NOT_A_READ_FAILURE = ("NOT_EXECUTED", "ENV_ISSUE", "FLAKY")   # verdicts that are no failure of the product: their ledger rows own them
+
+
 def unread_obligations(doc: dict, facts: dict) -> tuple:
     """`(excused, red)`: frozensets of obligation ids whose every instance is an unread target (`contract.unread_readings`, the
     ONE join) the failure analyst answered (U7 7b-B, D3). The per-obligation rule is `contract._reading_of` (N7) and only the coverage
     guards are added here: `excused` = every instance read NOT_EXECUTED AND the oracle closed AND the design sufficient AND the
-    gap the plain "evidence incomplete" text (the item is the ledger's `run_unread`); `red` = a failure verdict on an instance.
+    gap the plain "evidence incomplete" text (the item is the ledger's `run_unread`); `red` = a failure verdict on an instance (not only NOT_EXECUTED, ENV_ISSUE, FLAKY).
     An unanswered instance, a failed execution, an open oracle, another gap text, an empty `instance_ids`: in neither set, so the
     coverage reason stands as today. Error direction: toward the gap. Never raises."""
     try:
         readings = C.unread_readings(facts["report"], facts["triage"])
         excused, red = set(), set()
         for ob in doc.get("coverage", {}).get("obligations", []):
+            oid = ob.get("obligation_id")
+            if not isinstance(oid, str) or not oid:     # an id-less row is in neither set: `coverage_reasons` treats it as before
+                continue
             ids = ob.get("instance_ids") or []
             if not readings or not ids or ob.get("execution_state") != "inconclusive" or any(i not in readings for i in ids):
                 continue
-            word = C._reading_of([readings[i] for i in ids])
+            verdicts = [readings[i] for i in ids]
+            word = C._reading_of(verdicts)
             if word == "red":
-                red.add(ob["obligation_id"])
+                if any(v and v not in NOT_A_READ_FAILURE for v in verdicts):    # only NOT_EXECUTED/ENV_ISSUE/FLAKY: keep `coverage:`
+                    red.add(oid)
             elif (word == "read" and ob.get("oracle_open") is False and ob.get("design_assessment") == "sufficient"
                   and str(ob.get("gap") or "").strip() == UNREAD_GAP):
-                excused.add(ob["obligation_id"])
+                excused.add(oid)
         return frozenset(excused), frozenset(red)
     except Exception:  # noqa: BLE001
         return frozenset(), frozenset()
@@ -1810,7 +1818,7 @@ def coverage_reasons(doc: dict, handed_rows_of_plan: frozenset = frozenset(), ex
     """One reason per current-task obligation the coverage projection does not verify.
 
     U7 7b-B (D3): an id in `excused` (`unread_obligations`) is skipped - its item is the ledger's `run_unread`; an id in `red` reads
-    `coverage red: <id> - the failure analyst read a failure in the run log` (product). `coverage_contract.py` is untouched.
+    `coverage red: <id> - the failure analyst read a failure in the run log` (product), said only for a failure verdict. `coverage_contract.py` is untouched.
 
     `person_debt`: the only test that covers it is one the critic could not verify (D-0013) -
     shown in the coverage report in words, listed in "Left with you", never a delivery reason.
