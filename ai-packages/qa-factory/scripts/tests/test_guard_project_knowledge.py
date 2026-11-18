@@ -20,7 +20,7 @@ def _word(command, who=ROLE):
 
 
 def test_role_running_account_role_revoke_is_blocked():
-    for sub in ("account", "role", "revoke", "lesson"):
+    for sub in ("account", "role", "revoke", "lesson", "instance"):
         for command in (f"python project_knowledge.py {sub} --task T",
                         f"python -B scripts/project_knowledge.py {sub} --id PK-1",
                         f"python -c \"import subprocess; subprocess.run(['python', 'project_knowledge.py', '{sub}', '--task', 'T'])\"",
@@ -51,7 +51,7 @@ def test_option_before_subcommand_is_recognised():
     """PK2-9: both registry scripts, options before the subcommand (none / one / two / `--flag=value` / argument list):
     a write subcommand is recognised, a read one passes; a subcommand word inside a quoted option value is not a write."""
     cases = []
-    for script, writes, reads in (("project_knowledge.py", ("account", "role", "revoke", "side", "lesson"), ("show", "state")),
+    for script, writes, reads in (("project_knowledge.py", ("account", "role", "revoke", "side", "lesson", "instance"), ("show", "state")),
                                   ("environment_record.py", ("record", "revoke"), ("show", "state"))):
         for label, options in (("none", ""), ("one", "--task T "), ("two", "--task T --root R "), ("eq", "--task=T ")):
             for sub in writes:

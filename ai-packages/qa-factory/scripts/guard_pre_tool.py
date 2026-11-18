@@ -1785,6 +1785,8 @@ HUMAN_WORD_MSG = ("PRE-TOOL GUARD: a person's word is recorded by the orchestrat
                   "its own gap someone else's (`show` is open to you). "
                   "`project_knowledge.py lesson` stores what the person taught about the stand (what takes long, how to narrow it); "
                   "a role running it would make its own guess a project fact (`lessons` and `show` are open to you). "
+                  "`project_knowledge.py instance` stores the person's answer about starting another instance of the stand or device; "
+                  "a role running it would allow itself (`show` is open to you). "
                   "`report_adapt.py kind` changes how a test command's report is read in the project's configuration; that is the "
                   "driver's or the conductor's move, and a role that cannot read a report hands the kept report over in its digest "
                   "(`understood` and `show` are open to you). "
@@ -1866,7 +1868,7 @@ def human_word_check(event: dict, cfg: dict) -> None:
                or registry_write_call(low, "environment_record.py", ("record", "revoke"))
                # What the person said about the product's roles and the stand's accounts, and taking it back (PK0-8): the same door shape;
                # `show` stays open
-               or registry_write_call(low, "project_knowledge.py", ("account", "role", "revoke", "side", "lesson", "remember", "kind"))
+               or registry_write_call(low, "project_knowledge.py", ("account", "role", "revoke", "side", "lesson", "instance", "remember", "kind"))
                # OF3-2 K6 (B-294 (a)): the person's approval at onboarding and its application. argparse resolves any prefix of an
                # option that is unique (`--re` is only `--record-approval`, `--appl` only `--apply`), so every such spelling is the
                # door; the plan and read options (`--migration-plan`, `--validate`, `--preflight`, `--approval-ref`) stay open.
