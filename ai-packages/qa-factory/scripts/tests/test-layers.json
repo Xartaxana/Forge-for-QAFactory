@@ -3470,9 +3470,9 @@
   },
   "test_onboarding_markers.py": {
    "layer": "detector",
-   "why": "shrink-only ratchet NO_CARD in the file (AR-20)",
+   "why": "shrink-only ratchet EXCEPTIONS in the file (AR-20)",
    "named_by": [
-    "scripts/tests/test_onboarding_markers.py:36"
+    "scripts/tests/test_onboarding_markers.py::EXCEPTIONS"
    ],
    "replaced_by": null,
    "covers": [
@@ -4727,7 +4727,7 @@
    "layer": "detector",
    "why": "role-commands.json rows against their reader (AR-9)",
    "named_by": [
-    "scripts/tests/test_role_commands.py:3"
+    "scripts/tests/test_role_commands.py::COMMANDS"
    ],
    "replaced_by": null,
    "covers": [
@@ -5396,9 +5396,9 @@
   },
   "test_silent_passes.py": {
    "layer": "detector",
-   "why": "shrink-only ratchet NO_CARD in the file (AR-20)",
+   "why": "shrink-only ratchet KNOWN_IGNORING in the file (AR-20)",
    "named_by": [
-    "scripts/tests/test_silent_passes.py:1348"
+    "scripts/tests/test_silent_passes.py::KNOWN_IGNORING"
    ],
    "replaced_by": null,
    "covers": [
