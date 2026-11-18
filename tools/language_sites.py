@@ -2,7 +2,7 @@
 Python reaches the branch unseen (spec t-2065, node TR2-15, owner's words 06.11.2026: «Нигде не должно быть таких
 исключений для каких-то языков, проектов или случаев. Это пораждает баги фабрики»).
 
-INERT until wired (node N3): no hook, no CI line calls it; it runs by hand. A SITE is a place in a package script
+Wired (FG7-27): .githooks/pre-commit runs `--check --staged`; forge-check runs `--check --base $BASE`. A SITE is a place in a package script
 (ai-packages/qa-factory/, tests excluded) where code takes a different road for a token, by AST, in one of these forms:
 `compare`, `name-call`, `regex`, `parser`, `table-key`, `predicate-call`. Key `<path>|<qualname>|<form>|<token>`, a
 count; NO line number in a key. The baseline is tools/language-sites-baseline.json (rows, tokens, predicates, and
@@ -103,7 +103,7 @@ MIN_QUOTE = 12
 MAX_SHOWN = 25
 
 REFUSAL_TAIL = """Why it stops: one action by a different road for a language, project or case is a defect that
-breeds factory bugs (PROJECT.md P31, docs/SIBLING_MAP.md axis 33).
+breeds factory bugs (PROJECT.md P31, docs/SIBLING_MAP.md axis 34).
 Expected: no such branch here, or a row for this key. Doors:
   1. A data row: put the difference in a table and read it by a capability key, not by the
      language's name (references/detectors.json through scripts/assertion_detectors.py, AR-1).
