@@ -318,7 +318,8 @@ def assertion_site(row: dict, reporter: str, clone_root, test_file, *,
     as a garbage location of kind `exception`, Java JUnit and the .NET JUnit logger as `{}`, and a
     probe over such a profile ended `survived` with no word of why. A failed or errored row of a
     non-pytest `junit-xml` run is therefore a TYPED answer - the site is not read yet (B-337) - and
-    the caller turns it into an incomplete proof, never a verdict on the test. `pytest_command` is
+    the caller turns it into an incomplete proof, never a verdict on the test; the caller may read
+    it when the failure text names the location it pinned (`pinned_frames`), else it stays unread. `pytest_command` is
     what the caller knows of the run (`execution_request.is_pytest_command(argv)`; True is the old
     behaviour, so a caller that says nothing is unchanged); `runtime` is its hint for the text, the
     launcher's name, and decides nothing.
@@ -407,6 +408,20 @@ def frame_lines(text: str, frames, skip_frames) -> list:
     if why or skip_why or not all({"path", "line"} <= set(rx.groupindex) for rx in wanted):
         return []
     return [line.strip() for line, _match in frame_matches(text, wanted, skipped)]
+
+
+def pinned_frames(test_file, line) -> "list | None":
+    """The `frames` grammar of ONE pinned location (RD1-24, B-337): `[pattern]` with the named groups `path` and `line`, matching a
+    token `[<prefix>/]<test file's segments>:<line>` that starts a text line or follows a boundary character and holds none, so
+    `a (1).kt`, `Calc.kts:5`, `:50` for `:5` and `src/tests/Calc.kt:5` for `tests/Calc.kt:5`'s tail are not it (the path's
+    resolution inside the clone stays `_frame_site`'s). Built from the request's own location, not from a language. Each start
+    position scans one token, so the read is linear in the text. `None`: nothing pinned (empty file, line not a positive integer,
+    a file name holding a boundary character)."""
+    segments = [part for part in str(test_file or "").split("/") if part]
+    edge = "\\s(\"'<>\\[="
+    if not segments or not re.fullmatch(r"[1-9][0-9]*", str(line)) or any(re.search(f"[{edge}]", part) for part in segments):
+        return None  # a path holding a boundary character cannot be told from its neighbours in a text: unread, the safe side
+    return [f"(?:^|(?<=[{edge}]))(?P<path>(?:[^{edge}]*[/\\\\])?{'[/\\\\]'.join(map(re.escape, segments))}):(?P<line>{line})(?!\\w)"]
 
 
 def _expected_path(test_file, clone_root) -> str:
