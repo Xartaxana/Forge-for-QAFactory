@@ -1,0 +1,1 @@
+- `task_price` reads an empty `no_call_kinds` list in `references/driver-journal-kinds.json` as "no service kinds" (every sessionless row counts) instead of as unreadable; only a missing, broken or malformed list still falls back to `delivery` and `launched` (CD2-1)

@@ -18,6 +18,7 @@ import re
 import sys
 from pathlib import Path
 
+import journal_kinds
 import paths
 
 RATES = paths.RATES
@@ -308,17 +309,15 @@ def driver_report(task: Path) -> dict:
         return {}
     by_kind = collections.defaultdict(lambda: {"calls": 0, "turns": 0, "cost_usd": 0.0})
     by_role = collections.defaultdict(lambda: {"calls": 0, "turns": 0, "cost_usd": 0.0})
-    for line in runs.read_text(encoding="utf-8").splitlines():
-        try:
-            o = json.loads(line)
-        except ValueError:
-            continue
+    call_rows, bookkeeping = journal_kinds.split_rows(runs.read_text(encoding="utf-8"))
+    for o in call_rows:
         k = by_kind[o.get("kind") or "?"]
         k["calls"] += 1; k["turns"] += int(o.get("num_turns") or 0); k["cost_usd"] = round(k["cost_usd"] + float(o.get("total_cost_usd") or 0), 2)
         r = by_role[o.get("role") or o.get("kind") or "?"]
         r["calls"] += 1; r["turns"] += int(o.get("num_turns") or 0); r["cost_usd"] = round(r["cost_usd"] + float(o.get("total_cost_usd") or 0), 2)
     out = {"by_kind": dict(by_kind), "by_role": dict(by_role),
-           "total_usd": round(sum(v["cost_usd"] for v in by_kind.values()), 2)}
+           "total_usd": round(sum(v["cost_usd"] for v in by_kind.values()), 2),
+           "bookkeeping_rows": bookkeeping}
     cond = task / "state" / "conductor.jsonl"
     if cond.is_file():
         actions = collections.Counter()
@@ -331,7 +330,17 @@ def driver_report(task: Path) -> dict:
     return out
 
 
+def print_driver(drv: dict) -> None:
+    if drv:
+        print(f"driver (claude -p bill, from state/driver-runs.jsonl): ${drv['total_usd']}  by kind: {drv['by_kind']}")
+        for role, v in sorted(drv["by_role"].items(), key=lambda kv: -kv[1]["cost_usd"]):
+            print(f"   {role:26} calls={v['calls']:2} turns={v['turns']:4} ${v['cost_usd']}")
+        print(f"   bookkeeping rows: {drv['bookkeeping_rows']}")
+        print(f"   refusals by action: {drv.get('refusals_by_action')}")
+
+
 def main() -> int:
+    journal_kinds.require()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--project", required=True)
     ap.add_argument("--ticket", required=True)
@@ -353,12 +362,7 @@ def main() -> int:
         print(f"   {role:26} dispatches={v['dispatches']:2} req={v['requests']:4} ${v['cost_usd']}")
     print(f"TOTAL ${c['total_usd']}")
     print(unpriced_line(c["unpriced_requests"]))
-    drv = report["quality"].get("driver") or {}
-    if drv:
-        print(f"driver (claude -p bill, from state/driver-runs.jsonl): ${drv['total_usd']}  by kind: {drv['by_kind']}")
-        for role, v in sorted(drv["by_role"].items(), key=lambda kv: -kv[1]["cost_usd"]):
-            print(f"   {role:26} calls={v['calls']:2} turns={v['turns']:4} ${v['cost_usd']}")
-        print(f"   refusals by action: {drv.get('refusals_by_action')}")
+    print_driver(report["quality"].get("driver") or {})
     print("quality:", json.dumps(report["quality"], indent=1, ensure_ascii=False))
     return 0
 

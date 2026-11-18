@@ -3472,6 +3472,88 @@ def test_scoreboard_bar_file(tmp_path, case):
     sb_bar_file_case(tmp_path, case)
 
 
+def _jl(*kinds):
+    return [json.dumps({"kind": k, "role": "r", "total_cost_usd": 1}, ensure_ascii=False) for k in kinds]
+
+
+JK_SERVICE = ("window_round", "process", "launched", "gate_repair")
+# (id, journal lines, calls, bookkeeping rows); both readers must agree on every row
+JOURNAL_KIND_CASES = [
+    ("call plus four service kinds", _jl("role", *JK_SERVICE), 1, 4),
+    ("critic probe: delivery, note, trace_failed", _jl("role", "delivery", "note", "trace_failed"), 1, 3),
+    ("empty journal", [], 0, 0),
+    ("absent kind is a call", [json.dumps({"role": "r"})], 1, 0),
+    ("empty kind is a call", _jl(""), 1, 0),
+    ("unknown kind is a call", _jl("brand_new"), 1, 0),
+    ("10000 service rows only", _jl("window_round") * 10000, 0, 10000),
+    ("odd case is a call", _jl("Window_Round"), 1, 0),
+    ("non-ascii kind is a call", _jl("window_roundé", "журнал"), 2, 0),
+    ("non-JSON line is skipped", ["{broken", *_jl("process")], 0, 1),
+]
+
+
+@_parametrize(JOURNAL_KIND_CASES)
+def test_journal_service_rows(tmp_path, case):
+    import compare
+    import report_run
+    _, lines, calls, bookkeeping = case
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "driver-runs.jsonl").write_text("\n".join(lines), encoding="utf-8")
+    drv = compare.driver_report(tmp_path)
+    assert (sum(v["calls"] for v in drv["by_kind"].values()), drv["bookkeeping_rows"]) == (calls, bookkeeping)
+    assert sum(v["calls"] for v in drv["by_role"].values()) == calls
+    buckets, rows = report_run.journal_from(state / "driver-runs.jsonl")
+    assert (sum(v["calls"] for v in buckets.values()), rows) == (calls, bookkeeping)
+
+
+JK_BAD_FILES = [
+    ("file absent", None),
+    ("not JSON", "{nope"),
+    ("key absent", "{}"),
+    ("not a list", '{"no_call_kinds": "note"}'),
+    ("not strings", '{"no_call_kinds": ["note", 3]}'),
+    ("top level a list", '["note"]'),
+]
+
+
+@_parametrize(JK_BAD_FILES)
+def test_journal_kinds_unreadable(tmp_path, case):
+    import journal_kinds
+    _, text = case
+    path = tmp_path / "kinds.json"
+    if text is not None:
+        path.write_text(text, encoding="utf-8")
+    try:
+        journal_kinds.require(path)
+    except SystemExit as stop:
+        assert stop.code == 2
+    else:
+        raise AssertionError("an unreadable kinds file must stop the measurer")
+    try:
+        journal_kinds.split_rows("{}", path)
+    except journal_kinds.KindsError as exc:
+        assert str(exc).startswith(f"cannot read service kinds: {path}: ")
+    else:
+        raise AssertionError("no fallback list")
+
+
+@_parametrize([("with rows", 3), ("zero", 0)])
+def test_bookkeeping_line_is_printed(case):
+    import contextlib
+    import io
+    import compare
+    import report_run
+    n = case[1]
+    drv = {"total_usd": 0, "by_kind": {}, "by_role": {}, "bookkeeping_rows": n}
+    for show, line in ((lambda: compare.print_driver(drv), f"   bookkeeping rows: {n}"),
+                       (lambda: report_run.print_journal("x", {}, n), f"bookkeeping rows: {n}")):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            show()
+        assert line in out.getvalue().splitlines()
+
+
 def scoreboard_tests(root: Path) -> None:
     """The self-running form of the scoreboard tables: every case in its own folder, one `check` line each."""
     for number, (group, cases, runner) in enumerate(SB_GROUPS):

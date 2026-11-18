@@ -550,10 +550,11 @@ NO_CALL_KINDS_FALLBACK = ("delivery", "launched")   # the two kinds the code kne
 
 def _no_call_kinds() -> frozenset:
     """The journal `kind`s whose row carries no session and no money of its own (`no_call_kinds` in references/driver-journal-kinds.json),
-    read through the package's one reference reader. The fallback is the two kinds of before, never an empty list."""
+    read through the package's one reference reader. An EMPTY list is valid (no service kinds, as the measurers read it, CD2-1 R7);
+    the fallback, the two kinds of before, is for an absent, broken or malformed file only."""
     table = hooklib.load_ref_json("driver-journal-kinds.json")
     kinds = table.get("no_call_kinds") if isinstance(table, dict) else None   # the reader returns any parsed value
-    if isinstance(kinds, list) and kinds and all(isinstance(k, str) for k in kinds):
+    if isinstance(kinds, list) and all(isinstance(k, str) for k in kinds):
         return frozenset(kinds)
     return frozenset(NO_CALL_KINDS_FALLBACK)
 
