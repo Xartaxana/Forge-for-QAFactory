@@ -1,0 +1,621 @@
+{
+ "source": "test_probe_by_code.py",
+ "common": "probe_by_code_common",
+ "shim": true,
+ "parts": [
+  "test_probe_by_code_bindings",
+  "test_probe_by_code_mutations",
+  "test_probe_by_code_receipts",
+  "test_probe_by_code_records",
+  "test_probe_by_code_two_profiles",
+  "test_probe_by_code_exit_order"
+ ],
+ "names": [
+  {
+   "name": "PY",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "TASK",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "DISPATCH",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "TEST_FILE_REL",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "FAKE_RUN_SUITE",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "TEST_FILE",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "CALC",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "EXPECTATIONS",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "HAMCREST",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "PROVENANCE",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "OBLIGATION_REFS",
+   "kind": "assign",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "write_json",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "entry",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "seed_author_job",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "project",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "env_for",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "model_entries",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "run",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "mutated_line",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "read_check_record",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "read_record",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "normalised",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "snapshot",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "give_word",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "clear_word",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "author_job",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "invert_plain_assert",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "class_method",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "hamcrest_style",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "dead_assert",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "raises_first",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "no_assert",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "restore_on_failure",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "_restore_on_failure",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "a_run_that_executed_nothing_keeps_the_standing_record",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "multiline_keeps_line_count",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "SRC_HAMCREST_MULTILINE",
+   "kind": "assign",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "SRC_LITERAL_MULTILINE",
+   "kind": "assign",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "SRC_ORACLE_HELPER",
+   "kind": "assign",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "PLAN_GOLDEN",
+   "kind": "assign",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "PLAN_REFUSALS",
+   "kind": "assign",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "plan_mutation_is_pinned",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "window_validates",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "through_real_run_suite",
+   "kind": "def",
+   "home": "test_probe_by_code_exit_order"
+  },
+  {
+   "name": "two_profiles_over_one_root",
+   "kind": "def",
+   "home": "test_probe_by_code_two_profiles"
+  },
+  {
+   "name": "cleanup_beside",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "oracle_in_a_helper",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "junit_file",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "report_rows_as_before",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "reporter_in_the_summary",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "check_not_traceback",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "tree_state",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "sha256_of",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "refusal_text",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "non_python_test_refused",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "LAUNCHER",
+   "kind": "assign",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "run_recorded",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "run_directory_is_given",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "run_directory",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "task_of",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "manifest_of",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "row_of",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "binding_of",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "receipt_files",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "live_receipt_and_publish",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "a_rerun_is_idempotent_and_new_bytes_are_a_new_receipt",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "fabricate",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "publish_orders",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "_publish_orders",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "PUBLISH_PUT_OK",
+   "kind": "assign",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "PUBLISH_KEPT_ROW",
+   "kind": "assign",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "PUBLISH_KEPT_BINDING",
+   "kind": "assign",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "PUBLISH_NO_OBLIGATIONS",
+   "kind": "assign",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "publish_dicts_are_pinned",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "_publish_stale_projection",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "_publish_scenario",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "_publish_dicts",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "_LoggedStream",
+   "kind": "class",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "_main_in_process",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "_streams",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "_calls",
+   "kind": "def",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "_first",
+   "kind": "def",
+   "home": "test_probe_by_code_exit_order"
+  },
+  {
+   "name": "_last",
+   "kind": "def",
+   "home": "test_probe_by_code_exit_order"
+  },
+  {
+   "name": "main_exit_order_is_pinned",
+   "kind": "def",
+   "home": "test_probe_by_code_exit_order"
+  },
+  {
+   "name": "hostile_instance_ids",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "an_unverified_restore_writes_no_receipt",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "_unverified_restore",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "missing_facts_and_a_refused_publish_do_not_change_the_exit",
+   "kind": "def",
+   "home": "test_probe_by_code_exit_order"
+  },
+  {
+   "name": "_probe_record",
+   "kind": "def",
+   "home": "test_probe_by_code_exit_order"
+  },
+  {
+   "name": "raw_bytes_through_manifest_from_tests",
+   "kind": "def",
+   "home": "test_probe_by_code_exit_order"
+  },
+  {
+   "name": "fresh",
+   "kind": "class",
+   "home": "probe_by_code_common"
+  },
+  {
+   "name": "ANSWER_KEYS",
+   "kind": "assign",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "stamp_record",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "INVERT_RECORD_KEYS",
+   "kind": "assign",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "the_record_and_the_answer_are_pinned",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "the_repeat_is_answered",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "the_receipt_flow",
+   "kind": "def",
+   "home": "test_probe_by_code_receipts"
+  },
+  {
+   "name": "the_author_binding_is_the_latest_block_by_the_clock",
+   "kind": "def",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "n2_k7_the_red_probe_reads_the_stand_as_the_run_does",
+   "kind": "def",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "open_the_close",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "run_close",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "project_bytes",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "the_s6_close_context",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "run_dispatch",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "set_dispatch_state",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "rh1_8_dispatch_asked_first",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "second_hop_name_in_two_files_is_refused",
+   "kind": "def",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "B355_I_ROWS",
+   "kind": "assign",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "b355_i_in_test_root_reads_the_one_reader",
+   "kind": "def",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "OF4_6_ROOTS",
+   "kind": "assign",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "OF4_6_PATHS",
+   "kind": "assign",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "of4_6_expected",
+   "kind": "def",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "of4_6_profiles_owning_and_in_test_root_agree",
+   "kind": "def",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "_rec",
+   "kind": "def",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "PBC_TOLD_CASES",
+   "kind": "assign",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "PBC_PRINTERS",
+   "kind": "assign",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "_printed_json",
+   "kind": "def",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "k10p_pbc_told_is_printed",
+   "kind": "def",
+   "home": "test_probe_by_code_bindings"
+  },
+  {
+   "name": "mutations_flow",
+   "kind": "def",
+   "home": "test_probe_by_code_mutations"
+  },
+  {
+   "name": "records_flow",
+   "kind": "def",
+   "home": "test_probe_by_code_records"
+  },
+  {
+   "name": "two_profiles_flow",
+   "kind": "def",
+   "home": "test_probe_by_code_two_profiles"
+  }
+ ],
+ "statements": []
+}

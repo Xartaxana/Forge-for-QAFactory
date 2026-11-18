@@ -1,0 +1,177 @@
+{
+ "source": "test_story_sides.py",
+ "common": "story_sides_common",
+ "shim": false,
+ "parts": [
+  "test_story_sides_driver",
+  "test_story_sides_absent_side",
+  "test_story_sides_registry",
+  "test_story_sides_readers"
+ ],
+ "names": [
+  {
+   "name": "DATA",
+   "kind": "assign",
+   "home": "story_sides_common",
+   "_line": 20
+  },
+  {
+   "name": "REAL",
+   "kind": "assign",
+   "home": "story_sides_common",
+   "_line": 22
+  },
+  {
+   "name": "ABSENT",
+   "kind": "assign",
+   "home": "story_sides_common",
+   "_line": 22
+  },
+  {
+   "name": "SUBSTITUTED",
+   "kind": "assign",
+   "home": "story_sides_common",
+   "_line": 22
+  },
+  {
+   "name": "side",
+   "kind": "def",
+   "home": "story_sides_common",
+   "_line": 25
+  },
+  {
+   "name": "refusal",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 29
+  },
+  {
+   "name": "reader_cases",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 37
+  },
+  {
+   "name": "parks_cases",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 52
+  },
+  {
+   "name": "awaiting_cases",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 62
+  },
+  {
+   "name": "stage_done_cases",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 75
+  },
+  {
+   "name": "pointed_at",
+   "kind": "class",
+   "home": "test_story_sides_readers",
+   "_line": 94
+  },
+  {
+   "name": "stderr_of",
+   "kind": "def",
+   "home": "story_sides_common",
+   "_line": 106
+  },
+  {
+   "name": "word_cases",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 113
+  },
+  {
+   "name": "note_cases",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 117
+  },
+  {
+   "name": "edge_cases",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 136
+  },
+  {
+   "name": "_applied",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 147
+  },
+  {
+   "name": "bom_cases",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 152
+  },
+  {
+   "name": "transition_cases",
+   "kind": "def",
+   "home": "test_story_sides_readers",
+   "_line": 164
+  },
+  {
+   "name": "registry_cases",
+   "kind": "def",
+   "home": "test_story_sides_registry",
+   "_line": 187
+  },
+  {
+   "name": "copy_registry",
+   "kind": "def",
+   "home": "story_sides_common",
+   "_line": 283
+  },
+  {
+   "name": "driver_cases",
+   "kind": "def",
+   "home": "test_story_sides_driver",
+   "_line": 291
+  },
+  {
+   "name": "absent_story",
+   "kind": "def",
+   "home": "test_story_sides_absent_side",
+   "_line": 594
+  },
+  {
+   "name": "answer_of",
+   "kind": "def",
+   "home": "test_story_sides_absent_side",
+   "_line": 613
+  },
+  {
+   "name": "pipeline_of",
+   "kind": "def",
+   "home": "test_story_sides_absent_side",
+   "_line": 625
+  },
+  {
+   "name": "absent_side_cases",
+   "kind": "def",
+   "home": "test_story_sides_absent_side",
+   "_line": 629
+  },
+  {
+   "name": "_today",
+   "kind": "def",
+   "home": "test_story_sides_absent_side",
+   "_line": 787
+  },
+  {
+   "name": "_bare_relaunch",
+   "kind": "def",
+   "home": "test_story_sides_absent_side",
+   "_line": 792
+  }
+ ],
+ "statements": [],
+ "_comment": "t-1319 PC4-19 stream D: test_story_sides.py -> 4 parts, no shim; D0 lifted the runner into main() first"
+}
