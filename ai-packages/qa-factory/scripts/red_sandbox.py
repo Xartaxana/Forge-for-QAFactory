@@ -895,21 +895,51 @@ def write_sensitivity_receipts(task, probe_receipt, results, bindings, baseline=
         proof = _receipt_body(target, result, binding, measured, probe_receipt, notes)
         # t-2064 P6 (EP-W): what the receipt proves, inside the hash. A reader that finds no `scope` knows it is an old receipt (EP-I).
         proof["scope"], proof["checks"] = _receipt_scope((measured or {}).get("test_file"), result.get("location"))
-        proof["receipt_hash"] = content_hash(proof)
-        directory = task / "work" / "sensitivity-receipts"
-        # An instance id is an identity, not a path: `TC-012::test_x[eu]` cannot be a file
-        # name on Windows. A receipt written before 0.7.7 keeps its old name, so both are read.
-        suffix = f"-{proof['receipt_hash'][:16]}.json"
-        path = directory / (contract.instance_file_stem(instance_id) + suffix)
-        legacy = directory / f"{instance_id}{suffix}"
-        if legacy.exists() and not path.exists():
-            path = legacy
-        if path.exists() and json.loads(path.read_text(encoding="utf-8")) != proof:
-            raise ValueError("immutable sensitivity receipt collision")
-        atomic_json(path, proof)
-        refs[instance_id] = {"receipt_ref": {"path": path.relative_to(task).as_posix(),
-                                               "sha256": digest(path)}}
+        refs[instance_id] = _write_receipt_file(task, instance_id, proof)
     return refs
+
+
+RECEIPT_COLLISION = "immutable sensitivity receipt collision"
+
+
+def _write_receipt_file(task: Path, instance_id: str, proof: dict) -> dict:
+    """THE one writer of a receipt file (RD1-37: the probe's receipts and the code critic's share it). Sets `receipt_hash`, names the file
+    by the instance and the hash, and returns `{"receipt_ref": {path, sha256}}`; a file of that name with other bytes raises
+    `ValueError(RECEIPT_COLLISION)` and nothing is written (an immutable receipt is never overwritten)."""
+    proof["receipt_hash"] = content_hash(proof)
+    directory = task / "work" / "sensitivity-receipts"
+    # An instance id is an identity, not a path: `TC-012::test_x[eu]` cannot be a file
+    # name on Windows. A receipt written before 0.7.7 keeps its old name, so both are read.
+    suffix = f"-{proof['receipt_hash'][:16]}.json"
+    path = directory / (contract.instance_file_stem(instance_id) + suffix)
+    legacy = directory / f"{instance_id}{suffix}"
+    if legacy.exists() and not path.exists():
+        path = legacy
+    if path.exists() and json.loads(path.read_text(encoding="utf-8")) != proof:
+        raise ValueError(RECEIPT_COLLISION)
+    atomic_json(path, proof)
+    return {"receipt_ref": {"path": path.relative_to(task).as_posix(), "sha256": digest(path)}}
+
+
+def write_critic_receipt(task_root, record: dict, judgment: dict) -> tuple:
+    """`(ref, why)` of the receipt the code critic's `fires` on a PRODUCT record earns (RD1-37): the record's `pending_receipt` (measured at
+    probe time) plus `proved_by: critic`, the judgment inside the hash and the pinned location, written by `_write_receipt_file`.
+    `ref` is None with `why` when the record holds no pending body (J5) or the write failed; a collision keeps `why` starting with
+    `RECEIPT_COLLISION` (the door refuses it). Raises nothing."""
+    pending = record.get("pending_receipt")
+    if not isinstance(pending, dict):
+        return None, str(record.get("pending_receipt_why") or "the record holds no receipt body measured at probe time")
+    try:
+        facts = record["judgment_facts"]
+        proof = {k: v for k, v in pending.items() if k != "obligation_id"}
+        proof.update(proved_by="critic", judgment={k: judgment[k] for k in ("quote", "by", "at", "facts_sha")},
+                     assertion_location=facts["expected_location"], failure_kind="assertion")
+        proof["scope"], proof["checks"] = _receipt_scope("", facts["expected_location"])
+        return _write_receipt_file(Path(task_root).resolve(), str(record["instance_id"]), proof), ""
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        if str(exc) == RECEIPT_COLLISION:
+            return None, RECEIPT_COLLISION
+        return None, f"the receipt could not be written ({type(exc).__name__}): {str(exc)[:160]}"
 
 
 # --- --probe: the whole manual sequence in one call ---------------------------------------
@@ -1537,7 +1567,7 @@ def _owed_extras(iid: str, proof: dict, target: dict, row: dict, result: dict, f
     product mutation) and `pending_receipt` (`_receipt_body` + `obligation_id`; null + `pending_receipt_why` when the bindings could not
     be read: no receipt from facts not measured at probe time, J5). Reads only its arguments; `bindings` is `{}` or `{"_why": ...}`."""
     problem = reporters.failure_problem(row)
-    cut =reporters.cut_failure_text
+    cut = reporters.cut_failure_text
     file, _, line = str(target.get("expected_location") or "").rpartition(":")
     facts = {"file": file or None, "line": int(line) if line.isdigit() else None,
              "expected_location": target.get("expected_location"), "expected_reason": target.get("expected_reason"),
@@ -1621,6 +1651,76 @@ def _write_product_records(task_root: Path, dispatch: str, placed: dict, targets
     return wrote
 
 
+def publish_product_refs(task_root: Path, repo: Path, targets: list, refs: dict, notes: list) -> None:
+    """THE one road a product receipt reaches the manifest (RD1-37: `probe` and the code critic's `--judge --product` both call it).
+    `refs` is `{instance id: {receipt_ref}}`, `targets` the probe's targets (`obligation_id`, `instance_id`). Only a `whole_unlisted`
+    receipt is published; a `one_check` one is held back with a note. Appends to `notes`; writes through `manifest_put.py`."""
+    task_root, MANIFEST_PUT = Path(task_root), Path(__file__).resolve().parent / "manifest_put.py"
+    with tempfile.TemporaryDirectory(prefix="qa-probe-publish-") as scratch:
+        # t-2064 fix round G, B3 (EP-W, AR-22, AR-28): a receipt whose `scope` is `one_check` proves the ONE check it names and has no
+        # level for the test as a whole, so it is NOT published to the manifest - no row ref (it would overwrite a valid live ref, a
+        # downgrade) and no `proven` binding (`case_stamp` and `coverage_contract` read that pair without a level, so one proved check of
+        # several would read as a proven obligation). The decision reads the scope the receipt just written carries (one source). The
+        # critic names the receipt with a `product` entry; a `whole_unlisted` receipt (the factory has no reader for the test's
+        # language: its only door) publishes as it always did.
+        held_back = {iid: ref for iid, ref in refs.items() if _written_scope(task_root, ref) != proof_level.WHOLE_UNLISTED}
+        if held_back:
+            notes.append("the receipt proves the one check it names, and the other checks of that test stay owed: it is not "
+                         "published to the manifest. The critic names it with a `product` entry in the probe's model file "
+                         "(`work/probe-models/<dispatch id>.json`); only that entry counts it. Instances: "
+                         + ", ".join(sorted(held_back)))
+        refs = {iid: ref for iid, ref in refs.items() if iid not in held_back}
+        if refs:
+            by_obligation: dict = {}
+            # `manifest_put` REPLACES a binding's `instance_ids`, so a second instance of one
+            # obligation - or a live `probe_by_code.py` receipt already listing another instance -
+            # would be erased by a list of only this run's instances. The list here starts from what
+            # the manifest already holds (the same class as probe_by_code.publish_binding, FR-17).
+            # Only a `whole_unlisted` receipt reaches this point (above): it is the test's only door and stands for the
+            # whole test, so a same or lower level is replaced by it, as before.
+            try:
+                held = contract.load_json(contract.artifact(task_root, "automation-manifest.json"))
+            except (OSError, ValueError):
+                held = {}
+            held_ids = {str(b.get("obligation_id")): proof_level.without_retracted(b.get("instance_ids"), held)
+                        for b in held.get("obligation_bindings") or [] if isinstance(b, dict)}
+            for target in targets:
+                obligation_id, iid = target.get("obligation_id"), str(target.get("instance_id") or "")
+                if not (obligation_id and iid in refs):
+                    continue
+                row = by_obligation.setdefault(obligation_id, {
+                    "obligation_id": obligation_id, "instance_ids": list(held_ids.get(str(obligation_id), [])),
+                    "sensitivity": "proven",
+                    "proof_kind": "executed_red_probe", "probe_receipt_ref": refs[iid]["receipt_ref"]["path"]})
+                if iid not in row["instance_ids"]:
+                    row["instance_ids"].append(iid)
+            # The same fragment says it in both places, because delivery reads one of them and
+            # coverage the other. Until 0.7.18 the probe published `obligation_bindings` alone and
+            # `check_delivery` looked only at `tests[].sensitivity_proof.receipt_ref`, so four
+            # receipts that existed on disk were reported as missing proof, owner `product`, and
+            # gate B of TP2-2553 asked for four waivers for work that had been done.
+            # `manifest_put` merges `tests[]` by instance id as a patch, so the author's row keeps
+            # its file, case links and review.
+            test_rows = [{"instance_id": iid, "sensitivity_proof": {"receipt_ref": ref["receipt_ref"]}}
+                         for iid, ref in sorted(refs.items())]
+            if by_obligation or test_rows:
+                fragment_path = Path(scratch) / "manifest-fragment.json"
+                atomic_json(fragment_path, {"obligation_bindings": list(by_obligation.values()),
+                                            "tests": test_rows})
+                try:    # t-1443 F1: a hang or an unspawnable interpreter leaves the receipt and a note, never a traceback
+                    put = subprocess.run(
+                        [sys.executable, "-B", str(MANIFEST_PUT), "--task", task_root.name,
+                         "--fragment", str(fragment_path)],
+                        cwd=str(repo), capture_output=True, text=True, encoding="utf-8",
+                        errors="replace", timeout=120)
+                except (OSError, subprocess.SubprocessError) as exc:
+                    notes.append(f"manifest_put.py: not run ({type(exc).__name__}: {exc})"[:500])
+                    return
+                tail = (put.stdout or put.stderr or "").strip().splitlines()
+                notes.append(("manifest_put.py: " + tail[0]) if put.returncode == 0 and tail else
+                            f"manifest_put.py: {(put.stderr or put.stdout or '').strip()[-500:]}")
+
+
 def probe(repo, request_path, task_root, *, destination=None, dispatch: str = "",
           timeout: int = 1860) -> dict:
     """Ask, prepare, run the mutated targets, verify, record, publish, clean — one JSON answer.
@@ -1630,7 +1730,8 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
     its failure site is not read for this runner yet, or the unmutated run was not a pass - red, skipped,
     errored - so the failure is not the mutation's doing; the typed reason is `site_unread` or
     `baseline_status` in the instance, and the product record says `incomplete` too; exit 1 like
-    `not_executed`); a
+    `not_executed`; an unread failure with a text owes the code critic's `probe_by_code.py --judge <instance> --product`, which writes the
+    receipt through `write_critic_receipt` and `publish_product_refs`, RD1-37); a
     `node_id_mismatch` from `prepare()` (the collect
     check) is passed through unwrapped, exactly as the plain `--repo/--destination/--request`
     call already answers it.
@@ -1710,7 +1811,6 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
                    repo.parent / f"{repo.name}-redprobe-{uuid.uuid4().hex[:10]}")
     baseline_dest = repo.parent / f"{repo.name}-redprobe-baseline-{uuid.uuid4().hex[:10]}"
     run_suite_path = Path(__file__).resolve().parent / "run_suite.py"
-    manifest_put_path = Path(__file__).resolve().parent / "manifest_put.py"
 
     clock = time.monotonic()
     try:
@@ -1930,64 +2030,7 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
     except ValueError as exc:
         notes.append(f"sensitivity receipt: {exc}")
 
-    # t-2064 fix round G, B3 (EP-W, AR-22, AR-28): a receipt whose `scope` is `one_check` proves the ONE check it names and has no
-    # level for the test as a whole, so it is NOT published to the manifest - no row ref (it would overwrite a valid live ref, a
-    # downgrade) and no `proven` binding (`case_stamp` and `coverage_contract` read that pair without a level, so one proved check of
-    # several would read as a proven obligation). The decision reads the scope the receipt just written carries (one source). The
-    # critic names the receipt with a `product` entry; a `whole_unlisted` receipt (the factory has no reader for the test's
-    # language: its only door) publishes as it always did.
-    held_back = {iid: ref for iid, ref in refs.items() if _written_scope(task_root, ref) != proof_level.WHOLE_UNLISTED}
-    if held_back:
-        notes.append("the receipt proves the one check it names, and the other checks of that test stay owed: it is not "
-                     "published to the manifest. The critic names it with a `product` entry in the probe's model file "
-                     "(`work/probe-models/<dispatch id>.json`); only that entry counts it. Instances: "
-                     + ", ".join(sorted(held_back)))
-    refs = {iid: ref for iid, ref in refs.items() if iid not in held_back}
-    if refs:
-        by_obligation: dict = {}
-        # `manifest_put` REPLACES a binding's `instance_ids`, so a second instance of one
-        # obligation - or a live `probe_by_code.py` receipt already listing another instance -
-        # would be erased by a list of only this run's instances. The list here starts from what
-        # the manifest already holds (the same class as probe_by_code.publish_binding, FR-17).
-        # Only a `whole_unlisted` receipt reaches this point (above): it is the test's only door and stands for the
-        # whole test, so a same or lower level is replaced by it, as before.
-        try:
-            held = contract.load_json(contract.artifact(task_root, "automation-manifest.json"))
-        except (OSError, ValueError):
-            held = {}
-        held_ids = {str(b.get("obligation_id")): proof_level.without_retracted(b.get("instance_ids"), held)
-                    for b in held.get("obligation_bindings") or [] if isinstance(b, dict)}
-        for target in mutated_receipt["targets"]:
-            obligation_id, iid = target.get("obligation_id"), str(target.get("instance_id") or "")
-            if not (obligation_id and iid in refs):
-                continue
-            row = by_obligation.setdefault(obligation_id, {
-                "obligation_id": obligation_id, "instance_ids": list(held_ids.get(str(obligation_id), [])),
-                "sensitivity": "proven",
-                "proof_kind": "executed_red_probe", "probe_receipt_ref": refs[iid]["receipt_ref"]["path"]})
-            if iid not in row["instance_ids"]:
-                row["instance_ids"].append(iid)
-        # The same fragment says it in both places, because delivery reads one of them and
-        # coverage the other. Until 0.7.18 the probe published `obligation_bindings` alone and
-        # `check_delivery` looked only at `tests[].sensitivity_proof.receipt_ref`, so four
-        # receipts that existed on disk were reported as missing proof, owner `product`, and
-        # gate B of TP2-2553 asked for four waivers for work that had been done.
-        # `manifest_put` merges `tests[]` by instance id as a patch, so the author's row keeps
-        # its file, case links and review.
-        test_rows = [{"instance_id": iid, "sensitivity_proof": {"receipt_ref": ref["receipt_ref"]}}
-                     for iid, ref in sorted(refs.items())]
-        if by_obligation or test_rows:
-            fragment_path = scratch / "manifest-fragment.json"
-            atomic_json(fragment_path, {"obligation_bindings": list(by_obligation.values()),
-                                        "tests": test_rows})
-            put = subprocess.run(
-                [sys.executable, "-B", str(manifest_put_path), "--task", task_root.name,
-                 "--fragment", str(fragment_path)],
-                cwd=str(repo), capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=120)
-            tail = (put.stdout or put.stderr or "").strip().splitlines()
-            notes.append(("manifest_put.py: " + tail[0]) if put.returncode == 0 and tail else
-                        f"manifest_put.py: {(put.stderr or put.stdout or '').strip()[-500:]}")
+    publish_product_refs(task_root, repo, mutated_receipt["targets"], refs, notes)
 
     _cleanup(mutated_dest)
     _cleanup(baseline_dest)
