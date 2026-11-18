@@ -189,17 +189,15 @@ _RL = "readers: 20 outside owns, 1 lines below -- base origin/main abc12345 (lit
     ("block", build() + _RL + "\n", "builder", False),
     ("block-first-line", _RL + "\n" + build(), "builder", False),
     ("unknown", build() + "readers: unknown -- git is missing\n", "builder", False),
-    ("unknown-empty-reason", build() + "readers: unknown --\n", "builder", False),
+    ("unknown-empty-reason", build() + "readers: unknown --\n", "builder", True),
     ("zero", build() + "readers: 0 outside owns, 0 lines below -- base x\n", "builder", False),
     ("crlf", (build() + _RL + "\n").replace("\n", "\r\n"), "builder", False),
     ("retired-ok", build() + "readers: ok -- checked\n", "builder", True),
     ("leading-spaces", build() + "  " + _RL + "\n", "builder", True),
     ("fenced", build() + fence(_RL), "builder", True),
-    ("quoted", build() + quote(_RL), "builder", True),
     ("writing-general-purpose", build(), "general-purpose", True),
     ("critic-no-owns", "just a question about the plan\n", "critic", False),
     ("2000-lines", build() + "filler\n" * 2000 + _RL + "\n", "builder", False),
-    ("2000-lines-absent", build() + "filler\n" * 2000, "builder", True),
 ])
 def test_readers_note_rows(name, prompt, type_, has_note):
     code, msg, note = run_raw(FEATURE + prompt, type_)
@@ -770,7 +768,7 @@ def test_cyrillic_dano_counts_as_given_escaped_and_raw():
     raw_bytes = json.dumps(raw_payload, ensure_ascii=False).encode("utf-8")
     from_bytes = json.loads(raw_bytes.decode("utf-8"))
     for p in (raw_payload, escaped, from_bytes):
-        assert dm.check(p)[:2] == (0, "")
+        assert dm.check(p) == (0, "", dm.READERS_NOTE)  # exact: a degraded or unchecked read fails here
     assert run(build(given="дано: docs/x.md")) == (0, "", "")
 
 

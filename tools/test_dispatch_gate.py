@@ -57,7 +57,7 @@ _DOD_LINE = "DoD: `python -m pytest tools/test_dispatch_gate.py -q`"
 
 
 # FG7-95: a hand-built dispatch owes the readers line, else dispatch_manifest adds a READERS NOTE; rows that compare exact note text carry it
-_READERS = "readers: unknown -- fixture"
+_READERS = "\nreaders: unknown -- fixture"  # after a blank line, as dispatch_new prints it
 
 
 def _manifest(given="the whole repo", owns=_OWNED_PATH, non_goals="none", handoff="a short report",
