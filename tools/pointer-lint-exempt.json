@@ -6,6 +6,8 @@
     ".claude/skills/scout-exam-gen/SKILL.md|PROCESS/SCOUT_GOLDEN_SET.md": {"why": "the output file this skill writes; absent until its first run"},
     ".claude/skills/permission-audit/SKILL.md|settings.local.json": {"why": "a host settings file of the deployment, never tracked"},
     ".claude/skills/permission-audit/SKILL.md|.claude/settings.local.json": {"why": "a host settings file of the deployment, never tracked"},
+    ".claude/skills/boot-diet/SKILL.md|docs/task_reports/README.md": {"why": "e.g. example of an archive index, not a pointer"},
+    "PROCESS/JUDGE_CALIBRATION_PROTOCOL.md|JUDGE_PAIRS_SET.md": {"why": "hypothetical file named in an example"},
     "CLAUDE.md|logs/routing-log.jsonl": {"why": "the refused target of hygiene point 5: the old journal path a worker must not write"},
     "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|logs/routing-log.jsonl": {"why": "the retired journal (history before 08.10, read-only per PROJECT.md): the protocol names it where it reads older logs"},
     "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|logs/journal-segments.json": {"why": "declared by the deployment (read by tools/journal_keys.py); not tracked"},
