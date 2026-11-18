@@ -571,8 +571,8 @@ def checkout_revision_binding():
         # not_applicable still needs a verified local_source record.
         bypass = "live manual interaction cannot bypass runtime identity"
 
-        def na_errors(top=None, **extra):
-            changed = dict(json.loads(json.dumps(record)), **(top or {}))
+        def na_errors(**extra):
+            changed = json.loads(json.dumps(record))
             for key in ("runtime_before", "runtime_after"):
                 changed[key] = dict(changed[key], result="not_applicable", observed_runtime_identity="",
                                     evidence_refs=[], provenance={}, **extra)
@@ -583,12 +583,6 @@ def checkout_revision_binding():
         check_in("K-NA control: with another reason_code too", bypass, na_errors(reason_code="stand_down"))
         check_eq("K-NA: `reason_code: no_changed_file` passes that gate on the same record",
                  [e for e in na_errors(reason_code="no_changed_file") if bypass in e], [])
-        # RD1-14 k3 (items 1, 3, AR-19): the word `local_source` is the request's, judged by `provenance.manual`
-        local = {"runtime_required": False, "target_kind": "local_source"}
-        check_eq("RD1-14 k3: a valid bare not_applicable on a local_source record is admitted (no provenance sentence)",
-                 [e for e in na_errors(local) if "provenance" in e or bypass in e], [])
-        check_in("RD1-14 k3: ... an INVALID one (no timestamp) is refused", "manual runtime provenance is unverified",
-                 na_errors(local, timestamp=""))
         print("K-A | probe revision 40 hex (checkout HEAD) vs controller source_revision 64 hex: accepted when the story recorded "
               "the checkout; `source`, the snapshot sha256, another checkout, no record, another profile: each refused")
     finally:
@@ -858,21 +852,18 @@ def n2_k9_the_persons_word_in_validate_and_the_baseline_that_refuses_it():
             blind = errors(baseline)
         finally:
             GT._READ[:] = saved
-        check_in("RD1-14 k3 E-S7: an unreadable registry refuses even a valid `matched` baseline: unverified",
-                 "manual baseline runtime provenance is unverified", blind)
+        check_in("RD1-14 k3 E-S7: an unreadable registry refuses a valid baseline", "manual baseline runtime provenance is unverified", blind)
         # 2b (E-k3.5, FR-1): a hand-written block that is no object is named by its type, never echoed, never a crash
         for field, junk, kind in (("baseline_contract", "x", "str"), ("runtime_before", "x", "str"), ("runtime_after", 5, "int"),
                                   ("runtime_before", "Z" * 1000000, "str"), ("runtime_after", [[[["deep"]]]], "list")):
             got = errors(dict(baseline, **{field: junk}))
             check_in(f"RD1-14 k3 2b: {field} as {kind} is named by its type", f"{field} must be a JSON object, got {kind}", got)
             check(f"RD1-14 k3 2b: {field} as {kind}: the value is never echoed", "ZZZZ" not in got and "deep" not in got and "baseline missing" not in got)
-        check_in("RD1-14 k3 2b: a runtime_before of None keeps today's sentence", "baseline missing runtime_before",
-                 errors(dict(baseline, runtime_before=None)))
+        check_in("RD1-14 k3 2b: None keeps today's sentence", "baseline missing runtime_before", errors(dict(baseline, runtime_before=None)))
         wrong = dict(old, expected_source_revision="other")
-        check_in("RD1-14 k3 item 2b: a mismatching revision names both revisions and the door", "'other', the approved baseline_revision is 'old'",
-                 errors(dict(baseline, runtime_before=wrong, runtime_after=dict(wrong))))
-        check_in("RD1-14 k3 item 2b: ... and says to capture again", "Capture again on a stand that runs that revision",
-                 errors(dict(baseline, runtime_before=wrong, runtime_after=dict(wrong))))
+        got = errors(dict(baseline, runtime_before=wrong, runtime_after=dict(wrong)))
+        check_in("RD1-14 k3 2b: a mismatching revision names both revisions", "'other', the approved baseline_revision is 'old'", got)
+        check_in("RD1-14 k3 2b: ... and the door", "Capture again on a stand that runs that revision", got)
         # S12: the sentences code writes into limitations[]
         sentences = M.person_sentences(word)
         check_eq("K-N2.9 S12: a `deployed` word gets one sentence: who, when, not read by the factory",

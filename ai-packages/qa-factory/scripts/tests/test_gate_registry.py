@@ -311,12 +311,11 @@ def part_live_registry() -> None:
              len(got), 1, )
     check("K-N2.12 NEG: and it names the consumer and the word", "baseline_identity.readiness" in "".join(got) and "person_confirmed" in "".join(got),
           "\n".join(got))
-    # RD1-14 k3: the same for the capture's consumer (it lives under provenance_acceptance but its prefix names the false row)
+    # RD1-14 k3: the capture's consumer (under provenance_acceptance; its prefix names the false row) is held the same way
     worded = copy.deepcopy(registry)
     next(r for r in worded["rows"] if r["id"] == "provenance_acceptance")["accepts"]["baseline_identity.capture"].append("person_confirmed")
     got = GR.analyse(PLUGIN_ROOT, worded)["findings"]
-    check("K-N2.12 NEG: `person_confirmed` added to baseline_identity.capture: exactly one finding, naming the consumer and the word",
-          len(got) == 1 and "baseline_identity.capture" in got[0] and "person_confirmed" in got[0], "\n".join(got) or "0 findings")
+    check("K-N2.12 NEG: `person_confirmed` added to baseline_identity.capture: one finding naming both", len(got) == 1 and "baseline_identity.capture" in got[0] and "person_confirmed" in got[0], "\n".join(got))
     check("K-T1.2 every comparison the scan counts is attributed", all(i["rows"] and i["allowed"] for i in result["items"]))
     # S1 keeps its non-acceptance comparison as an `allow`, and the allow matches (K-T1.3 on the live data)
     allow = [e for r in registry["rows"] for s in r["sites"] for e in s.get("allow", [])]
@@ -1196,9 +1195,7 @@ D13_TRIPLES = [
 # 184 -> 180 (RD1-14 k2, t-1406, AR-20; GR.analyse before 184 / 69 triples, after 180 / 68): four comparisons leave as the execution side asks
 # `acceptable(provenance_word(..), consumer)`: `_observed_identity`'s tuple (its triple too), `validate_request`'s `target_kind == 'local_source'`
 # and `checked["result"] == "not_applicable"` copy, and `build`'s `checked["result"] == "not_applicable"`; the allow pin gains +3.
-# 180 -> 173 (RD1-14 k3, t-1434, AR-20; GR.analyse before 180 / 68 triples, after 173 / 67): seven comparisons leave as the manual side, the
-# baseline capture and the deploy proof ask `acceptable(provenance_word(..), consumer)`: `_run_step`'s whole triple (its `matched` read), and the
-# literal copies of `_provenance_errors`, `validate_baseline_record`, `validate_manual_current` and `stand_probe`; the allow pin gains +4.
+# 180 -> 173 (RD1-14 k3, t-1434, AR-20; 68 -> 67 triples): `_run_step` (whole triple) and the literal copies of four manual/baseline sites leave; allow pin +4.
 D13_ITEM_COUNT = 173
 
 
