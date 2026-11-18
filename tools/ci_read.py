@@ -177,7 +177,28 @@ def _state_word(row: dict) -> str:
             else "in_progress" if w in ("in_progress", "queued", "waiting", "pending", "requested") else "unknown")
 
 
-def make_commands(repo: str) -> dict:
+def workflow_note(root, ref: str, workflow: str):
+    """One line about a ref that edits workflow files, or None. GitHub runs a workflow_dispatch from the default
+    branch's file (t-1223 round 7: a branch edit of the dry-story cap only took effect from main), so a branch's own
+    workflow edit is not tested by its own run. Never raises; a failed git diff is "workflow check skipped"."""
+    if ref in ("main", "origin/main"):
+        return None
+    if ref.startswith("-"):
+        return "workflow check skipped: the ref starts with a dash"
+    rc, out = gitcmd.git(root, "diff", "--name-only", "origin/main..." + ref, "--", ".github/workflows/")
+    if rc != 0:
+        return "workflow check skipped: %s" % (gitcmd.first_line(out, 120) or "git diff failed")
+    files = [Path(ln).name for ln in gitcmd.as_text(out).splitlines() if ln.strip()]
+    if workflow in files:
+        return ("note: %s is changed on %s, but this run uses main's version of it (a dispatch reads the default "
+                "branch's workflow file)" % (workflow, ref))
+    if files:
+        return ("note: %s changed on %s, which does not affect the run of %s unless it is reusable/called"
+                % (", ".join(files), ref, workflow))
+    return None
+
+
+def make_commands(repo: str, root=None) -> dict:
     base = "%s/repos/%s" % (API, repo)
 
     def cmd_pipelines(args, token):
@@ -244,6 +265,9 @@ def make_commands(repo: str) -> dict:
         shown = "".join(" %s=%s" % (k, v) for k, v in extra.items())
         emit_own("dispatched %s for %s%s; find the run: ci_read.py pipelines" % (workflow, sanitize(args.ref),
                                                                               sanitize(shown)))
+        note = workflow_note(root, args.ref, workflow)       # advisory only: never blocks, never changes the exit
+        if note:
+            emit_own(sanitize(note))
 
     def why_run(args, token):
         """The run `why` reads (latest of the workflow, or the explicit id), or None after saying "(no runs)"."""
@@ -359,7 +383,7 @@ def github_backend(repo: str, root) -> common.Backend:
         name="GitHub", token_key=TOKEN_KEY, token_fallback=TOKEN_ENV, token_label="GitHub", root=root, check=_check,
         missing_hint="create a GitHub token that may read Actions (and write Actions to start a run) and export it "
                      "as %s",
-        commands=make_commands(repo))
+        commands=make_commands(repo, root))
 
 
 def run_state(root, sha):
