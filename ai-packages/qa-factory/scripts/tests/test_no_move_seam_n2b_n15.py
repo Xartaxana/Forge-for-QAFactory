@@ -488,6 +488,7 @@ def fv316_unread_answer_row() -> None:
         ("5 a halt answered `stop`", "S1-qa-x-1", halt, [], [("stop\r\n", [("halt", "stop")], None)]),
         ("6 a seam question answered `stop`", "S5-qa-x-1", lambda d: seam_asked(d), [], [("stop\r\n", [("conductor", "stop")], None)]),
         ("7 `ticket_changed` unread: one row", "", ticket, [], [("something else entirely\r\n", [("ticket_changed", "")], None)]),
+        ("7b `ticket_changed` answered `stop`: the row carries `stop` (F-A2)", "", ticket, [], [("stop\r\n", [("ticket_changed", "stop")], None)]),
         ("8 conductor `continue` (control)", "S1-qa-x-1", halt, [{"action": "continue", "did": "done"}], [(FV316_WORDS, [("halt", "")], FV316_P1)]),
     )
     for label, dispatch, setup, verdicts, turns in cases:

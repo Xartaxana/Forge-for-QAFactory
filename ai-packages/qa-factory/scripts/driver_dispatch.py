@@ -1909,8 +1909,7 @@ class DriverDispatch:
         self.state["pending_words"][dispatch] = words
         # I5 (FV1-3): everything a later process needs is on disk BEFORE the seam, which may raise a Person or end the process -
         # the answer's audit row too (once per answer: the end of `take_answer` is then a no-op), so a rerun's re-ask carries FR-7's block
-        self.answer_file()
-        self.record_answer_row("", dispatch)
+        self.record_answer("", dispatch)
         self.save_state()
         if not (read["all_tokens"] and not read["unread"]):
             lines = self.register_words_to_conductor("questions", stage, dispatch, qtext, words, read, shown=shown)

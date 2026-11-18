@@ -2487,8 +2487,7 @@ class DriverMachine:
         of `approve_by_option` (t-722 4.6): the new answer is put on the record first, nothing is recorded, the person is told (FR-8)."""
         earlier = self.original_words(asked)
         if earlier is None:
-            self.answer_file()
-            self.record_answer_row("")
+            self.record_answer("")
             # remains: the question comes back with the reason (t-722 4.6, the same held road as `approve_by_option`), not a move the driver lacks
             raise self.held_question("Your answer could not be taken: the words of your earlier answer at this gate are not on file, so "
                                      "nothing was recorded. Answer this gate again.")
