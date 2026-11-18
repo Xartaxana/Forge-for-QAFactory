@@ -92,12 +92,11 @@ child shell, a byte copy (`cp`/`Copy-Item`) and its restore.
    the narrow target the work needs; the full sets run on CI, never on this machine (PROJECT.md, package change p. 2);
    the canonical form of a tool = its correctly invoked form, the invocation that finds a known sample.
 2. The proxy server — not used in this deployment: the contour is subscription and nothing in gateway/ is run.
-3. The shell's working directory never moves (`cd`, `Set-Location`): refused.
-- **Рабочий каталог шелла не меняется никогда** — ни `cd` в Bash, ни `Set-Location, Push-Location` и `cd` в PowerShell, даже
-  «внутри одной команды» (каталог PowerShell переживает вызовы). Хуки запускают `python tools/...` относительно cwd: после смены
-  они не находят `tools/*.py`, блокируются ВСЕ инструменты, и сессия сама себя не вернёт.
-  Вместо этого — `git -C <каталог>`, `python -B <абсолютный путь>`, флаги `--repo`/`--root`; тесты пакета, которым нужен каталог
-  пакета как cwd, идут у билдера в его worktree. Хук «не нашёл tools/x.py» — стоп и сброс папки сессии на корень.
+3. The shell's working directory never moves (`cd`, `Set-Location`, `Push-Location`), not even inside one command (the
+PowerShell location outlives the call): refused; the Bash `( cd <dir> && ... )` subshell is the door. Hooks run
+`python tools/...` relative to the cwd: after a move they find no `tools/*.py` and EVERY tool is blocked. Package tests
+that need the package as cwd run in the builder's worktree. A hook that "cannot find" its tools/ script -> stop and reset the
+session folder to the root.
 
 4. File edits — by any tool (the owner's word 16.11.2026: the Edit/Write-only rule is retired); a worker still writes
    only inside its `owns`, judged by the diff at acceptance.
