@@ -1289,7 +1289,7 @@ def _nc_refused(items, ctx, win_day, dispatch_manifest):
             except Exception:
                 ids = {}
         key = _jk.ref_key(ids["task"], {}, segs, journal.label_ids, journal.aliases) if "task" in ids else None
-        bucket = "outside" if ids else "no_task"
+        bucket = "outside" if ("task" in ids or "node" in ids) else "no_task"   # a feature-only prompt names no row
         if key in tasks:
             if key in row_of:
                 out["rows"][row_of[key]] = out["rows"].get(row_of[key], 0) + 1
