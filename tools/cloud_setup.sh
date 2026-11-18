@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Setup script of the cloud environment (Claude Code on the web) for Xartaxana/Forge-for-QAFactory.
-# STAGED COPY: at the move it goes to tools/cloud_setup.sh; its one-line call is pasted into the environment's
-# "Setup script" field on claude.ai/code (docs/migration/MIGRATION_PLAN.md, step D6: "Cloud: claude.ai/code -> the
-# environment for the forge, Setup script `bash tools/cloud_setup.sh`"). Also safe to run by hand on a fresh Linux/macOS clone.
+# Paste this one line into the environment's "Setup script" field on claude.ai/code:  bash tools/cloud_setup.sh
+# Also safe to run by hand on a fresh Linux/macOS clone.
 # Idempotent: a second run changes nothing.
 set -euo pipefail
 
@@ -30,7 +29,29 @@ if [ ! -f "$ROOT/tools/dev.config.yaml" ] && [ -f "$ROOT/tools/dev.config.exampl
   echo "tools/dev.config.yaml created from the example (dev slug: see the file)"
 fi
 
-# 5. the GitHub CLI for CI reading (gh run list / view); the token comes from the environment, never from a file
-command -v gh >/dev/null 2>&1 || echo "note: gh CLI missing; CI is read in the browser or after installing gh"
+# 5. the token for CI reading: the NAME of the variable comes from tools/dev.config.yaml (github_token_env, default
+#    GITHUB_TOKEN); only set/unset is printed, never the value
+#    The one reader is tools/dev_config.py (its CLI prints SET / NOT SET, never the value); this script parses nothing.
+#    A refusal of the reader (key absent from an existing file, invalid name) is printed as one note and setup goes on.
+if tok="$(python -B "$ROOT/tools/dev_config.py" 2>&1)"; then
+  tok="$(printf '%s\n' "$tok" | grep -m1 '^environment variable' || true)"
+  case "$tok" in
+    *"none to check"*) echo "note: $tok" ;;
+    "") echo "note: dev_config.py printed no token line" ;;
+    *) echo "$tok" ;;
+  esac
+else
+  echo "note: dev_config.py refused: $(printf '%s\n' "$tok" | grep -m1 . || true)"
+fi
+
+# 6. the cloud clone is shallow (measured t-1281); history-reading tools need the full one. A failure is a note only
+if [ "$(git -C "$ROOT" rev-parse --is-shallow-repository 2>/dev/null || true)" = "true" ]; then
+  git -C "$ROOT" fetch -q --unshallow >/dev/null 2>&1 || echo "note: git fetch --unshallow failed; the clone stays shallow"
+fi
+
+# 7. journal timestamps are naive local times; the cloud VM is UTC unless TZ is set
+if [ -z "${TZ:-}" ]; then
+  echo "note: TZ is unset; journal timestamps are naive local times, so set TZ in the environment variables (the owner machine is Europe/Paris)"
+fi
 
 echo "cloud setup done: python=$(python --version 2>&1) hooksPath=$(git -C "$ROOT" config core.hooksPath)"

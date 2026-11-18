@@ -985,7 +985,7 @@ def test_lessons_problem_is_not_no_lesson(proj, monkeypatch):           # E40 an
 # --- phase 1 (OF3-1a): the catalogue and the one reader (AR-1, AR-9, AR-13, AR-28) -----------------------------------------------
 
 FIVE_KEYS = ["product.roles", "environments.credentials_by_role", "product.sides", "environments.sides", "environments.reference_for",
-             "environments.stand_lessons", "environments.sign_in"]       # the name is kept from the five of PC-1b; SS1-11 added the sixth, FV1-28 C1 the seventh
+             "environments.stand_lessons", "environments.sign_in", "environments.extra_instance"]       # the name is kept from the five of PC-1b; SS1-11 added the sixth, FV1-28 C1 the seventh
 
 
 def test_keys_are_derived_from_the_catalogue_in_todays_order():
@@ -996,7 +996,8 @@ def test_keys_are_derived_from_the_catalogue_in_todays_order():
                        "environments.sides": {"scope": "stand", "compare": "exact"},
                        "environments.reference_for": {"scope": "stand", "compare": "exact"},
                        "environments.stand_lessons": {"scope": "stand", "compare": "exact"},
-                       "environments.sign_in": {"scope": "stand", "compare": "exact"}}
+                       "environments.sign_in": {"scope": "stand", "compare": "exact"},
+                       "environments.extra_instance": {"scope": "stand", "compare": "exact"}}
     assert [row["key"] for row in PK.rows() if row["store"] in ("registry", "config+registry")] == FIVE_KEYS
     assert [row["key"] for row in PK.rows("artifact_root")] == ["artifact_root"] and PK.rows("no.such.key") == []
 
@@ -1320,3 +1321,67 @@ def test_sign_in_record_join(tmp_path, monkeypatch, case):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))
+
+
+# --- E7-1: the answer about another instance of the stand or device ------------------------------------------------------------
+
+def instance_args(*extra):
+    return ["instance", "--task", "T-1", "--allowed", "yes", "--stand", "dev", *extra]
+
+
+def test_instance_answer_round_trip_the_none_family_and_value_shapes(proj, tmp_path, capsys):
+    ask = lambda stand="dev", need="another_instance": PK.instance_answer(proj.root, stand, need)       # noqa: E731
+    assert ask() == {"authorized": None, "row": None, "problem": "", "no_stand": False}             # absent file: asks, no problem
+    for stand in ("", PK.PLACEHOLDER_STAND):
+        assert ask(stand)["no_stand"] is True and ask(stand)["authorized"] is None
+    assert run(instance_args("--words-file", str(proj.words))) == 0
+    assert "another_instance on dev: environments.extra_instance recorded (PK-1)" in capsys.readouterr().out
+    assert ask()["authorized"] is True and ask()["row"]["provenance"]["words"] == WORDS.strip()
+    assert run(instance_args("--words-file", str(proj.words))) == 0 and "already recorded (PK-1)" in capsys.readouterr().out
+    assert run(["instance", "--task", "T-1", "--allowed", "no", "--stand", "dev", "--words-file", str(proj.words)]) == 0
+    assert ask()["authorized"] is False and len(proj.rows()) == 2                                   # the other answer is a new row and wins
+    assert ask("dev ") ["authorized"] is None and ask("other")["authorized"] is None and ask(need="x")["authorized"] is None
+    assert run(["revoke", "--task", "T-1", "--id", "PK-2", "--words-file", str(proj.words)]) == 0
+    assert "asked again where it is needed" in capsys.readouterr().out and ask()["authorized"] is None   # F1 t-1311: revoked newest "no" asks again, never the older "yes"
+    assert run(["revoke", "--task", "T-1", "--id", "PK-1", "--words-file", str(proj.words)]) == 0 and ask()["authorized"] is None
+    for allowed in ("yes", "no"):
+        assert run(["instance", "--task", "T-1", "--allowed", allowed, "--stand", "dev", "--words-file", str(proj.words)]) == 0
+    assert run(["revoke", "--task", "T-1", "--id", "PK-3", "--words-file", str(proj.words)]) == 0 and ask()["authorized"] is False  # older revoked: newer stays
+    proj.facts([fact("PK-8", PK.EXTRA_INSTANCE_KEY, "dev", "another_instance", "noticed_unconfirmed", "2026-11-01T10:00:00", scope="stand", value={"authorized": True})])
+    assert ask()["authorized"] is None                                                                  # F4 t-1311: only `known` answers
+    for value in ({"authorized": "yes"}, {"authorized": True, "x": 1}, None, {}, [True]):              # a typed yes/no only
+        assert PK.record_problems(PK.EXTRA_INSTANCE_KEY, "dev", "another_instance", "known", "stand", "w", "person", "conductor", value=value)
+        proj.facts([fact("PK-9", PK.EXTRA_INSTANCE_KEY, "dev", "another_instance", "known", "2026-11-01T10:00:00", scope="stand", value=value)])
+        assert ask()["authorized"] is None
+    assert PK.record_problems(PK.EXTRA_INSTANCE_KEY, "dev", "", "known", "stand", "w", "person", "conductor", value={"authorized": True})
+    proj.path().write_text("{not json", encoding="utf-8")
+    assert ask()["authorized"] is None and ask()["problem"]                                           # unread is never a "no"
+
+
+INSTANCE_CLI = [   # (option overrides, None drops one; words bytes, pipeline, exit code, text of the refusal)
+    ({}, b"yes" * 70_000, None, 0, ""),                      # 210 KB, no size limit: whole
+    ({}, BOM + b"ok", None, 0, ""),                          # a BOM is stripped
+    ({}, b"", None, 2, "words"), ({}, BOM, None, 2, "words"), ({}, b" \n\t", None, 2, "words"),
+    ({}, "yes".encode("utf-16"), None, 2, "UTF-8"), ({}, bytes([0xC3, 0x28]), None, 2, "UTF-8"),
+    ({"--stand": " "}, b"ok", None, 2, "stand"), ({"--stand": PK.PLACEHOLDER_STAND}, b"ok", None, 2, "pass --stand"),   # F3 t-1311
+({"--stand": None}, b"ok", None, 2, "pass --stand"),
+    ({"--need": "bogus"}, b"ok", None, "exit", ""), ({"--allowed": "YES"}, b"ok", None, "exit", ""), ({"--allowed": ""}, b"ok", None, "exit", ""),
+    ({}, b"ok", {"ticket": "T-1", "no_trace": True}, 2, "leaves no trace"),
+]
+
+
+@pytest.mark.parametrize("opts,raw,pipeline,code,needle", INSTANCE_CLI)
+def test_instance_cli_battery(tmp_path, monkeypatch, capsys, opts, raw, pipeline, code, needle):
+    proj = Proj(tmp_path, monkeypatch, stands=[{"name": "dev"}, {"name": "prod"}], pipeline=pipeline)
+    proj.words.write_bytes(raw)
+    given = {"--allowed": "yes", "--stand": "dev", "--words-file": str(proj.words), **opts}
+    argv = ["instance", "--task", "T-1"] + [x for k, v in given.items() if v is not None for x in (k, v)]
+    if code == "exit":
+        with pytest.raises(SystemExit):
+            run(argv)
+    else:
+        assert run(argv) == code
+    if code == 0:
+        assert proj.rows()[0]["provenance"]["words"] == (raw[3:] if raw.startswith(BOM) else raw).decode().strip()
+    else:
+        assert needle in capsys.readouterr().err and not proj.path().exists()                          # nothing was written
