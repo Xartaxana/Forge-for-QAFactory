@@ -108,6 +108,21 @@ def forge_check_state(root, sha):
     return {"success": "success", "failure": "failure", "in_progress": "pending"}.get(state, "unknown")
 
 
+def registry_preflight_lines(w):
+    """FG7-92: the registry checks the branch's change can break, as lines before the lock (advice: owner 18.11, FG7-94).
+    The tip is resolved as wave does (local branch, else origin's); the module is imported lazily so that a missing or
+    broken one is one `cannot judge` line (run() catches every Exception), never a refusal."""
+    for ref in ("refs/heads/" + w.branch, "refs/remotes/origin/" + w.branch):
+        rc, tip, _e = git(w.root, "rev-parse", "--verify", "-q", ref)
+        if rc == 0:
+            break
+    else:
+        w.say("registry preflight: cannot judge (branch %s not found)" % w.branch)
+        return
+    import registry_preflight  # noqa: PLC0415
+    registry_preflight.preflight(w.root, "origin/" + MAIN, tip, out=w.say)
+
+
 def journal_rel(root):
     rel, _why = jk.current_path(root)
     return rel
@@ -131,7 +146,9 @@ def _sha(data):
 
 class Wave:
     def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print, pin=None, piles_skip=None,
-                 tests_over=None, leftover_ok=None):
+                 tests_over=None, leftover_ok=None,
+                 preflight=None):
+        self.preflight = preflight or registry_preflight_lines     # a seam like ci=: a test passes a silent stub
         self.leftover_ok = leftover_ok    # the validated reason, or None
         self.leftover_line = "leftover: none"
         self.branch, self.task, self.node, self.ci, self.out = branch, task, node, ci, out
@@ -708,6 +725,10 @@ class Wave:
         bad = self.pin_problem()
         if bad:
             return self.refuse(Refuse(bad))
+        try:                    # BEFORE the lock: the lock-held work is unchanged and the preflight never refuses (FG7-92)
+            self.preflight(self)
+        except Exception as exc:
+            self.say("registry preflight: cannot judge (%s: %s)" % (type(exc).__name__, str(exc)[:200]))
         try:
             with jl.machine_lock("main-merge", LOCK_WAIT, repo=self.root):
                 self.locked()

@@ -73,10 +73,10 @@ def push_main(e, files):
     g(e.dev, "push", "-q", "origin", "HEAD:main")
 
 
-def go(e, name, node=None, ci=None, task="t-868", piles_skip=None, leftover_ok=None):
+def go(e, name, node=None, ci=None, task="t-868", piles_skip=None, leftover_ok=None, preflight=None):
     out = []
     w = wave.Wave(e.root, name, task, node, ci=ci or (lambda r, s: "success"), out=out.append, piles_skip=piles_skip,
-                  leftover_ok=leftover_ok)
+                  leftover_ok=leftover_ok, preflight=preflight or (lambda w: None))
     return w.run(), "\n".join(out), w
 
 
@@ -148,6 +148,33 @@ def test_unknown_branch_refuses_and_changes_nothing_E_C3_8(env):
     rc, out, _ = go(env, "nope")
     assert rc == 2 and "step 3" in out and snap(env) == before
     assert not list((env.root / ".claude" / "worktrees").glob("wave-*"))
+
+
+def _red(w):
+    w.say("registry preflight: census RED (1.0 s)")
+    w.say("  C1: a unit with no row")
+
+
+def _raises(w):
+    raise RuntimeError("boom")
+
+
+def _slow(w):
+    time.sleep(0.3)
+    w.say("registry preflight: lint cannot judge (timeout after 30 s)")
+
+
+@pytest.mark.parametrize("stub", [_red, _raises, _slow])
+def test_preflight_red_raising_or_slow_never_changes_the_merge_FG7_92(env, stub):
+    branch(env, "pf1", {"f.txt": "x\n"})
+    rc0, out0, _ = go(env, "pf1")                                   # the run without a preflight
+    push_main(env, {"g.txt": "y\n"})
+    branch(env, "pf2", {"f2.txt": "x\n"})
+    rc, out, _ = go(env, "pf2", preflight=stub)
+    assert rc == rc0 == 0 and "registry preflight:" in out and blob(env, "f2.txt") == b"x\n"
+    assert out.index("registry preflight:") < out.index("pushed:") and out0.count("registry preflight") == 0
+    rc, out, _ = go(env, "nope", preflight=stub)                      # a refusal keeps its own text and code
+    assert rc == 2 and "refused: step 3: branch nope is not on origin" in out
 
 
 def test_forge_check_is_information_only(env):
