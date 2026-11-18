@@ -1682,6 +1682,47 @@ class DriverStageS6:
         self.run_chains(items, self.chain_launchable, self.run_manual_lane, max(1, min(int(cap), len(items))),
                         kind=self.s6_chain_kind(), seam=self.s6_seam)
 
+    def masked_words(self, words: str) -> str:
+        """The words as they may be shown, or `(not shown: they look like a secret)` when they match one of the project's secret patterns or the
+        pattern list cannot be read (FR-59: an unknown is never shown). ONE copy for the walk-supply line of `run_manual_lane` and the lead of
+        the S7 another-instance question (AR-13). RAISES only what the imports raise: the callers' own `except` decides what that costs."""
+        import guard_secrets
+        import manual_capture as MC
+        try:
+            cfg = MC.load_config(self.task_root)[0]
+        except ValueError:
+            cfg = {}
+        try:
+            hit = MC.secret_pattern_hit(words, {"secret_content_patterns": guard_secrets._patterns(
+                cfg, "secret_content_patterns", list(guard_secrets.DEFAULT_SECRET_CONTENT_PATTERNS))}) is not None
+        except ValueError:
+            hit = True
+        return "(not shown: they look like a secret)" if hit else words
+
+    def manual_block_lines(self, block: list, dispatch: str, walk: dict, unprepared) -> list:
+        """The prompt lines of a manual qa-runner block that are the same for every lane (the non-assigned part of `run_manual_lane`, extracted
+        by E7-3b so the S7 re-walk tells its runner the same words, one copy): a block that WALKS gets the walk-session line (and the
+        `finalize_task.py` last command when no run report exists); one that does not gets the recorder lines, the prepared-request paths
+        and, per case the factory could not prepare (`unprepared`: `[(case, why)]`, only those of `block`), its unprepared line."""
+        if walk["walking"]:
+            # the walker has the commands of its session in its brief; the driver closes it and builds the records (`walk_after`),
+            # so no `finalize_task.py` line - unless no run report exists and none could be made (E5s.3)
+            return [f"Execution kind: manual — walk the items of walk session {dispatch} (the `Walk:` line of your brief) with the "
+                    "commands of your brief; the factory closes the session and builds the case records when you end."
+                    + (f" Your last command: `finalize_task.py {self.task_root}` (no run report exists yet)."
+                       if walk["report_last"] else "")]
+        return (["Execution kind: manual — execute the approved manual-agent cases in this block, "
+                 "record each observation as manual evidence, then `finalize_task.py <task root>`.",
+                 "Prepared requests, one per case (read the one of each case; never rebuild it): "
+                 + ", ".join(self.manual_request_paths(block))]
+                + [f"{case}: unprepared - {why}; walk it yourself with the recorder (manual_capture.py) or the "
+                   "browser and record every doubtful place; a seed the recorder cannot do by API is done through the "
+                   "screens, and a capture the factory refuses for its own gap halts nothing; close the case with "
+                   f"`manual_evidence.py unprepared --task-root {self.task_root} --case {case} "
+                   "--observations-file <file>` (add `--not-walked \"<why>\"` when nothing was walked with the "
+                   "recorder); record no pass or fail"
+                   for case, why in unprepared or [] if case in block])
+
     def run_manual_lane(self, record, lane: list) -> None:
         """One lane's dispatch, walk and role (the dispatch half of the old `run_manual_block`; t-2147 C1 item 4). `record` is the lane's
         chain record on the parallel road and None on the old road. The entry's plan comes through `_s6_view`. Differences of the parallel
@@ -1784,13 +1825,9 @@ class DriverStageS6:
 
         def record_then_role() -> None:
             self.record_running("S6", "qa-runner", dispatch_id, retry=record_then_role)
+            # E7-3b: the non-assigned lines are `manual_block_lines`, ONE copy the S7 another-instance re-walk reads too
+            extra = self.manual_block_lines(block, dispatch_id, walk, plan.get("unprepared") or [])
             if walking:
-                # the walker has the commands of its session in its brief; the driver closes it and builds the records (`walk_after`),
-                # so no `finalize_task.py` line - unless no run report exists and none could be made (E5s.3)
-                extra = [f"Execution kind: manual — walk the items of walk session {dispatch_id} (the `Walk:` line of your brief) with the "
-                         "commands of your brief; the factory closes the session and builds the case records when you end."
-                         + (f" Your last command: `finalize_task.py {self.task_root}` (no run report exists yet)."
-                            if walk["report_last"] else "")]
                 if assigned:
                     # TR3-10d item 4 (D.10): an ASSIGNED parallel lane only (walkers 1, one lane, a part with no handle: no new line, the
                     # prompt is as before). The sentences are the ones of `walk-charter.md`; the person's data words go whole, unless they look
@@ -1808,36 +1845,12 @@ class DriverStageS6:
                     extra.extend(WP.entity_lines(facts["entries"]))
                     try:
                         import config_contract as CC
-                        import guard_secrets
-                        import manual_capture as MC
                         data = CC.walk_supply(self.config)[0]["data"]
                         words = str(data.get("words") or "")
                         if data.get("known") and words.strip():
-                            try:
-                                cfg = MC.load_config(self.task_root)[0]
-                            except ValueError:
-                                cfg = {}
-                            try:
-                                hit = MC.secret_pattern_hit(words, {"secret_content_patterns": guard_secrets._patterns(
-                                    cfg, "secret_content_patterns", list(guard_secrets.DEFAULT_SECRET_CONTENT_PATTERNS))}) is not None
-                            except ValueError:
-                                hit = True
-                            extra.append("How this project handles shared records, in the person's words: \""
-                                         + ("(not shown: they look like a secret)" if hit else words) + "\"")
+                            extra.append("How this project handles shared records, in the person's words: \"" + self.masked_words(words) + "\"")
                     except Exception:       # noqa: BLE001 - P1: a line the lane cannot have is no stop; the lane walks without it
                         pass
-            else:
-                extra = (["Execution kind: manual — execute the approved manual-agent cases in this block, "
-                          "record each observation as manual evidence, then `finalize_task.py <task root>`.",
-                          "Prepared requests, one per case (read the one of each case; never rebuild it): "
-                          + ", ".join(self.manual_request_paths(block))]
-                         + [f"{case}: unprepared - {why}; walk it yourself with the recorder (manual_capture.py) or the "
-                            "browser and record every doubtful place; a seed the recorder cannot do by API is done through the "
-                            "screens, and a capture the factory refuses for its own gap halts nothing; close the case with "
-                            f"`manual_evidence.py unprepared --task-root {self.task_root} --case {case} "
-                            "--observations-file <file>` (add `--not-walked \"<why>\"` when nothing was walked with the "
-                            "recorder); record no pass or fail"
-                            for case, why in plan.get("unprepared") or [] if case in block])
             self.run_role("S6", "qa-runner", scope=block, complete=run_complete, extra=extra + self.role_lines("S6", "qa-runner"),
                           rework={"id": dispatch_id, "scope": block, "reason": "manual block"})     # `run_role` owns the walk hook (F4)
         if not parallel:

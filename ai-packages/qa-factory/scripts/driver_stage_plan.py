@@ -1248,6 +1248,15 @@ class DriverStagePlan:
             # (`s7_rejudge_round`: `complete=False`). POSITION INVARIANT: BEFORE the S6 qa-runner rule below, which answers `True`
             # for a manual dispatch when no block is left to run - a re-judge writes no S6 completion and is not "the last block".
             return False
+        if stage == "S6" and role == "qa-runner" and str(record.get("id") or getattr(self, "last_dispatch", "")) in {
+                str(x) for x in (self.state.get("extra_instance_rewalk") if isinstance(self.state.get("extra_instance_rewalk"), dict) else {}).values()}:
+            # E7-3b M1 (t-1307): an S7 ANOTHER-INSTANCE re-walk finished through `wait_existing_job` / a restart closes like the live road
+            # (`s7_extra_instance_step`): S6 not completed (world A, it awaits its consumer) -> the awaits word, so `controller.next` moves on
+            # to S7; S6 completed (world B) -> False. POSITION INVARIANT: BEFORE the S6 qa-runner rule below, which answers `True` for a
+            # manual dispatch when no block is left - a re-walk is not "the last block". `complete` is never True here, on any road.
+            done = ((self.controller_state().get("stages") or {}).get("S6") or {}).get("status") == "completed"
+            held = False if done else self.consumer_awaits("S6", True)
+            return held if isinstance(held, OpenWork) else False
         if stage == "S6" and role == "qa-runner":
             # t-261 (C4, the same recovery class as S5 below): a saved result finished through `wait_existing_job` got no
             # answer here, so it took the controller's default and closed S6 over a half nobody had run. The rule is the

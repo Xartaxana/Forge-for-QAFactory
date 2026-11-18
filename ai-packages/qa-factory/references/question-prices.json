@@ -198,6 +198,11 @@
       {"answer": "close", "factory": "command", "person": "answer", "delivery": "not_known", "unverified": "whether the work you kept this stage open for is done; the repairs stay as they ended"},
       {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
     ],
+    "s7.extra_instance": [
+      {"answer": "start it", "factory": "role_round", "person": "answer", "delivery": "waits"},
+      {"answer": "by hand", "factory": "record", "person": "your_checks", "delivery": "not_known", "unverified": "the checks named above; they are left with you and the report lists them"},
+      {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
+    ],
     "code_close.stage": [
       {"answer": "retry", "factory": "nothing", "person": "your_work", "delivery": "waits"},
       {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}

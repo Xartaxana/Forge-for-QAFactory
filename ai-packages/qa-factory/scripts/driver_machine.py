@@ -3461,6 +3461,11 @@ class DriverMachine:
             # t-698 §22 FX-2 (C1-5b2): the site's own question at the end of an S7 `open_work` life - `close` / `stop` have executors
             # (`_answer_open_work`), any other word goes to the seam once (the `repair_limit` shape: this kind carries no `offered`).
             self._answer_open_work(words, qtext, stage, dispatch)
+        elif kind == "extra_instance":
+            # E7-3b (§2.5): the site's own question at S7 entry over a check that needs another instance of the stand or device - `start it` /
+            # `by hand` are written to the registry by the driver, `stop` is held, any other word goes to the seam once. POSITION INVARIANT:
+            # right after `open_work`, before the generic `offered` branches (this question carries no `offered`).
+            self._answer_extra_instance(words, qtext, stage, dispatch)
         elif kind == "exit_limit" and not asked.get("offered"):
             # t-764 (C1-5d2): the site's own question over an exit-gate refusal that survived the resume limit - its tokens have
             # executors (`_answer_exit_limit`), any other word goes to the conductor once. POSITION INVARIANT: after the closed
