@@ -1,17 +1,3 @@
-diff --git a/.githooks/pre-commit b/.githooks/pre-commit
-index f25a33e0..4e596779 100755
---- a/.githooks/pre-commit
-+++ b/.githooks/pre-commit
-@@ -59,6 +59,9 @@ gate python tools/architecture_index.py --check
- # AGENTS.md (the Codex copy of CLAUDE.md + the coordinator files, hooks and roles) is
- # generated; a change to any source without a regenerated file does not land.
- gate python tools/agents_md.py --check
-+# One road (P31, FG7-27): silent unless a package script, the baseline or a token data file is staged;
-+# a new language branch without a row stops the commit; exit 2 (cannot judge) stops it like a red.
-+gate python tools/language_sites.py --check --staged
- # Forge attribution (WARN only): new backlog rows / package files / journal events without a
- # feature are printed whole (offenders and doors) so the developer sees them at commit time;
- # --warn never blocks: whatever its exit code, the commit goes on (as the old `|| true`); a crash's
 diff --git a/.github/workflows/forge-check.yml b/.github/workflows/forge-check.yml
 index 171af87a..d8883531 100644
 --- a/.github/workflows/forge-check.yml
@@ -28,14 +14,14 @@ index 171af87a..d8883531 100644
          env:
            BASE: ${{ steps.base.outputs.base }}
 diff --git a/tools/mechanism_gate.py b/tools/mechanism_gate.py
-index be99bb75..50338417 100644
+index be99bb75..e19adad7 100644
 --- a/tools/mechanism_gate.py
 +++ b/tools/mechanism_gate.py
 @@ -281,6 +281,8 @@ MECHANISM_PREFIXES = (
      "tools/usage_report.py",        # imported (lazily, --node-cost only) by tools/forge_metrics.py (t-905); the closure counts it
      "tools/agents_md.py",           # run by .githooks/pre-commit (AGENTS.md --check)
      "tools/worktree_sweep.py",      # run by .githooks/post-merge (F6-38; self-activating, placed by the Lead) and imported by session_context.py / piles.py
-+    "tools/language_sites.py",      # .githooks/pre-commit (one-road ratchet, FG7-27)
++    "tools/language_sites.py",      # forge-check (one-road ratchet, FG7-27; CI-only: the scan is over 10 s)
 +    "tools/language-sites-baseline.json",  # DATA that decides what language_sites.py refuses: a row added or raised lets a language branch pass
      "tools/worktree-junk.json",     # DATA that decides what worktree_sweep.py deletes (untracked traces, protected branches): an edit widens the deletion set
      "tools/wait_reaper.py",         # run by SessionStart (session_context), SubagentStop (dod_gate) and .githooks/post-merge (bounded waits K-WIRE, t-1122): stops trees
