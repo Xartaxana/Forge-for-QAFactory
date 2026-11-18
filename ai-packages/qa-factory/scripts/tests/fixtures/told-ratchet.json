@@ -452,6 +452,10 @@
    "bare": 2,
    "tagged": 0
   },
+  "red_sandbox.py::_write_receipt_file": {
+   "bare": 1,
+   "tagged": 0
+  },
   "red_sandbox.py::main": {
    "bare": 1,
    "tagged": 0
