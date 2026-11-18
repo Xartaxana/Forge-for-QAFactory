@@ -1,0 +1,1 @@
+- A content mismatch that lists no file now asks the person about "the files of this story" instead of reading " differ from the ones in this story's commit" (the same words the refusal already used).
