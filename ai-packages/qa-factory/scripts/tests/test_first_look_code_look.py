@@ -440,12 +440,16 @@ def test_two_line_answers_keep_their_token_and_their_words():
     """F1: the executor's token is the FIRST line, the row carries it, and the rest of the answer is the person's words kept whole."""
     with tempfile.TemporaryDirectory() as tmp:
         r = Rig(tmp)
+        r.d.answer_file = types.MethodType(SR.Driver.answer_file, r.d)   # the real one: the row names the file (FV3-37)
+        r.d.words_file = types.MethodType(SR.Driver.words_file, r.d)
         words = "source\nthe code is on feature-x"
         hold_answer(r, words)
         check("two_line_answers_keep_their_token_and_their_words: `source` + a second line is taken", SR.Driver._same_code_answer(r.d, words, "", "S3") is True)
         rows = [json.loads(line) for line in (r.task / "state" / "driver-answers.jsonl").read_text(encoding="utf-8").splitlines()]
         check_eq("two_line_answers_keep_their_token_and_their_words: the row's token is the first line, its words the whole answer",
                  [(row["token"], row["words"]) for row in rows], [("source", words)])
+        check_eq("two_line_answers_keep_their_token_and_their_words: the row names the file holding the answer whole (FV3-37)",
+                 (rows[0]["words_file"].startswith("state/words/"), (r.task / rows[0]["words_file"]).read_text(encoding="utf-8")), (True, words))
         r.d.answer_kind = "first_look_same_code"
         out = io.StringIO()
         try:

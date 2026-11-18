@@ -72,6 +72,10 @@ def absent_side_cases():
                  (row.get("value"), (row.get("provenance") or {}).get("words"), (row.get("provenance") or {}).get("by"),
                   (row.get("provenance") or {}).get("source")),
                  ({"deliverable": False, "settles_by": ""}, words, "driver", "person"))
+        answers = [json.loads(line) for line in (task_root / "state" / "driver-answers.jsonl").read_text(encoding="utf-8").splitlines()]
+        check_eq("B3: the answer row names the token and the file holding the words whole (FV3-37)",
+                 [(a["token"], (task_root / a["words_file"]).read_text(encoding="utf-8") if a["words_file"] else "") for a in answers],
+                 [("not ours", words)])
         check("B3: the person is told in words that the wait is over", "`api` is another team's at your word" in said, said[-300:])
         check_eq("B3: the answer left no open question and no kept side name", (driver.state.get("asked"), "absent_side" in driver.state), ({}, False))
         # a second story of the same project is not asked (the registry row is the project's)
@@ -142,10 +146,14 @@ def absent_side_cases():
     try:
         unread = []
         driver.unread = lambda *a, **k: unread.append((a, k))
-        got = driver._answer_absent_side("the platform team might finish it next week", "q", "S6")
+        words = "the platform team might finish it next week"
+        answer_of(driver, root, words)    # the real `take_answer`: the unread road ends in its closing row (FV3-37)
         check_eq("B3: other words are read by no code: the conductor once, the hold and the side stand",
-                 (got, len(unread), bool(pipeline_of(task_root).get("awaiting")), pipeline_of(task_root)["sides"]["api"]["deliverable"]),
-                 (False, 1, True, True))
+                 (len(unread), bool(pipeline_of(task_root).get("awaiting")), pipeline_of(task_root)["sides"]["api"]["deliverable"]),
+                 (1, True, True))
+        row = json.loads((task_root / "state" / "driver-answers.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+        check_eq("B3: ... and the closing row of those words names the file holding them whole",
+                 (row["token"], (task_root / row["words_file"]).read_text(encoding="utf-8") if row["words_file"] else ""), ("", words))
     finally:
         harness.cleanup(root)
     # several absent sides: the question is about ONE side and the answer never changes another (edge 2)
