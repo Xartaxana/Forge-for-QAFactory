@@ -1296,6 +1296,45 @@ def unprepared_rows(report) -> list:
     return out
 
 
+def _unprepared_scan(report) -> tuple:
+    """`({case: [all rows ok, obligation ids]}, {case keys of every current manual row that is not ok})`; the ONE read of the rows.
+    A row is ok when it carries `unprepared`, no `result`, no `current_reason` (a stale walk never counts) and a marker whose `walked` is
+    exactly True (`write_unprepared` always writes a bool; absent, False or any other value = nobody is known to have looked)."""
+    rows = report.get("current_manual_checks") if isinstance(report, dict) else None
+    cases: dict = {}
+    off: set = set()
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not row.get("case"):
+            continue
+        marker = row.get("unprepared")
+        ok = (isinstance(marker, dict) and marker.get("walked") is True and not row.get("result") and not row.get("current_reason"))
+        if not ok:
+            off.add(str(row["case"]))
+        entry = cases.setdefault(str(row["case"]), [True, []])
+        entry[0] = entry[0] and ok
+        entry[1] += [i for i in list(row.get("current_obligation_ids") or row.get("obligation_ids") or []) if i not in entry[1]]
+    return cases, off
+
+
+def current_unprepared(report) -> dict:
+    """`{case: [obligation ids]}` of the cases the factory could not prepare and the runner walked (U7 7c, AR-13): EVERY current
+    manual row of the case carries `unprepared`, no `result`, no `current_reason` and a marker with `walked` exactly True (a record
+    that says nothing of `walked` is not known to be walked: the case is out and delivery keeps `no`). Never raises: `{}` on any junk."""
+    try:
+        return {case: entry[1] for case, entry in _unprepared_scan(report)[0].items() if entry[0]}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def unprepared_disqualified(report) -> set:
+    """The case keys of the current manual rows that make `current_unprepared` reject (stale, not walked, with a result, no marker): a
+    bare plan case that one of them names is NOT a walked case even when another area's row of it is (U7 7c F3). Never raises: `set()`."""
+    try:
+        return _unprepared_scan(report)[1]
+    except Exception:  # noqa: BLE001
+        return set()
+
+
 def _write_refused(task_root, case, reason, door) -> None:
     """`request.json` of the case as `{refused: {reason, door, trace}}`; a file that cannot be written changes nothing (the decision is returned)."""
     try:
