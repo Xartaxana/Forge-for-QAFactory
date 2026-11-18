@@ -951,7 +951,7 @@
   },
   "test_controller_release.py": {
    "layer": "data_join",
-   "why": "held by import: test_person_words.py, test_words_doors.py import it; leaves the canon when the import is cut (TD-15.8)",
+   "why": "held by import: test_person_words.py, test_words_doors_controller.py import it (PC4-10 split); leaves the canon when the import is cut (TD-15.8)",
    "covers": [
     "tests/harness.py",
     "tests/test_controller_rework_scope.py",
@@ -5074,7 +5074,7 @@
   },
   "test_s5_process.py": {
    "layer": "data_join",
-   "why": "held by import: test_words_doors.py imports it; leaves the canon when the import is cut (TD-15.8)",
+   "why": "held by import: test_words_doors_controller.py imports it (PC4-10 split; test_s5_process also by the flight_launcher part and words_doors_common); leaves the canon when the import is cut (TD-15.8)",
    "covers": [
     "tests/harness.py",
     "tests/test_controller_rework_scope.py",
@@ -7425,7 +7425,7 @@
   },
   "test_ticket_adapter.py": {
    "layer": "data_join",
-   "why": "held by import: test_words_doors.py imports it; leaves the canon when the import is cut (TD-15.8)",
+   "why": "held by import: test_words_doors_controller.py imports it (PC4-10 split; test_s5_process also by the flight_launcher part and words_doors_common); leaves the canon when the import is cut (TD-15.8)",
    "covers": [
     "tests/harness.py"
    ]
