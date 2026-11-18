@@ -305,12 +305,18 @@ def test_no_collect_is_never_a_refusal_and_never_verified(stand, label):
     assert out.count("stored not_verified") == 1, (label, out)
 
 
-@pytest.mark.parametrize("typed,collected", [("test_plain", "test_plain"), ("test_par[2]", "test_par[b-2]")])
-def test_a_role_sent_mark_is_dropped_and_rows_not_asked_keep_their_state(stand, typed, collected):
+LINKS = [{"case_id": CASE, "version": "cv_1"}]
+
+
+# (typed, collected, the re-send's own fields, the covers stored after it): a partial re-send keeps the stored fields (N1)
+@pytest.mark.parametrize("typed,collected,resend,covers", [
+    ("test_plain", "test_plain", {}, [CASE]), ("test_par[2]", "test_par[b-2]", {}, [CASE]),
+    ("test_par[2]", "test_par[b-2]", {"covers": [CASE, "TC-002"]}, [CASE, "TC-002"])])
+def test_a_role_sent_mark_is_dropped_and_rows_not_asked_keep_their_state(stand, typed, collected, resend, covers):
     """Kill: the role's mark stored (AR-14); a writer row, a patch row with no file asked or marked (E9, E10); a stored
     `not_verified` row never asked again (FR-40: it has a way out once a collect can answer); A2 (critic t-1315): that row,
-    renamed by the collect, left beside its new spelling as a ghost."""
-    code, out, err = put(stand, node_row(typed, node_id_check={"status": "verified", "note": "mine"}))
+    renamed by the collect, left beside its new spelling as a ghost, or losing the stored fields the re-send omits (t-1325 N1)."""
+    code, out, err = put(stand, node_row(typed, node_id_check={"status": "verified", "note": "mine"}, case_version_links=LINKS))
     assert code == 0 and "the value you sent was dropped" in out, (out, err)
     assert mark_of(stand, typed)["status"] == "not_verified", "no collect existed: the role's `verified` is gone"
     put(stand, {"tests": [{"instance_id": "test_w", "file": MOD, "covers": [CASE], "status": "green", "generated_from": "x"}]})
@@ -318,8 +324,10 @@ def test_a_role_sent_mark_is_dropped_and_rows_not_asked_keep_their_state(stand, 
     assert put(stand, {"tests": [{"instance_id": typed, "why": "patch"}]})[0] == 0
     assert mark_of(stand, typed)["status"] == "not_verified", "a patch with no file leaves the mark"
     with_pytest(stand)
-    assert put(stand, node_row(typed))[0] == 0
+    assert put(stand, {"instance_id": typed, "file": MOD, "status": "red", **resend})[0] == 0
     assert mark_of(stand, collected)["status"] == "verified", "FR-40: re-sent with its file once a collect answers"
+    row = next(r for r in stand.manifest()["tests"] if r.get("instance_id") == collected)
+    assert (row["status"], row.get("covers"), row.get("case_version_links")) == ("red", covers, LINKS), ("N1", row)
     rows = [MP._instance(r) for r in stand.manifest()["tests"] if MP._instance(r) in (typed, collected)]
     assert rows == [collected], ("A2: one row, no ghost", rows)
 

@@ -1050,6 +1050,7 @@ def _stamp_rows(eligible: list, answers: dict, words, notes: list, problems: lis
         if status == "verified":
             r[NODE_ID_CHECK] = _verified_mark(r, detail, notes, renames)
             if held is not None and typed in renames:
+                _carry_held(r, held)
                 retract.append(typed)
         elif status == "not_verified":
             r[NODE_ID_CHECK] = {"status": "not_verified", "note": detail}
@@ -1064,6 +1065,15 @@ def _stamp_rows(eligible: list, answers: dict, words, notes: list, problems: lis
     for reason, ids in reasons.items():
         notes.append(f"{NODE_ID_CHECK}: {', '.join(ids[:5])}{' and more' if len(ids) > 5 else ''} stored not_verified - {reason}")
     return renames, retract
+
+
+def _carry_held(row: dict, held: dict) -> None:
+    """The stored row a rename retracts hands the re-send every field it does not carry (`covers`, `case_version_links`, ...):
+    a status-only re-send otherwise left the case with no proving row and no receipt line (critic t-1325 N1). A field the
+    re-send carries wins, an empty list included; the ids and the mark are the re-send's own."""
+    for key, value in held.items():
+        if key not in ("instance_id", "test_instance_id", NODE_ID_CHECK):
+            row.setdefault(key, copy.deepcopy(value))
 
 
 def _retract_renamed(fragment: dict, spellings: list) -> None:
