@@ -341,20 +341,21 @@ def jw_delegated_line(tid):
 
 
 # FG7-71: a reserved id is bound to the session that reserved it (pre: None | "gone" | file text | N preloaded records)
-@pytest.mark.parametrize("pre,reserver,env,obj_session,want", [
-    (None, "aaaaaaaa-1", "bbbbbbbb-2", None, "reserved by session aaaaaaaa"),   # red before FG7-71 (scratch probe t-1375)
-    (None, "aaaaaaaa-1", "aaaaaaaa-9", None, "ok"),
-    (None, "aaaaaaaa-1", "aaaaaaaa-9", "bbbbbbbb", "reserved by session aaaaaaaa"),   # a hook line's session wins
-    (None, None, "bbbbbbbb-2", None, "ok"),
-    ("gone", "aaaaaaaa-1", "bbbbbbbb-2", None, "ok"),
-    (None, "aaaaaaaa-1", None, None, "from no session"),
-    ("{broken", "aaaaaaaa-1", "bbbbbbbb-2", None, "damaged"),
-    ("prune", "aaaaaaaa-1", "aaaaaaaa-1", None, "ok"),
-    (499, "aaaaaaaa-1", "bbbbbbbb-2", None, "reserved by session zzzzzzzz"),
-    (500, "aaaaaaaa-1", "bbbbbbbb-2", None, "ok")],
+@pytest.mark.parametrize("pre,reserver,env,obj_session,via,want", [
+    (None, "aaaaaaaa-1", "bbbbbbbb-2", None, "hook", "reserved by session aaaaaaaa"),   # red before FG7-71 (scratch probe t-1375)
+    (None, "aaaaaaaa-1", "aaaaaaaa-9", None, "hook", "ok"),
+    (None, "aaaaaaaa-1", "aaaaaaaa-9", "bbbbbbbb", "hook", "reserved by session aaaaaaaa"),   # a hook line's session wins
+    (None, None, "bbbbbbbb-2", None, "hook", "ok"),
+    ("gone", "aaaaaaaa-1", "bbbbbbbb-2", None, "hook", "ok"),
+    (None, "aaaaaaaa-1", None, None, "hook", "from no session"),
+    ("{broken", "aaaaaaaa-1", "bbbbbbbb-2", None, "hook", "damaged"),
+    ("prune", "aaaaaaaa-1", "aaaaaaaa-1", None, "hook", "ok"),
+    (499, "aaaaaaaa-1", "bbbbbbbb-2", None, "hook", "reserved by session zzzzzzzz"),
+    (500, "aaaaaaaa-1", "bbbbbbbb-2", None, "hook", "ok"),
+    (None, "aaaaaaaa-1", "bbbbbbbb-2", "aaaaaaaa", "cli", "reserved by session aaaaaaaa")],   # critic t-1381 F1
     ids=["other-session", "same-session", "obj-session-wins", "recorded-without-session", "no-record", "caller-without-session",
-         "damaged-file", "prune-on-journal", "cap-at-500", "cap-beyond-500"])
-def test_fg7_71_a_typed_id_reserved_by_another_session_is_refused(repo, monkeypatch, pre, reserver, env, obj_session, want):
+         "damaged-file", "prune-on-journal", "cap-at-500", "cap-beyond-500", "cli-line-session-ignored"])
+def test_fg7_71_a_typed_id_reserved_by_another_session_is_refused(repo, monkeypatch, pre, reserver, env, obj_session, via, want):
     path = repo / ".git/forge-journal" / jw.RESERVATIONS_NAME
     records = lambda: json.loads(path.read_text())["reservations"]                       # noqa: E731
     if isinstance(pre, int):
@@ -374,7 +375,7 @@ def test_fg7_71_a_typed_id_reserved_by_another_session_is_refused(repo, monkeypa
         path.write_text(pre)
     obj = {"event": "delegated", "agent": "builder", "model": "m", "task_id": tid, "worker_ref": "agent:t",
            "category": "implementation", "feature": "F19", "notes": "n", **({"session": obj_session} if obj_session else {})}
-    res = jw.write_event(repo, obj, via="hook")
+    res = jw.write_event(repo, obj, via=via)
     assert res.written == (want in ("ok", "damaged")), res.messages
     assert want == "ok" or want in " ".join(res.messages + res.errors)
     assert res.written or jw.jk.JOURNAL_WRITE_DOOR in res.messages[0]

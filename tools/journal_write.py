@@ -267,7 +267,7 @@ def _replace_text(path: Path, text: str) -> None:
 
 
 def caller_session(obj=None):
-    """FG7-71: the calling session -- `obj["session"]` (a hook line) when valid, else the env session, else None. The 8-char
+    """FG7-71: the calling session -- `obj["session"]` when valid (the caller passes obj only for a via=hook line; critic t-1381 F1), else the env session, else None. The 8-char
     rule is journal_hooks._session, the one session reader (imported lazily: each module imports the other only lazily)."""
     import journal_hooks
     for value in ((obj or {}).get("session"), os.environ.get(SESSION_ENV)):
@@ -305,7 +305,7 @@ def _record_reservations(path: Path, ids: list, session, used: set, notes: list)
         notes.append(f"WARN {RESERVATIONS_NAME} not updated ({type(exc).__name__}); these ids are not bound to this session")
 
 
-def _check_reserver(tid: str, path: Path, obj: dict, notes: list) -> None:
+def _check_reserver(tid: str, path: Path, obj, notes: list) -> None:
     """FG7-71 (scout t-1358, road 1): `next` gave 501cb4e0 t-1339 after peer session 1d2edd69 had reserved it, and the
     counter check alone let both write it. A typed id reserved by ANOTHER session (or met by a caller with no session) is
     refused; no record, or a record with no session, is accepted as before."""
@@ -580,7 +580,7 @@ def _write_event(root: Path, obj: dict, via: str, lock_timeout: float) -> Result
                 tid = obj["task_id"]
                 if not (isinstance(tid, str) and tid in jv.extract_task_ids(state)):
                     _check_new_task(tid, pre, counter)
-                    _check_reserver(tid, pre.counter_path.with_name(RESERVATIONS_NAME), obj, result.errors)
+                    _check_reserver(tid, pre.counter_path.with_name(RESERVATIONS_NAME), obj if via == "hook" else None, result.errors)
         now = _now()
         ordered = {"ts": now.isoformat(timespec="seconds")}
         for key in ("event", "agent", "model", "task_id"):      # the order the journal's own lines read in
