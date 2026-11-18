@@ -226,3 +226,118 @@ If narrowed, by which data rule (no contract list, AR-1)?
   `is_placeholder` only.
 - Needed beyond the manifest: handoff_check.py::check, acceptance.py::stage_author_dispatch/awaits_acceptance,
   tests/form_filler.py (_Survey, fill_form), tests/dry_stub.py::fill_handover, tests/fixtures/form-fill-rules.json, role-load.json.
+
+
+## ROUND 3b (after the Lead's answers 1-3): DONE, committed 438f9772, merged origin/main ab97727c, pushed
+
+CI (started, not waited): canon **44220653424**; dry (dry_only=true) **44220657617**. The `pipelines` sha column shows main's
+6887bbec (the dispatch runs on main with the ref as an input, as in round 1).
+
+Per answer:
+- A2 row-level pick DONE: `handoff.field_nodes` takes the first row of a list whose leaves are ALL whole placeholders for that list;
+  with no such row, the first whole placeholder per key; else row 0. `spec_of` and `contract_slices._keys_form` read it.
+  The qa-code-critic slice now reads `inputs_read[].path (required) - path exactly as the author listed it` and
+  `inputs_read[].version (optional) - pinned case version, content hash, or the file's sha256`.
+  Spec diff over every contract (`handoff.spec_of`, before = a92dced6): required/optional unchanged in EVERY row; hints moved in
+  s2-tester-to-strategist inputs_read[].path/.version, s5-critic(-plan) inputs_read[].path/.version, s6-runner-to-analyst
+  inputs_read[].path/.version, s7-analyst-to-automator inputs_read[].path/.version, and the contract-owned `inputs[].path` of
+  s5-automator-to-critic, s5-automator-to-runner, s7-analyst-to-automator, s7-automator-to-analyst (not shown in any slice).
+- A1 named raise DONE, measured after A2 (role_load --all; rows from references/role-load.json):
+  process_ratchet_tokens: qa-code-critic 21782 -> 21811 (+29), qa-requirements-tester 13538 -> 13558 (+20),
+  qa-runner 17247 -> 17276 (+29), qa-failure-analyst 19609 -> 19631 (+22).
+  ratchet_tokens (whole load; over the row is red too): qa-code-critic 23607 -> 23634 (+27), qa-requirements-tester
+  14907 -> 14927 (+20), qa-failure-analyst 21659 -> 21681 (+22). qa-runner 18885 stays under its row 18906 (within slack, not
+  moved). native_headroom: no problem. One `raise:` line per moved row is in the commit message of 438f9772. No other role moved.
+- A3 narrow F4: the stated rule (equal to the template leaf AND the leaf carries a `<...>` segment) is EXACTLY what
+  `handoff.only_template(value, leaf)` already reads for a scalar (`TEMPLATE_TOKEN.search(value) and value == leaf`), so the code is
+  unchanged apart from the comment. DIVERGENCE FROM THE ANSWER (fact): `s8-scribe-to-gate-b questions[0].records_with` is
+  `waiver.py --task <T> --stage <S> --block "<the exact block text code reads>"`, which DOES carry `<T>`, `<S>` and `<...>`
+  segments, so the narrow rule still refuses it when untouched. Per answer 3, the rule was not changed further; the CI dry run judges.
+  Fields newly refused under the rule (probe: `form_filler.fill_form` base variant per contract + `handoff_check.check(fix=False)`,
+  a blank refusal on a value that is not `is_placeholder`; author given and not given). Outside the S4/S5 author rows:
+  s4-designer-to-runner `execution[0].evidence.where`; s5-automator-to-runner `inputs_read[0].path`, `inputs_read[1].path`;
+  s5-critic-to-automator `probes.records[0].record`; s6-runner-to-analyst `inputs_read[0].path`, `inputs_read[1].path`;
+  s7-analyst-to-automator `inputs_read[0].path` (author token); s7-analyst-to-scribe `inputs_read[0].path` (author token),
+  `bug_drafts[0].path`; s7-automator-to-analyst `inputs_read[0].path`; s8-bug-reporter-to-scribe `inputs_read[0].path`;
+  s8-scribe-to-gate-b `inputs_read[0].path` (author token), `questions[0].records_with`; s9-retro-to-project `inputs_read[1].path`.
+  Inside: s5-critic-to-automator / s5-critic-plan-to-automator `inputs_read[0].path`; s4-case-critic-to-designer `inputs_read[0].path`
+  when a row is added (alone it was already refused as the empty list).
+- CHANGELOG fragment extended (one bullet, English): list hints from the first untouched row; a list row equal to a `<...>`
+  token value is refused as not filled.
+
+### Witness round 3b (after all edits, before the merge)
+```
+== DoD test_handoff_init
+PASS upper-case purpose -> a call refusal (no silent fall back)
+PASS FV3-31 S5 critic usual form + author
+PASS FV3-31 S5 critic usual form + author: token row refused iff no author
+PASS FV3-31 S5 critic plan form + author
+PASS FV3-31 S5 critic plan form + author: token row refused iff no author
+PASS FV3-31 S5 critic usual form, no author: the token stays
+PASS FV3-31 S5 critic usual form, no author: the token stays: token row refused iff no author
+PASS FV3-31 S5 critic plan form, no author: the token stays
+PASS FV3-31 S5 critic plan form, no author: the token stays: token row refused iff no author
+PASS FV3-31 S4 critic, no author, a real row added: the token row is refused
+PASS door: a plan form (purpose s5_plan, author) names --to then --purpose
+PASS door: a plan review form (purpose s5_plan, critic) names --to then --purpose
+PASS door: an ordinary S5 form prints no --purpose and no --to
+PASS door: a two-contract stage form (S4 secondary) still prints --to alone
+
+=== handoff_init purpose: 32/32 ok ===
+== N1
+PASS FV3-31 S5 reviewed_dispatch: two windows: the critic's own automator, A3 created after it is not named
+PASS FV3-31 S5 reviewed_dispatch: the plan critic: the plan automator only
+PASS FV3-31 S5 reviewed_dispatch: a window critic with only a plan automator
+PASS FV3-31 S5 reviewed_dispatch: no matching window
+PASS FV3-31 S5 reviewed_dispatch: no record
+PASS FV3-31 S5 reviewed_dispatch: no `reviewed_by`
+PASS FV3-31 S5 reviewed_dispatch: `reviewed_by` not a string
+PASS FV3-31 S4 critic answer unchanged
+PASS FV3-31 S7 analyst answer unchanged
+PASS FV3-31 S5 brief line names the critic's own automator path
+PASS FV3-31 S5 no match: no line, not the none-yet line
+PASS FV3-31 invalid `reviewed_by` prints a stderr line
+PASS FV3-31 S5 prefill = brief (K1)
+PASS FV3-31 S5 prefill = brief (KP)
+PASS FV3-31 S5 prefill = brief (None)
+
+=== N1: 15/15 ok ===
+== slices
+slices: 44 declared, all present and fresh; 20 key pages; 12 charters carry a generated digest line
+== role_load qa-code-critic
+  "tokens": 23634,
+  "process_tokens": 21811,
+  "verdict": "within"
+== role_load qa-requirements-tester
+  "tokens": 14927,
+  "process_tokens": 13558,
+  "verdict": "within"
+== role_load qa-runner
+  "tokens": 18885,
+  "process_tokens": 17276,
+  "verdict": "within"
+== role_load qa-failure-analyst
+  "tokens": 21681,
+  "process_tokens": 19631,
+  "verdict": "within"
+```
+### Re-run once after the merge of origin/main (main's code changed under the witness)
+```
+== DoD test_handoff_init
+
+=== handoff_init purpose: 32/32 ok ===
+== N1
+
+=== N1: 15/15 ok ===
+== slices
+slices: 44 declared, all present and fresh; 20 key pages; 12 charters carry a generated digest line
+== role_load --all vs rows
+qa-requirements-tester tokens 14927 process 13558 within
+qa-code-critic tokens 23634 process 21811 within
+qa-runner tokens 18885 process 17276 within
+qa-failure-analyst tokens 21681 process 19631 within
+process problems []
+over [] excess {} native []
+```
+Nothing is left uncommitted in the worktree. No loop or process left running. The A3 probe and spec-diff scripts live in the
+session scratchpad (not committed).
