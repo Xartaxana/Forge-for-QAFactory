@@ -2245,6 +2245,7 @@ class DriverMachine:
         file = words_file or self.answer_file()
         self.answer_row(f"{stage} code close ({token}): ", words.strip(), what="your answer about the closed stage")
         if token == "stop":
+            self.record_answer(token)   # FV3-16 P4: the row before the Person below
             # remains: `stop` holds the question that was asked (the person's own word); it is no state without a move
             raise self.held_question(self.stop_held("If you want the factory to go on after all, answer one of the other answers."))
         if token == "retry":
@@ -2385,7 +2386,7 @@ class DriverMachine:
             self.unread(kind, stage, dispatch, self.generic_prompt(kind, stage, qtext), words=words, block=str(asked.get("block") or ""))
             return False
         move = by_token[token]
-        self.answer_file()          # the token's own words file: the audit trail row of driver-answers.jsonl names it (E6)
+        self.record_answer(token)   # the token's own words file and its row NOW (E6): every move below may raise a Person (FV3-16 P4)
         self.answer_row(f"{stage} ({token}): ", words.strip(), what="your answer to the question")
         if move == "approve_gate" and kind in GATE_KINDS:
             self.approve_by_option(kind, stage, asked)
@@ -2486,8 +2487,7 @@ class DriverMachine:
         of `approve_by_option` (t-722 4.6): the new answer is put on the record first, nothing is recorded, the person is told (FR-8)."""
         earlier = self.original_words(asked)
         if earlier is None:
-            self.answer_file()
-            self.record_answer_row("")
+            self.record_answer("")
             # remains: the question comes back with the reason (t-722 4.6, the same held road as `approve_by_option`), not a move the driver lacks
             raise self.held_question("Your answer could not be taken: the words of your earlier answer at this gate are not on file, so "
                                      "nothing was recorded. Answer this gate again.")
@@ -3402,6 +3402,10 @@ class DriverMachine:
         # silent: what is neither goes whole to the conductor (`_unread_kept_gate`). The decision keeps everything said at the gate.
         seam_gate_words = (kind in GATE_KINDS and bool(asked.get("offered"))
                            and self.s0_normalize(words) not in self.seam_tokens(asked))
+        # FV3-16 P3 (the `seam_gate_words` pattern for the halt): a word that is NOT a token of the options of a halt question the seam
+        # raised is a new answer of the halt, not an unread word of the seam (which filed it for no role: hole (a) of t-1244).
+        halt_free_words = (kind == "halt" and bool(asked.get("offered"))
+                           and self.s0_normalize(words) not in self.seam_tokens(asked))
         gate_words, apply = words, {}
         if seam_gate_words:
             gate_words = self.combine_gate_words(asked, raw, words)
@@ -3551,6 +3555,12 @@ class DriverMachine:
             # of sources not to read, given on a command line of a story whose sources were already
             # collected (t-172 C1), is asked at S0 and read by `skip_sources_late`, not by a conductor.
             self._keep_s0_words(words)
+        elif (halt_free_words and not (stage == "S1" and self.s0_normalize(words) == "not built yet" and self.s1_has_no_diff())):
+            # FV3-16 P3 POSITION INVARIANT: right BEFORE the generic `offered` branch, so EVERY token of `asked.offered`, `stop` included,
+            # still reaches `take_seam_answer` (`halt_free_words` is False for a token); only free words of a `halt` seam question come
+            # here, to the halt road below (`_unread_halt_or_review`), so they are filed for the role as the first answer's were. The
+            # `not built yet` answer keeps today's road (the generic branch), as before.
+            self._unread_halt_or_review(kind, stage, dispatch, qtext, words)
         elif asked.get("offered") and not seam_gate_words:
             # A question the seam (`no_move`) raised, and only such a question: `ask()` writes `offered` from its Person alone, so
             # no other question's answer is captured here (`s1_review` never carries it). POSITION INVARIANT:
@@ -3580,6 +3590,7 @@ class DriverMachine:
             # the WHOLE answer, and BEFORE `judged_reply` / `unread` - the conductor is not called and the words are not filed
             # for the role (no `pending_words`): `stop please` is other words and takes the unread road below, as today.
             self.answer_row(f"{stage} halt (stop): ", words.strip(), what="your answer at the halt")
+            self.record_answer("stop")   # FV3-16 P4: the row before the Person below
             raise self.held_question(self.stop_held("If you want the role to go on after all, answer in your own words."))
         elif kind in ("halt", "s1_review"):
             self._unread_halt_or_review(kind, stage, dispatch, qtext, words)
@@ -3840,9 +3851,12 @@ class DriverMachine:
             self.state["pending_words"][dispatch] = words
             return
         # FV1-3 (AR-15, AR-17): ONE hand-over for register words (`register_words_to_conductor`, driver_dispatch); the halt road's
-        # lines are discarded as `record_halt_words` discards its own, and the words are filed AFTER the seam (this road's order).
-        self.register_words_to_conductor(kind, stage, dispatch, qtext, words, recorded)
+        # lines are discarded as `record_halt_words` discards its own. FV3-16 P2: the words are filed BEFORE the seam (the I5 order of
+        # `take_question_answer`): the seam may raise a Person and end the process, and a later `go on` must find the ORIGINAL words.
+        # Safe: the I6 guard never resumes a role while a question about its dispatch is open.
         self.state["pending_words"][dispatch] = words
+        self.save_state()
+        self.register_words_to_conductor(kind, stage, dispatch, qtext, words, recorded)
 
     def _delivery_token(self, kind: str, stage: str, qtext: str, words: str, doors: tuple, reenter: bool = False) -> str:
         """The token of an answer to one of the delivery's closed questions, or '' (C1-6c). The FIRST non-empty line is the token
@@ -3862,8 +3876,7 @@ class DriverMachine:
                 self.unread(kind, stage, "", qtext, words=words, doors=doors, lead=self.unread_lead(words),
                             again=lambda said: self.held_question(said))
             return ""
-        self.answer_file()
-        self.record_answer_row(token)
+        self.record_answer(token)   # FV3-16 P4: the row before the Person below
         if token == "stop":
             # remains: `stop` holds the question as every closed question does (`stop_held`, FR-7); nothing runs
             raise self.held_question(self.stop_held(self.delivery_stop_door(doors)))
@@ -3924,8 +3937,7 @@ class DriverMachine:
             return False
         # A6: the typed carrier - the audit row holds the TOKEN (`run again` / `leave` / `stop`), never the whole answer read back;
         # the words file is made first, so the row names the file that holds the whole answer (the row is written once)
-        self.answer_file()
-        self.record_answer_row(token)
+        self.record_answer(token)   # FV3-16 P4: the row before the Person below
         note = _answer_note(f"closed story, work that never started ({token}): ", words.strip())
         # remains: the journal row of the person's words (FR-8); the answer is carried out whatever the row does
         self.py("log_append.py", "--event", "human_answer", "--task", self.task,
@@ -4053,8 +4065,7 @@ class DriverMachine:
         token = self.s0_normalize(words)
         if token == "reapprove" and "reapprove" in offered:
             scope = [str(case) for case in (self.state.get("gate_a_dry") or {}).get("cases") or []]
-            self.answer_file()
-            self.record_answer_row(token)
+            self.record_answer(token)   # FV3-16 P4: the row before the Person below
             self.answer_row("gate A recorded dry (reapprove): ", words.strip(), what="the person's choice to approve gate A again")
             if not scope:
                 # remains: the person's own question comes back with the reason; nothing was changed (an older state names no cases)

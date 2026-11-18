@@ -1881,6 +1881,7 @@ class DriverDispatch:
         if token in ("go on", "stop"):
             self.answer_row(f"{stage} question stop ({token}): ", words.strip(), what="your answer at the question stop")
             if token == "stop":
+                self.record_answer(token)   # FV3-16 P4: the row before the Person below
                 raise self.held_question(self.stop_held("If you want the factory to go on after all, answer the questions or `go on`."))
             # N9 (FR-4): the pass is recorded for what the person was SHOWN. The count's waiver only when the stop they read was for the
             # count (`over_threshold` among its reasons; a stop recorded before the reasons existed was a count's); the blockers they read
@@ -1908,8 +1909,7 @@ class DriverDispatch:
         self.state["pending_words"][dispatch] = words
         # I5 (FV1-3): everything a later process needs is on disk BEFORE the seam, which may raise a Person or end the process -
         # the answer's audit row too (once per answer: the end of `take_answer` is then a no-op), so a rerun's re-ask carries FR-7's block
-        self.answer_file()
-        self.record_answer_row("", dispatch)
+        self.record_answer("", dispatch)
         self.save_state()
         if not (read["all_tokens"] and not read["unread"]):
             lines = self.register_words_to_conductor("questions", stage, dispatch, qtext, words, read, shown=shown)
@@ -3446,6 +3446,7 @@ class DriverDispatch:
         self.answer_row(f"{stage} repair limit ({token}{', round bought on a cap not spent' if surplus else ''}): ", words.strip(),
                         what="your answer at the repair limit")
         if token == "stop":
+            self.record_answer(token)   # FV3-16 P4: the row before the Person below
             raise self.held_question(self.stop_held("If you want the factory to go on after all, answer one of the other answers."))
         if stage == "S7" and not ask.get("life"):       # N10: under life "" nothing is written and nothing is trusted (FR-59)
             raise self.held_question("The factory could not read which triage run this question belongs to, so your answer was not "
@@ -4053,6 +4054,7 @@ class DriverDispatch:
         file = words_file or self.answer_file()
         self.answer_row(f"{stage} exit gate ({token}): ", words.strip(), what="your answer at the exit gate")
         if token == "stop":
+            self.record_answer(token)   # FV3-16 P4: the row before the Person below
             raise self.held_question(self.stop_held("If you want the factory to go on after all, answer one of the other answers."))
         if token == "round":
             taken = rec.setdefault("rounds", {}).setdefault(rec["key"], {"granted": 0, "spent": 0})

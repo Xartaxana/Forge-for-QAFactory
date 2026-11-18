@@ -1,0 +1,1 @@
+- driver: an answer the seam could not read and the conductor asked back is now on record (`driver-answers.jsonl`) before the question comes back, once per answer and by one writer (`Driver.unread`); a halt's free words are filed for the role before the seam, a free answer to a halt's seam question takes the halt road, and a `stop` token has its row before the held question
