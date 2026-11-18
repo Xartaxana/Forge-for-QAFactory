@@ -24,7 +24,7 @@ def shim(monkeypatch):
     st, ip = real(REPO, "selftest"), real(REPO, "install_paths")        # the real loader, the live package readers
     fake = types.SimpleNamespace(
         test_layers=st.test_layers, TestLayersError=st.TestLayersError, slow_tests=st.slow_tests, SlowTestsError=st.SlowTestsError,
-        render_slow_tests=st.render_slow_tests,
+        render_slow_tests=st.render_slow_tests, named_by_problems=st.named_by_problems,
         gate_named_files=lambda texts: set(re.findall(r"test_[a-z0-9_]+\.py", " ".join(texts))))
     monkeypatch.setattr(tq, "_pkg_module", lambda root, name: fake if name == "selftest" else ip)
     monkeypatch.setattr(tq, "_schedules", lambda branch: "ok")
@@ -817,8 +817,9 @@ def test_enter_keep_and_pin_row_is_not_counted_as_pin_held(tmp_path, capsys):
 def _build_det(root):
     _build_enter(root)
     doc = json.loads(Path(root, tq.LAYERS_REL).read_text())
-    doc["keep"]["test_det.py"] = {"layer": "detector", "why": "x", "named_by": ["a:1"], "replaced_by": None}
+    doc["keep"]["test_det.py"] = {"layer": "detector", "why": "x", "named_by": ["docs/DET_CARRIER.md"], "replaced_by": None}
     doc["keep"]["test_gate.py"]["layer"] = "gate_named"
+    W(root, "docs/DET_CARRIER.md", "| test_det.py | the carrier the row points at |\n")
     W(root, T + "test_det.py", "x = 1\n")
     W(root, tq.LAYERS_REL, json.dumps(doc))
     return commit(root, "det")
@@ -872,7 +873,7 @@ def test_drop_keep_and_held_by_import(tmp_path, capsys):
     assert msg.startswith("keep-drop: test_k.py -- dup of a table row\n") and gate_words(msg) == GATE_WORDS
 
 
-ROW = {"layer": "detector", "why": "AR-25 proof", "named_by": ["design/state-exits.md:34"], "replaced_by": None, "covers": ["tests/story_step_common.py"]}
+ROW = {"layer": "detector", "why": "AR-25 proof", "named_by": ["docs/SIBLING_MAP.md"], "replaced_by": None, "covers": ["tests/story_step_common.py"]}
 
 
 def split_world(tmp_path, disk=("test_k_a.py", "test_k_b.py"), old_on_disk=False):
@@ -881,6 +882,7 @@ def split_world(tmp_path, disk=("test_k_a.py", "test_k_b.py"), old_on_disk=False
     doc = json.loads(layers_json(keep=("test_first.py", "test_last.py"), pins={"test_pin.py": "role pin"}))
     doc["keep"] = {"test_first.py": {"layer": "table", "why": "x"}, "test_k.py": dict(ROW), "test_last.py": {"layer": "table", "why": "x"}}
     W(root, tq.LAYERS_REL, json.dumps(doc, indent=1) + "\n")
+    W(root, "docs/SIBLING_MAP.md", "| test_k.py | the carrier the row points at |\n")
     for n in ("test_pin.py",) + disk + (("test_k.py",) if old_on_disk else ()):
         W(root, T + n, f"# {n}\n")
     return root
@@ -1100,8 +1102,20 @@ def _row_added(root):
     relayers(root, "add a row", lambda d: d["quarantine"].update({"test_n.py": {"cohort": "c1", "entered": "x", "release_at_entry": "0.10.9"}}))
 
 
+def _named(entry, carrier=None):
+    """A detector row test_k.py pointing at `entry`; the forge file `carrier` = (rel, text) is written beside it."""
+    def run(root):
+        if carrier:
+            W(root, carrier[0], carrier[1])
+        relayers(root, "point", lambda d: d["keep"]["test_k.py"].update(layer="detector", named_by=[entry], replaced_by=None))
+    return run
+
+
 CHECK = {
     "control": (lambda r: None, 0, "0 violation(s)"),
+    "forge-carrier-names-another-test": (_named("docs/SIBLING_MAP.md", ("docs/SIBLING_MAP.md", "| test_other.py |\n")), 1, "named_by: test_k.py -> docs/SIBLING_MAP.md"),
+    "forge-carrier-names-the-key": (_named("docs/SIBLING_MAP.md", ("docs/SIBLING_MAP.md", "| test_k.py |\n")), 0, "0 violation(s)"),
+    "forge-file-found-nowhere": (_named("docs/NOPE.md"), 1, "docs/NOPE.md: the file is in neither the package nor the forge"),
     "edit-no-door": (lambda r: edit(r, "plain"), 1, "quarantined file test_q1.py was changed"),
     "edit-with-door": (lambda r: edit(r, "x\n\nquarantine-edit: test_q1.py -- reason"), 0, "0 violation"),
     "delete": (_delete, 1, "quarantined file test_q1.py"), "rename": (_rename, 1, "quarantined file test_q1.py"),

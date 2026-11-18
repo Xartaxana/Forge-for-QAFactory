@@ -1,0 +1,1 @@
+- `tools/test_quarantine.py check` now also reads the `named_by` entries that point at forge files (`docs/...`): a carrier that does not name its key, or a file found in neither the package nor the forge, is one violation line; split-part advice and the TESTING.md clause say each inherited carrier must name the part.

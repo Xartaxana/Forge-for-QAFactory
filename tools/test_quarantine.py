@@ -1778,6 +1778,27 @@ def _rebase_problems(root, layers):
     return out
 
 
+def _named_by_forge_problems(root, layers):
+    """FG7-81 card B: the package checks `named_by` entries it holds; the entries it returns as outside are read here from the
+    forge root (docs/...). An entry in neither place is refused (E3): it resolves nowhere."""
+    st = _selftest(root)
+    keep = layers.get("keep") or {}
+    problems, outside = st.named_by_problems(keep)
+    extra = {}
+    for entry in outside:
+        rel = entry.partition("::")[0]
+        p = Path(root) / rel
+        if rel not in extra and p.is_file():
+            extra[rel] = p.read_text(encoding="utf-8", errors="replace")
+    if outside:
+        problems, outside = st.named_by_problems(keep, extra)
+    out = ["named_by: " + p for p in problems]
+    for key in sorted(keep):
+        for entry in sorted(e for e in (keep[key].get("named_by") or []) if e in outside):
+            out.append(f"named_by: {key} -> {entry}: the file is in neither the package nor the forge")
+    return out
+
+
 def cmd_check(args, ctx):
     path = Path(ctx.root) / LAYERS_REL
     if not path.is_file():
@@ -1785,7 +1806,7 @@ def cmd_check(args, ctx):
         return 0
     layers = _layers(ctx.root)
     bad = check_history(ctx.root)
-    problems = _rebase_problems(ctx.root, layers)
+    problems = _rebase_problems(ctx.root, layers) + _named_by_forge_problems(ctx.root, layers)
     for sha, text in bad:
         _say(f"quarantine check: {sha[:8]}: {text}; {_ACCEPT}")
     for p in problems:
