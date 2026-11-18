@@ -10,7 +10,7 @@ from_role: qa-code-critic
 to_role: qa-automator            # on `approved` the same file closes the window instead
 
 inputs:
-  - path: work/handoffs/<the automator's dispatch>.yaml
+  - path: work/handoffs/<the author's dispatch>.yaml
     what: the author's handoff for this window
     required: true
   - path: work/automation-manifest.json
@@ -20,9 +20,11 @@ inputs:
     what: every case in scope at its pinned version
     required: true
 
-# Proof that the review read what it was handed: one line per entry of the author's `inputs`,
+# Proof that the review read what it was handed: row 0 is the author's form (prefilled by code; keep it), then one row per entry of its `inputs`,
 # with the version or hash read (a review of a since-changed file is not a review of this window).
 inputs_read:
+  - path: work/handoffs/<the author's dispatch>.yaml
+    version: <hash>
   - path: <path exactly as the author listed it>
     version: <pinned case version, content hash, or the file's sha256>
 

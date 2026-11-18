@@ -21,7 +21,7 @@ from_role: qa-code-critic
 to_role: qa-automator            # on `approved` or `approved_with_remarks` the plan goes on to the windows instead
 
 inputs:
-  - path: work/handoffs/<the automator's dispatch>.yaml
+  - path: work/handoffs/<the author's dispatch>.yaml
     what: the author's handoff for the plan
     required: true
   - path: work/s5-plan.json
@@ -34,9 +34,11 @@ inputs:
     what: every case in scope at its pinned version
     required: true
 
-# Proof that the review read what it was handed. One line per entry of the author's `inputs`, with the
+# Proof that the review read what it was handed. Row 0 is the author's form (prefilled by code; keep it), then one row per entry of its `inputs`, with the
 # version or the content it read - a review of a file that has since changed is not a review of this plan.
 inputs_read:
+  - path: work/handoffs/<the author's dispatch>.yaml
+    version: <hash>
   - path: <path exactly as the author listed it>
     version: <pinned case version, or the hash of the file read>
 
