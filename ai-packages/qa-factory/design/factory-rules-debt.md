@@ -2,8 +2,8 @@
 
 A walk of this package against `factory-rules.md`. It started at twenty of the forty-four rules
 with a live violation, which is what you would expect — the rules were written FROM defects, and
-fifteen of those defects were fixed while they were being written. **Thirty-seven rows are open
-today** (eight in the run 5 table, three walk entries, nine in the FR-47 … FR-57 table, fifteen under FR-59, one under FR-42, one under FR-7); what left
+fifteen of those defects were fixed while they were being written. **Thirteen rows are open
+today** (four in the run 5 table, two walk entries, five in the FR-47 … FR-57 table, none under FR-59, one under FR-42, one under FR-7); what left
 the list since the walk is at the end of this file, not deleted; the three entries that are real limits stand under "Real limits, kept with their reason".
 
 Every entry names the file and line, what it costs, and the fix. Nothing is listed on a grep alone
@@ -21,21 +21,13 @@ bookkeeping the product's — is fixed; it is the first item under "Fixed since 
 | FR-11 | **narrowed 07.10 (B-373 c, D-0028)**: the default live level (D-0010) now exists for a test in C#, Java and TypeScript/JavaScript (`references/detectors.json` `assertion_probes`, read by `probe_by_code.py`); it still does not exist for a suffix with no `assertion_probes` entry: `probe_by_code.py` refuses it as a factory data gap, and the door is `red_sandbox.py --probe` (the row to add is data, FR-13). Open until the live proof on a non-Python project (FR-33; backlog B-337 / B-373) | on a project whose language has no entry (Kotlin, Go, Ruby) every probe is the product-breaking one |
 | FR-16, FR-17 | **narrowed 18.11 (RD1-19, RD1-35)**: the resolver is the store: `manifest_put.py` resolves every `tests[]` id it stores, the writer's and the hand's, through the project's own pytest collect (`test_command_templates`), rewrites what a plugin renamed (`node_id_check.asked` keeps the author's spelling), refuses an id pytest does not collect from a file that collected, and marks `not_verified` where no collect answers; `manifest_from_tests.py --collect` is inert. What is left: a project with no pytest-shaped command (or another runner) stores every id `not_verified`, and `s5_precheck` still diagnoses a spelling mismatch from the run side (`_why_no_row`) instead of asking pytest | 15 of 27 run rows never joined the manifest; 16 obligations read "not proven" against a green execution; discovered at S8, after the window was accepted |
 | FR-21 | **narrowed 20.10 (grounding G1-3)**: the second word exists and blocks - `pending_implementation` (the product does not carry the behaviour yet) and `impossible` map to `no` in `references/delivery-verdict-kinds.json`. What is left is the first word: `skipped` maps to `planned_skip` (`none`), and nothing asks whether a row was skipped because the product has no such surface (the grounding step that writes `pending_implementation` for a requirement the diff does not implement landed in G2-2, release 0.10.8); narrowed 17.11 (rules debt FL2): the skip half has a live road, D1-C2 -- `gate_preflight.check_case_environment_gaps` asks the person about a row whose obligation carries a declared gap and offers the product-gap word, which records kind `product_gap` (`no`). What is left: a skip row whose plan declares no structured gap is never asked; that is the strategist's judgment, judged by the S3 critic (P27), and it is proved only by a live run | a P1 `blocked-flow` row skipped because the UI field does not exist blocked nothing |
-| FR-22 | **narrowed (G2-3)**: a bug candidate no executed check stands behind (a `K-n` risk of the grounding table, a register row marked `bug:candidate-defect`) is a `bug_candidate` line in "Left with you" (`check_delivery.grounding_records`), never silence, and the conductor can send it to the failure analyst at S7 on the person's gate B words. What is left: the road to `bugs/` still runs S7 triage → S8 reporter, and the S7 rework refuses a call with no case (`--cases must name at least one case of the approved scope`) while a candidate has none, so the conductor must borrow a case of the scope for it; the live proof of the whole road (FR-33) is not run | an acceptance criterion unmet in the product can never produce a red test, so the bug the gate ordered had no path; the report had to say "its bug proposal is unfiled" |
-| FR-23 | `story_run.delivery()` knows a branch, commits, a push and a Draft MR, and has no state for "nothing goes out". The gap is only here: `code_only()` gives S0, S6 ("the approved plan names no automate or manual-agent case") and S7 ("no failures — nothing to triage") their null outcome, and S9 has `retro_mode: skip`. Closed in code (`driver_stage_s8s9.py` `nothing_outward`, `declined_by_person`); line kept until S1b moves the K0.15 control | the delivery step had to ask a person when the decision forbade all four |
-| FR-23, FR-5 | the null outcome is DECLARED for one item only (S7's `scope`, the pilot, `null_outcome` in `handoffs/s7-analyst-to-automator.yaml`); every other required list, stage output and tool-filled field is a `never_empty` row with its guard or a row of `pending[]` in `references/null-outcomes.json` (t-305 N0, B-253), 52 pending today, each at a named node; `scripts/tests/test_null_outcomes.py` pins the walk and lets the count only shrink. FR-23's and FR-5's *Check* lines do not name the declaration and the detector yet (the amendment is queued to the maintainers of this file) | TP1-15045 (cmp2r, 02.10): the S7 form refused the empty `scope` of a triage with nothing to repair and the story stopped; the same shape stands undeclared on the other 13 item lists |
-| FR-31 | `test_stand_lease.py` | 37/38 under the parallel selftest on a busy machine, 38/38 alone — a test reporting a defect that is not there. Seen twice more on 27.09; it survives six copies of itself running at once and fails only inside the full run, so the load that breaks it is the subprocess-heavy neighbours, not its own concurrency. The suspect is the takeover check: it kills the holder inside the third poll and expects exactly `waited_s == 15`, which one extra poll would break |
-| FR-37 | gate A's own wording said "under `qa-factory/bugs`"; the factory writes the task root's `bugs/` | the filed bug's dedup note describes a directory the bug is not in |
+| FR-23, FR-5 | the null outcome is DECLARED for one item only (S7's `scope`, the pilot, `null_outcome` in `handoffs/s7-analyst-to-automator.yaml`); every other required list, stage output and tool-filled field is a `never_empty` row with its guard or a row of `pending[]` in `references/null-outcomes.json` (t-305 N0, B-253), 52 pending today, each at a named node; `scripts/tests/test_null_outcomes.py` pins the walk and lets the count only shrink. FR-23's and FR-5's *Check* lines name the declaration and the detector (18.11.2026, RD1-23) | TP1-15045 (cmp2r, 02.10): the S7 form refused the empty `scope` of a triage with nothing to repair and the story stopped; the same shape stands undeclared on the other 13 item lists |
 
 ## Found by this walk
 
 ### FR-13 — a vocabulary the code keeps a second copy of
 
-`candidate_evidence.py:7`: `EXECUTION_BOUNDARIES = {"unit", "component", "integration", "api",
-"e2e-ui", "unknown"}`. `references/vocabularies.md:89` owns **Level**: `unit · component · api ·
-integration · e2e-ui · manual-agent · manual-human`. The two already disagree — the code adds
-`unknown` and drops both manual levels — so a manual-agent candidate is judged against a set that
-does not contain it. One fact, two owners (audit A21 says the same).
+**Narrowed 18.11.2026 (RD1-23, W1):** `candidate_evidence.py:11` now reads its level set from `contract.PLAN_LEVELS` (the copy is gone). Residue: the Level vocabulary is a code tuple (`contract.PLAN_LEVELS`; `contract.py:605` `TRACE_LEVELS` re-spells it), while `references/vocabularies.md` owns **Level**. Closing it whole needs a data row or a written Lead decision that one code owner satisfies FR-13 for the Level set (fork F-L14).
 
 ### FR-1, FR-2 — 221 blocks name a door nobody has opened in a test
 
@@ -52,22 +44,6 @@ sessions and $1.94 on the S3 one alone in run 5. Both are fixed; the other 221 a
 shows the block gone. The cheap first pass is the family that repeats — `--operation checkpoint`,
 `gate-decision`, `semantic_reopen`, `recover` — which covers most of the 221.
 
-### FR-41 — the witness gate passes five of twelve roles vacuously
-
-`stages.json witness` names an artifact for every one of the twelve roles, and `exit_gate.witness_errors`
-re-runs `check_witness.py` over it. But `check_witness.RULES` holds a contract for four file names only
-(`automation-manifest.json`, `run-report.json`, `triage.json`, `requirements-readiness.json`, plus
-`code-review.md` and `release-readiness.json` outside this map). For `context-manifest.json`,
-`test-plan.md`, `story-case-links.json`, `test-report.md` and `retro.md` the script prints
-`OK (no rule for <name> — contract undefined, add it to RULES)` and **exits 0**, so the gate records a
-witness acceptance that never happened. The text is honest; the exit code is not, and only the exit code
-is read.
-
-These five are not unchecked overall — `validate_artifacts` carries their shape, and that is what the
-scope errors bring — but the witness question ("is there evidence this was run, not written") is not
-asked of them at all. **Fix:** a rule per artifact, or an exit code that says "no contract" distinctly
-from "satisfied"; whichever lands, the ahead card of that role says what the rule demands (FR-38).
-
 ## Open under the rules added on 29.09 (FR-47 … FR-57)
 
 The eleven rules came from the owner's standing principles and from TP1-13877; this is where
@@ -77,41 +53,16 @@ fixes are tracked as `B-nnn` in the development repository's backlog (`plans/BAC
 | Rule | Where | What it costs |
 |---|---|---|
 | FR-47 | scripts that decide in the role's place: no editor for `context-manifest.json`, `requirements-register.md`, `understanding.md`, `test-report.md`, so roles patch them with Python | scout S1: 224 turns, 20 % on hand-written manifest patchers, 11 helper scripts, 12 tracebacks; a stand or tooling finding used to spend one of two test-repair rounds (t-058, B-007 closed that by code: the repair route reads the typed cause; unproven until a live run, FR-33) |
-| FR-13 | **narrowed 17.11.2026 (t-929)**: the case id shape is data (B-013), the automation layer reads every language through `assertion_probes` (`manifest_from_tests.py:347-352,1629`), and `cost_capture.py` holds no `testproject1` regex. 01.10: the unresolved-reason words live in ONE place (`contract.UNRESOLVED_REASONS`, `expectation_unconfirmed` added by t-227; `stage_guard.py` and `manifest_from_tests.py` read it instead of literal copies), and the tracker-prefix list moved from code to data (`jira-fields.json` `not_tracker_prefixes`, t-267). What is left: `s5_precheck.py:1661` names a pytest marker as the door for any test file, whatever its language | TP1-13877: `then_bindings` found for none of 3 cases, the automator read factory code for ~35 calls and halted |
 | FR-48 | **narrowed 17.11.2026 (t-929)**: an infrastructure failure of a role session has ONE recogniser (`driver_runner.py:845`, B-012). What is left: the conductor's prompt is appended to the default system prompt (`driver_runner.py:606-607`, `--append-system-prompt-file` for `references/conductor.md`; `driver_conductor.py:337`, `driver_stage_s8s9.py:451`), so every call pays for a general assistant | TP1-13877: five questions to a person made of "Not logged in", a usage limit and a Cloudflare HTML page |
 | FR-50 | the ladder exists for the ticket (REST in a light form → the person, t-267; the agent read path is gone, D-06) and merge requests (`mr-access-routes.md`) and for nothing else a stage fetches; the ticket snapshot now says its route (`provenance.source`: `fetched` / `person_pasted`) and the MR route does not; a lost login on the MR route is still indistinguishable from "not found" (B-246) | on TP1-13877 the person had to ask whether the MR was really read with the VPN off; on TP1-15045 the agent route lost 15 of 15 AC |
 | FR-56 | role tool sets are not checked against their phase instructions | one unused tool schema is ~10K tokens of every turn |
-| FR-13 | the scopes of a finding about the factory (`local-urgent`, `local-calibration`, `upstream-candidate`) are a dict in code, `project_decisions.FINDING_SCOPES`, the one list the writer, the CLI's `--scope` choices, the refusal and the dashboard's colours all read (02.10, t-299); the template `references/templates/factory-backlog.md` carries the same three words and their meanings as prose, so the meanings are copied, and the dashboard legend (`factory_dashboard.tab_factory`) and `scope_span` still spell the three words as presentation. Fix: one data file for the words and their meanings, read by all of them, and a project that brings a fourth addressee adds a line, not a code change | TP1-15045 (cmp2r, 02.10): `add-finding` refused a scope with a bare traceback naming no word, the conductor invented a scope, and the finding that the S7 form had no empty answer was never recorded |
-| FR-57 | a person's recorded word on a **`review` gap** of an S5 window is read by nothing: `window_record.py` prints "recorded, not read by this window" (t-299, Q7 B'), and the only doors are the critic's `manifest_put.py` record (`unverified` for an instance the stand blocked) or the unresolved acceptance - the person's own word has no executor on this gap, so the ban has no door the person can use. Fix (queued in the development repository's backlog as Q7 A, with a critic review of the plan first): the window gate reads a word for a `review` gap the way it reads `not receipted`, and records the pass | cmp2r, 02.10: `waiver.py --stage S5 --block "review is missing"` recorded a word, said "block lifted", and the next `window_record.py` printed the same gaps; the line had promised the word would pass |
 | FR-6 | **narrowed 17.11.2026 (t-929)**: a role's halt digest and resume are plain words with the raw text in the details file (`driver_dialog.py:61-89`). What is left: the S0 person texts and the `run` and guarded-step stops still relay raw output as the question body; the checker (`human_text.py`) catches ids, HTML pages, tracebacks and `/login` and journals them, so these texts are recorded as breaking the rules until they are rewritten in plain words with the raw text in the details file (backlog row B-171; the parent row B-009 was closed by the owner's word 09.10.2026); texts: words-gates/1 GW1-4 | TP1-13877: 6 of 6 recorded questions had `problems: []`; a login error and a Cloudflare page reached the person as-is |
-| FR-47 | **the first judgment census**, `validate_artifacts.py::check_test_code`, `check_behaviour_claims` (class `meaning-proxy`) and `check_report_forbidden`, `check_report_human_text` (class `word-list`): the validator refuses by a pattern or a word list over a role's content. Counted in `breach`. **`check_report_forbidden` and `check_report_human_text` closed by X7-5 (spec t-1765)**: the first checks the SHAPES of the factory's ids and markers (`cv_<hex>`, `ti_<hex>`, `work/`, the summary marker; the phrase «look here first» is cut), the second reads the rows of `references/human-text.json` that name a factory id and no longer the two that judge a phrase about a tool run (`exit_code`, `slash_command`: a question only); both are class `shape`, owner `data` | the same: a pattern decides what only the reading role or its acceptor can. Fix direction: advice for the acceptor, the pattern kept as a hint. **`check_test_code` closed by X7-2 (spec t-1765)**: cut with its helpers and tests (a retry, a broad status set and a skip in test code are the code critic's to judge, rubric items 2, 3, 8); the rest of the row stays open (`check_behaviour_claims` X2; the report checks X7-5) |
 
 ## Open under FR-59 (03.10, the gate registry — t-302 T1)
 
-FR-59 landed with the registry (`references/gate-registry.json`) and the scanner (`scripts/gate_registry.py
---check`, audit A26). Fourteen gates are registered as `debt`: each still decides on an unknown with
-a comparison of its own, and its row names the backlog id that converts it. The detector is the
-scanner itself: a `debt` row with no backlog id, or a comparison outside a registered site, fails
-`--check`. The rows close one by one as T2 (`gate_template.py`, `acceptable()` at the literal sites)
-and the named backlog rows land; `--check` prints the count that is left.
+FR-59 landed with the registry (`references/gate-registry.json`) and the scanner (`scripts/gate_registry.py --check`, audit A26). Every row of the registry is `converted` or `exempt` since the C3 cards (18.11.2026, RD1-23); the scanner is the detector, and a row that comes back as `debt` fails it.
 
-| Rule | Where | What it costs |
-|---|---|---|
-| FR-59 | gate `stand_identity` (references/gate-registry.json) | declared branch `question` (wait, at stage entry), conversion owed (T2, `gate_template.acceptable`), owner B-257: automation on uitest was `env_blocked` because code required `matched` |
-| FR-59 | gate `provenance_acceptance` | declared branch `question` (wait, at stage entry), conversion owed (T2, `gate_template.acceptable`), owner B-255: one predicate (`profile_contract.acceptable_provenance`) serves the run, rehearsal, capture and record sites since t-300 N2; the residue - the local_source and fingerprint bare `not_applicable`, the baseline's literal, gate A's identity read - waits for T2 (`gate_template.acceptable`), the only call the scanner counts as converted |
-| FR-59 | gate `test_identity` | declared branch `rerun`, conversion owed (T2, `gate_template.acceptable`), owner B-217: a non-match is an unknown whose answer is "run again", not a verdict |
-| FR-59 | gate `collected_ids` | the non-pytest and import-error parts are closed (B-407 B-run: a "node ids were not verified" note); the collect-error part is residue: a pytest collect error is a note ("collect failed: ...") and the run goes on, and that note does not say "not verified"; the registry declares branch `debt` (no target branch chosen yet) and the conversion is owed (T2, `gate_template.acceptable`), owner B-278 |
-| FR-59 | gate `live_check_demand` | declared branch `debt` (no target branch chosen yet), conversion owed (T2, `gate_template.acceptable`), owner B-279: a legacy row whose novelty nobody measured passes |
-| FR-59 | gate `s5_coverage` | declared branch `question` (wait, at window acceptance), conversion owed (T2, `gate_template.acceptable`), owner B-221 |
-| FR-59 | gate `s5_window` | declared branch `question` (wait, at window acceptance), conversion owed (T2, `gate_template.acceptable`), owner B-179: an unmeasured detector reads as a pass |
-| FR-59 | gate `delivery` | declared branch `debt` (no target branch chosen yet), conversion owed (T2, `gate_template.acceptable`), owner B-061: the aggregator maps classes to reasons and never asks |
-| FR-59 | gate `case_preconditions` | declared branch `question` (wait, at gate A), conversion owed (T2, `gate_template.acceptable`), owner B-280: an `error` of the stand reads as a factory defect |
-| FR-59 | gate `environment_preparation` | declared branch `question` (wait, at authorization), conversion owed (T2, `gate_template.acceptable`), owner B-255 |
-| FR-59 | gate `baseline_identity` | declared branch `refuse_with_door`, conversion owed (T2, `gate_template.acceptable`), owner B-281: baseline readiness advises, it does not decide |
-| FR-59 | gate `s5_stand_limits` | declared branch `debt` (no target branch chosen yet), conversion owed (T2, `gate_template.acceptable`), owner B-282: an unmeasured limit passes |
-| FR-59 | gate `reporter_rehearsal_identity` | declared branch `rerun`, conversion owed (T2, `gate_template.acceptable`), owner B-283: an unknown identity keys a rehearsal as the same |
-| FR-59 | gate `environment_property_cover` | declared branch `question` (wait, at gate A), conversion owed (T2, `gate_template.acceptable`), owner B-283 (the same backlog id as `reporter_rehearsal_identity`): the registry holds it as `debt`; this file did not list it |
-| FR-13 | the heads a role without Bash may run (`host_adapter._READ_HEAD`: rg, cat, ls, pwd, Get-Content, Get-ChildItem, Select-String) are constants in code, as is the list of readers the runner guard lets mention the runner (`stage_guard.READER_COMMANDS`); a project whose reader has another name is a code change (CX1-5, 19.10.2026, t-942). The flags and scripts that make a reader run another program (`rg --pre`, `find -exec`, awk `system(`, sed `e`) are DATA since CX1-20 (t-995, 20.10.2026): `references/launch-causes.json` `reader_runs`, read through `hooklib.reader_runs` by the runner guard, the read guard and the launch matcher - one table keyed by head, with the per-reader exceptions (`rg -e`, `find -exec grep`) | a read command outside the list is refused with its door (`rg`/`Get-Content`); a launching flag of a reader whose head is not in the table passes the read guard (a table that cannot be read falls back to the built-in `rg --pre` / `find -exec` floor, never to nothing) |
+Nothing open.
 
 ## Open under FR-42 (15.10, the no-move audit A27 — conductor/1 C1-8)
 
@@ -143,6 +94,32 @@ Entries that code in the package cannot close; each keeps its text whole and say
 
 ## Fixed since this walk
 
+- **Closed 18.11.2026 (RD1-23, pass S1b): rows closed in code that nothing had moved.** Each was read against its carrier; the proof by a live run (FR-33) is owed where it says so.
+  - **FR-23 (R5)** — the delivery step has the state "nothing goes out": `driver_stage_s8s9.py` `nothing_outward` and `declined_by_person`, first in `delivery()`. Closed by code.
+  - **FR-31 (R7)** — `test_stand_lease.py:324` asserts the takeover wait as a range (`15 <= waited_s <= 1800`, a multiple of 5), no longer `waited_s == 15`; one extra poll cannot break it. Closed on the batch canon.
+  - **FR-37 (R9)** — the bug home is the story's own `bugs/` (`bug_records.py`, RD1-1 C1; the writer and its readers agree, the duplicate check reads the same home). Closed by code; proven by a live run (FR-33): the reporter's external write on the jira channel is owed in the live-runs pile (`live-runs/2`).
+  - **FR-47 (X16)** — the last judgment-census row of the 29.09 table: `validate_artifacts.py::check_behaviour_claims` is class `xref`, owner `data` in `scripts/tests/fixtures/judgment-census.json` (S6; presence, closed forms and joins, no wording judged). Closed by code.
+  - **FR-41 (W3)** — the witness gate no longer passes a role vacuously: `check_witness.py` answers `not checked: no evidence contract for {name}` (`NOT_CHECKED_NO_CONTRACT`) through the advice form, never `OK` (S7). Closed by code.
+  - **FR-13 (X9)** — the finding scopes are one data file, `references/finding-scopes.json`, read by `project_decisions.FINDING_SCOPES` and the dashboard (S8); colours stay presentation, the template's three lines are held to the file by a data-join row. Closed by code.
+  - **FR-57 (X10)** — the window gate reads a person's word on a `review` gap (`window_record.py` `review_gap_words`, S9). Closed by code; proven by a live run (FR-33).
+  - **FR-13 (G15)** — the read heads and the reader commands are data: `references/launch-causes.json` `reader_heads`, read through `host_adapter.READ_HEADS` and `stage_guard.READER_COMMANDS`, with an in-code floor (`_READ_HEAD_FLOOR`) and `removesuffix(".exe")` in `_is_reader` (S10).
+  - **FR-59** — each gate below is `converted` in `references/gate-registry.json` (no row is `debt` any more); closed by code and data, proven by a live run (FR-33) where its C3 card names one:
+    - **FR-59 (G1)** — gate `stand_identity`, backlog B-257: converted by C3-h (RD1-11).
+    - **FR-59 (G2)** — gate `provenance_acceptance`, backlog B-255: converted by C3-k (RD1-14); `profile_contract.acceptable_provenance` deleted by k4.
+    - **FR-59 (G3)** — gate `test_identity`, backlog B-217: converted by C3-b (RD1-5).
+    - **FR-59 (G4)** — gate `collected_ids`, backlog B-278: converted by C3-a (RD1-4); the collect-error note says "not verified" (B-407).
+    - **FR-59 (G5)** — gate `live_check_demand`, backlog B-279: converted by C3-b (RD1-5).
+    - **FR-59 (G6)** — gate `s5_coverage`, backlog B-221: converted by C3-c (RD1-6).
+    - **FR-59 (G7)** — gate `s5_window`, backlog B-179: converted by C3-d (RD1-7).
+    - **FR-59 (G8)** — gate `delivery`, backlog B-061: converted by C3-e (RD1-8).
+    - **FR-59 (G9)** — gate `case_preconditions`, backlog B-280: converted by C3-i (RD1-12).
+    - **FR-59 (G10)** — gate `environment_preparation`, backlog B-255: converted by C3-f (RD1-9).
+    - **FR-59 (G11)** — gate `baseline_identity`, backlog B-281: converted by C3-g (RD1-10).
+    - **FR-59 (G12)** — gate `s5_stand_limits`, backlog B-282: converted by C3-j (RD1-13); the row and its comparison deleted whole by C3-j2.
+    - **FR-59 (G13)** — gate `reporter_rehearsal_identity`, backlog B-283: converted by C3-i (RD1-12).
+    - **FR-59 (G13+)** — gate `environment_property_cover`, backlog B-283: converted by C3-i (RD1-12).
+  - **FR-13 (X2, residue)** — `s5_precheck._open_oracle_door` names the door by the form of the kind of the test files (`oracle_binding_forms`, else `manifest_put.py --open-oracle`), not by a pytest marker (FL9). The earlier parts: the case id shape is data (B-013), `cost_capture.py` holds no `testproject1` regex. Closed by code.
+  - **FR-22 (R4)** — the S7 rework takes a typed `bug_candidates` request for a candidate that has no case (`controller.py` rework args, FL4), so the conductor no longer borrows a case. Closed by code; proven by a live run (FR-33) of the whole road to `bugs/` is owed in the live-runs pile.
 - **Closed 17.11.2026 (t-929, pass S1a): rows closed in code that nothing had moved.** Each was read against its carrier:
   - **FR-36** — the tracker-write probe and the packet line "tracker write: confirmed" gate on the run's standing decision: S0 `driver_s0.py:2367-2369` (`--no-trace` to `readiness.py`, which closes at `readiness.py:958-960`), gate B `gate_preflight.py:5817-5821`, packet text `gate_brief.py:4968-4977` ("closed for this run").
   - **FR-43** — `story_run.py:105` `console_io.utf8_stdio(line_buffering=True)`: the progress is line-buffered.
