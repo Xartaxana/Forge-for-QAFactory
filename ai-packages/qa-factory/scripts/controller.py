@@ -3560,15 +3560,22 @@ class Controller:
         critic had actually declared, so a `reject` or a `partial` roll-call reached the
         person as an accepted independent review (0.7.7 review, finding B-F6). An unreadable
         or absent findings file keeps `accepted`: a story from 0.7.4 has none, and a missing
-        file is not evidence of a bad review.
+        file is not evidence of a bad review. A failed import is the factory's own defect, never an acceptance
+        (FR-59, RD1-32): it returns `partial`, as does a registry that cannot say which words approve.
         """
         try:
-            from critic_rollcall import APPROVING_VERDICTS, declared_verdict, findings_files
+            from critic_rollcall import declared_verdict, findings_files
+        except ImportError:
+            return "partial"
+        try:
             declared = [declared_verdict(path.read_text(encoding="utf-8", errors="replace"))
                         for path in findings_files(task_root)]
-        except (ImportError, OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError):
             return "accepted"
-        refusing = [word for word in declared if word and word not in APPROVING_VERDICTS]
+        import gate_template
+        if any(declared) and gate_template.registry_problem():      # outside the `accepted` except: never an acceptance (AR-28)
+            return "partial"
+        refusing = [word for word in declared if word and not gate_template.acceptable(word, "case_rollcall.design_review")]
         return refusing[-1] if refusing else "accepted"
 
     @staticmethod

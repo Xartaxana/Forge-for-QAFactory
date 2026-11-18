@@ -89,7 +89,7 @@
    "tagged": 0
   },
   "critic_rollcall.py::findings_errors": {
-   "bare": 13,
+   "bare": 14,
    "tagged": 0
   },
   "critic_rollcall.py::fix_errors": {

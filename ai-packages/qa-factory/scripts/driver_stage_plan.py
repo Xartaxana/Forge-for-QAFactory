@@ -798,7 +798,7 @@ class DriverStagePlan:
 
     def s4_limit_unknowns(self, dispatch: str, form: str, counted, cap, findings):
         """The unknowns of the S4 limit question: `(rows, ())` when the roll-call is known and names rejected cases, else `(None, (what
-        the conductor seam returned,))`. Order: a repair count that is no pair of numbers, a roll-call that cannot be read, one that names
+        the conductor seam returned,))`. Order: a repair count that is no pair of numbers, a gate registry that cannot be read (the approving words are unjudged), a roll-call that cannot be read, one that names
         a rejecting word over no rejected case (the critic contradicts itself: the seam, never a list), one that names no case under a
         `concerns` header -> the conductor seam (`unreadable=True` for an unknown, FR-59)."""
         import acceptance
@@ -811,12 +811,17 @@ class DriverStagePlan:
             data = findings.read_bytes()
         except OSError:
             data = None
+        import gate_template
+        reason = gate_template.registry_problem()
+        if reason:      # the person is never shown a rejected-case list built on an unjudged word (RD1-32, E12)
+            return None, (self.stage_review_exhausted(*unknown, unreadable=True, text=gate_template.registry_why(
+                reason, f"which cases the case critic still rejects in {path} is not known")),)
         rows = None if data is None else critic_rollcall.current_rejected(data, self.task_root)
         if rows is None:
             return None, (self.stage_review_exhausted(*unknown, unreadable=True,
                                                       text=f"the case critic's roll-call could not be read from its findings file {path}"),)
         declared = critic_rollcall.declared_verdict(data.decode("utf-8", errors="replace")).lower()
-        if not rows and declared not in critic_rollcall.APPROVING_VERDICTS:
+        if not rows and not gate_template.acceptable(declared, "case_rollcall.limit_question"):
             # the file says `reject` (or no readable word) over a table whose every row approves: a round the receipt reads as `partial`
             # (`_round_word_rule`), not "nothing is rejected" - the critic's output contradicts itself and the person is not shown a list.
             # The word is the file's first `Verdict:` line, not necessarily the newest round's: the text names the file, not a round.
