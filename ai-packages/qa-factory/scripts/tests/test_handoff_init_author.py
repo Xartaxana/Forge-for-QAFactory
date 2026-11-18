@@ -155,13 +155,23 @@ def test_uniform_rule_every_contract(name):
 
 
 def test_runner_contract_follows_the_rule():
-    """E6: a contract that was outside the old table is emptied by the same rule (was: text returned unchanged)."""
-    text = contract_text("s6-runner-to-analyst")
-    assert (handoff_init.empty_optional_lists(text, "s6-runner-to-analyst") != text) == bool(emptied_sections("s6-runner-to-analyst", text))
+    """A contract outside the old table (was: text returned unchanged) is emptied by the same rule. The optional lists are
+    read off the contract, not off the output (critic t-1324 F2: both sides of the old assert came from the same call)."""
+    name = "s6-runner-to-analyst"
+    text = contract_text(name)
+    out = handoff_init.empty_optional_lists(text, name)
+    before, after = handoff.parse(text).data, handoff.parse(out).data
+    optional = [k for k, v in before.items() if isinstance(v, list) and v and handoff.only_template(v)
+                and k not in handoff.REQUIRED_LISTS and k not in handoff.null_outcomes(name)]
+    assert optional, "the runner contract carries no optional template list: this row checks nothing"
+    assert out != text and [k for k in optional if after.get(k) != []] == []
 
 
 def test_unreadable_contract_text_unchanged():
     assert handoff_init.empty_optional_lists("a: 1\n", "no-such-contract") == "a: 1\n"
+
+
+OWES_FINDINGS = ("s4-case-critic-to-designer", "s5-critic-to-automator")  # `rows_owed_when: concerns: [findings]` (FU1)
 
 
 def verdicts(name: str, text: str, root: Path, verdict: str = "") -> list:
@@ -176,20 +186,14 @@ def verdicts(name: str, text: str, root: Path, verdict: str = "") -> list:
 @pytest.mark.parametrize("verdict", ["", "ok", "concerns"])
 @pytest.mark.parametrize("name", ALL_CONTRACTS)
 def test_check_verdict_unchanged_by_emptying(name, verdict, tmp_path):
-    """Every problem outside the emptied sections is byte-identical before and after (the required `scope` is still refused as
-    'no rows'); inside them the only difference is that the untouched SAMPLE rows no longer read as 'not filled' (they are not rows)."""
+    """E6 as written (critic t-1324 F1): emptying adds and removes no problem, so the whole problem list is the same before
+    and after. Under `concerns` a critic's emptied `findings` is still refused: a send-back owes rows (`rows_owed_when`)."""
     before = head(name)
     after = handoff_init.empty_optional_lists(before, name)
     old, new = verdicts(name, before, tmp_path, verdict), verdicts(name, after, tmp_path, verdict)
-    EMPTIED_PATHS = emptied_sections(name, before)
-    outside = lambda rows: [r for r in rows if not r[0].startswith(EMPTIED_PATHS)]
-    assert outside(old) == outside(new)
-    # `rows_owed_when` (FU1: S2-S4 and the S5 critic; the plan critic does not carry it): a send-back owes findings rows,
-    # so its emptied `findings` is refused as 'no rows'.
-    owed = ["findings"] if verdict == "concerns" and name != "s5-critic-plan-to-automator" else []
-    added = [r[0] for r in new if r not in old and r[0].startswith(EMPTIED_PATHS)]
-    assert set(added) <= set(owed), "emptying adds no refusal of its own (a refusal the template form already had is not an addition)"
-    assert any(r[0] == "scope" for r in new) or not any(r[0] == "scope" for r in old), "the required list is still refused"
+    assert new == old
+    if verdict == "concerns" and name in OWES_FINDINGS:
+        assert "findings" in emptied_sections(name, before) and any(r[0] == "findings" for r in new), "owed findings refused"
 
 
 def test_values_row_opens_in_emptied_section():
