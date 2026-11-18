@@ -3328,3 +3328,20 @@ def test_role_bound_model_filename_beats_name_field(tmp_path):
     (tmp_path / "other.md").write_text("---\nname: scout\nmodel: haiku\n---\n", encoding="utf-8")
     assert dispatch_gate.role_bound_model("Designer", None, tmp_path)[0] is None
     assert dispatch_gate._find_agent_role_model("scout", tmp_path) == (True, "sonnet")
+
+
+@pytest.mark.parametrize("agent_id,warned", [(None, True), ("agent-1", False)], ids=["main-thread", "worker"])
+def test_main_folds_the_coordinator_read_warn_into_additional_context(tmp_path, monkeypatch, capsys, agent_id, warned):
+    """FG7-89: an unread rule file after a compaction -> ONE WARN in the same additionalContext, exit code unchanged;
+    a worker's payload never gets it (E4)."""
+    _subagents_home(tmp_path, monkeypatch, n_fresh=0)
+    (tmp_path / "COORDINATOR.md").write_text("a\n", encoding="utf-8")
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(json.dumps({"type": "system", "subtype": "compact_boundary"}) + "\n", encoding="utf-8")
+    payload = _dispatch(cwd=str(tmp_path), transcript_path=str(transcript))
+    if agent_id:
+        payload["agent_id"] = agent_id
+    code, out, err = _run_main(monkeypatch, capsys, payload)
+    assert (code, err) == (0, "")
+    assert ("COORDINATOR-READ WARN:" in out and "(before this dispatch)" in out) is warned
+    assert out.count("additionalContext") <= 1

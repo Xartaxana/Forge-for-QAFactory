@@ -221,6 +221,9 @@ ROLLBACK = [
     ("restore", "git restore f.py", B, "repo", ("deny", DOORS["rollback"])),
     ("restore-worktree-staged", "git restore --worktree --staged f.py", B, "repo", ("deny", DOORS["rollback"])),
     ("reset-hard", "git reset --hard", B, "repo", ("deny", DOORS["rollback"])),
+    ("env-head-reset-hard", "env git reset --hard", B, "repo", ("deny", DOORS["rollback"])),
+    ("nohup-head-reset-hard", "nohup git reset --hard", B, "repo", ("deny", DOORS["rollback"])),
+    ("env-options-reset-hard", "env -i A=b git reset --hard", B, "repo", ("deny", DOORS["rollback"])),
     ("global-opts", "git -c core.x=y --no-pager checkout -- f.py", B, "repo", ("deny", DOORS["rollback"])),
     ("dash-C-other-dirty", "git -C {repo} restore f.py", B, "clean", ("deny", DOORS["rollback"])),
     ("clean-fd", "git clean -fd", B, "repo", ("deny", DOORS["rollback"])),
@@ -472,6 +475,10 @@ WORKER_VERDICT_ROWS = [
     ("upper-case-dir", "python TOOLS/journal_write.py accept --task t-1", B, "a1", True),
     ("mixed-case-file", "python tools/Journal_Write.py accept", B, "a1", True),
     ("dot-slash", f"python ./{JW} accept t-1", B, "a1", True),
+    ("env-head", f"env python {JW} accept t-1", B, "a1", True),
+    ("nohup-head", f"nohup python -B {JW} reject t-1", B, "a1", True),
+    ("heredoc-body-mention", f"cat <<'EOF'\npython {JW} accept t-1\nEOF", B, "a1", False),
+    ("quoted-mention", f'echo "python {JW} accept t-1"', B, "a1", False),
     ("returned-verb", f"python -B {JW} returned t-1", B, "a1", False),
     ("skip-verb", f"python -B {JW} skip t-1", B, "a1", False),
     ("next-verb", f"python -B {JW} next", B, "a1", False),
@@ -589,7 +596,7 @@ def test_collect_signals_is_pure_and_returns_forms_only(monkeypatch):
                         (time, "time"), (time, "monotonic")):
         monkeypatch.setattr(owner, name, forbid)
     sig = hg._collect_signals("git checkout -- f.py; echo x > docs/a.md; cd x")
-    assert set(sig) == {"cd", "write_targets", "journal", "rollback_forms", "pyc_payload", "payload_uncertain", "wait_loops"}
+    assert set(sig) == {"cd", "write_targets", "journal", "rollback_forms", "roads", "pyc_payload", "payload_uncertain", "wait_loops"}
     hg._collect_signals("until x; do sleep 1; done; for i in $(seq 1 3); do sleep 1; done", "Bash")
     assert hg.wait_loop_forms("until x; do sleep 1; done")[0]["cap"] == "none"
     assert sig["rollback_forms"][0]["shape"] == "checkout -- paths" and sig["write_targets"] == [("redirect", "docs/a.md")]
@@ -797,3 +804,49 @@ def test_run_allowed_keeps_the_refusal_classes_of_the_live_gate(world, monkeypat
         assert _kind(out) == "deny"
         assert hg.run_allowed(cmd, world["repo"])[0] is False
     assert hg.RUN_COMMAND_MAX == 65_536                           # Lead decision 1 of t-850: the cap stays 65536
+
+
+# FG7-89: the COORDINATOR-READ WARN at a verdict and a commit road. ONE table of decide() on payloads that carry a
+# transcript with a fresh compaction and no Read after it (every rule file unread); the gate's verdict never changes.
+COORD_ROWS = [
+    ("git-commit", "git commit -m x", None, "commit"),
+    ("env-head-commit", "env git commit -m x", None, "commit"),
+    ("nohup-head-accept", "nohup python tools/journal_write.py accept t-1", None, "verdict"),
+    ("git-C-commit", 'git -C "a b" commit -m x', None, "commit"),
+    ("git-c-option-merge", "git -c user.name=t merge topic", None, "commit"),
+    ("wave-merge", "python -B tools/wave.py merge wt-1", None, "commit"),
+    ("accept", "python -B tools/journal_write.py accept t-1", None, "verdict"),
+    ("reject", "python tools/journal_write.py reject t-1", None, "verdict"),
+    ("git-status", "git status", None, None),
+    ("git-log-names-commit", "git log --grep commit", None, None),
+    ("wave-status", "python -B tools/wave.py status", None, None),
+    ("quoted-echo", 'echo "git commit"', None, None),
+    ("heredoc-body", "cat <<'EOF'\ngit commit\nEOF", None, None),
+    ("heredoc-commit-body-names-verdict", "git commit -F - <<'EOF'\npython -B tools/journal_write.py accept t-1\nEOF", None, "commit"),
+    ("quoted-verdict", 'echo "python -B tools/journal_write.py accept t-1"', None, None),
+    ("worker-commit", "git commit -m x", "agent-1", None),
+    ("worker-accept", "python -B tools/journal_write.py accept t-1", "agent-1", "deny-worker"),
+    ("cd-then-commit", "cd /elsewhere && git commit -m x", None, "deny-commit"),
+]
+
+
+@pytest.mark.parametrize("rid,command,agent,expect", COORD_ROWS, ids=[r[0] for r in COORD_ROWS])
+def test_coordinator_read_warn_triggers(tmp_path, rid, command, agent, expect):
+    (tmp_path / "COORDINATOR.md").write_text("a\n", encoding="utf-8")
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(json.dumps({"type": "system", "subtype": "compact_boundary"}) + "\n", encoding="utf-8")
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(tmp_path),
+               "transcript_path": str(transcript)}
+    if agent:
+        payload["agent_id"] = agent
+    code, out = hg.decide(payload)
+    hso = (out or {}).get("hookSpecificOutput", {})
+    text = hso.get("additionalContext", "")
+    warned = expect in ("commit", "verdict", "deny-commit")
+    assert code == 0 and ("COORDINATOR-READ WARN:" in text) is warned, text
+    if expect in ("commit", "verdict"):
+        assert "(before this %s)" % expect in text and "permissionDecision" not in hso
+    if expect and expect.startswith("deny"):     # E13: the refusal is unchanged, the WARN is additive
+        assert hso["permissionDecision"] == "deny" and "COORDINATOR-READ" not in hso["permissionDecisionReason"]
+    payload.pop("transcript_path")               # K6: a probe payload stays silent
+    assert "COORDINATOR-READ" not in json.dumps(hg.decide(payload)[1])
