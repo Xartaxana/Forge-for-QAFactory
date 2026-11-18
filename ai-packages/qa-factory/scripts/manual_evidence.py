@@ -1275,9 +1275,43 @@ def unprepared_request(task, case):
     return marker if isinstance(marker, dict) else None
 
 
+NEED_REASON = "needs another instance of the stand or device; not started without the person's word"
+
+
+def prepared_request(task, case):
+    """The case's `request.json` as a dict when it exists, reads and holds no `refused` and no `unprepared`; else None (AR-13: the
+    ONE reader of "the factory prepared this case"). Never raises."""
+    data = hooklib.read_json(request_path(task, case), None, kind=dict, errors=Exception)     # errors=Exception: a case that is no path at all is None too
+    return data if data is not None and "refused" not in data and "unprepared" not in data else None
+
+
+def need_record_problems(task, case, need, need_why, marker) -> list:
+    """[problem] of a need record (AR-13: the ONE rule - the CLI, the walk rule and the validator ask it): a need outside
+    `INSTANCE_NEEDS`; a need with a blank `need_why`; a `need_why` with no need; no marker over a case that is not prepared.
+    Never raises: a broken input is a problem line."""
+    try:
+        from project_knowledge import INSTANCE_NEEDS
+        out = []
+        if need not in (None, ""):
+            if need not in INSTANCE_NEEDS:
+                out.append(f"the need {need!r} is not one of: {', '.join(INSTANCE_NEEDS)}")
+            if not _squash(need_why or ""):
+                out.append("a need says why (`--need-why`, or the verdict's `limitation`): what would be started and why")
+        elif need_why:
+            out.append("a need's reason (`--need-why`) is read with a need (`--needs`) only: give both, or neither")
+        if need not in (None, "") and marker is None and prepared_request(task, case) is None:
+            out.append(f"{case} has no prepared request: a need is recorded over a case the factory prepared or one it walks unprepared")
+        return out
+    except Exception as exc:  # noqa: BLE001
+        return [f"the need record could not be checked ({type(exc).__name__})"]
+
+
 def unprepared_rows(report) -> list:
     """`[{case, obligation_ids, reason, observations, finding}]` from the `current_manual_checks` of a run report that carry
-    `unprepared` - the ONE reader of unprepared rows (AR-13, F5(d)); `[]` when there are none."""
+    `unprepared` - the ONE reader of unprepared rows (AR-13, F5(d)); `[]` when there are none. A marker with a `need` adds
+    `prepared` (read by the delivery words; on every row whose marker carries a need) and, only on a row with no `result`, no
+    `evidence_errors` and no `current_reason`, `need`, `need_why`, `ended_at` (read by the S7 step): a refused or stale need record
+    never reaches that step, and its words still say the factory prepared the check."""
     out = []
     for row in (report or {}).get("current_manual_checks") or []:
         marker = row.get("unprepared") if isinstance(row, dict) else None
@@ -1292,8 +1326,52 @@ def unprepared_rows(report) -> list:
             entry["walked"] = marker["walked"]
             if not marker["walked"]:
                 entry["not_walked"] = str(marker.get("not_walked") or "")
+        if isinstance(marker, dict) and marker.get("need"):
+            if not row.get("result") and not row.get("evidence_errors") and not row.get("current_reason"):
+                entry.update({"need": str(marker["need"]), "need_why": str(marker.get("need_why") or ""),
+                              "ended_at": row.get("attempt_ended_at")})
+            entry["prepared"] = marker.get("reason") == NEED_REASON      # true on a refused or stale row too: the words never say the factory could not prepare it
         out.append(entry)
     return out
+
+
+def _unprepared_scan(report) -> tuple:
+    """`({case: [all rows ok, obligation ids]}, {case keys of every current manual row that is not ok})`; the ONE read of the rows.
+    A row is ok when it carries `unprepared`, no `result`, no `current_reason` (a stale walk never counts) and a marker whose `walked` is
+    exactly True (`write_unprepared` always writes a bool; absent, False or any other value = nobody is known to have looked)."""
+    rows = report.get("current_manual_checks") if isinstance(report, dict) else None
+    cases: dict = {}
+    off: set = set()
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not row.get("case"):
+            continue
+        marker = row.get("unprepared")
+        ok = (isinstance(marker, dict) and marker.get("walked") is True and not row.get("result") and not row.get("current_reason"))
+        if not ok:
+            off.add(str(row["case"]))
+        entry = cases.setdefault(str(row["case"]), [True, []])
+        entry[0] = entry[0] and ok
+        entry[1] += [i for i in list(row.get("current_obligation_ids") or row.get("obligation_ids") or []) if i not in entry[1]]
+    return cases, off
+
+
+def current_unprepared(report) -> dict:
+    """`{case: [obligation ids]}` of the cases the factory could not prepare and the runner walked (U7 7c, AR-13): EVERY current
+    manual row of the case carries `unprepared`, no `result`, no `current_reason` and a marker with `walked` exactly True (a record
+    that says nothing of `walked` is not known to be walked: the case is out and delivery keeps `no`). Never raises: `{}` on any junk."""
+    try:
+        return {case: entry[1] for case, entry in _unprepared_scan(report)[0].items() if entry[0]}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def unprepared_disqualified(report) -> set:
+    """The case keys of the current manual rows that make `current_unprepared` reject (stale, not walked, with a result, no marker): a
+    bare plan case that one of them names is NOT a walked case even when another area's row of it is (U7 7c F3). Never raises: `set()`."""
+    try:
+        return _unprepared_scan(report)[1]
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 def _write_refused(task_root, case, reason, door) -> None:
@@ -1524,15 +1602,28 @@ def _recorded_walks(task, case) -> list:
     return walks
 
 
-def write_unprepared(task, case, observations, not_walked="") -> Path:
+def _cut(text) -> str:
+    return text if len(text) <= NOT_WALKED_MAX else text[:NOT_WALKED_MAX - 1] + "…"
+
+
+def write_unprepared(task, case, observations, not_walked="", need="", need_why="") -> Path:
     """The record of an UNPREPARED case (the factory could not prepare it; `request.json` holds `unprepared`): what the runner saw,
     and whether anything was walked with the recorder - never a result (FR-59). ONE record through `write_block` (AR-14), bound to
     the running dispatch by `_running_dispatch` (AR-13). `walked` is DERIVED from the recorder's `steps.jsonl` files on disk, never taken
     from the runner (P26): the newest attempt that holds a step is the record's `attempt_id` (so its `surprise` lines travel with
-    it); no such attempt means `not_walked` is required, and is refused when one exists. Raises `ValueError` with the door."""
+    it); no such attempt means `not_walked` is required, and is refused when one exists. Raises `ValueError` with the door.
+    U7 E7: `need` (a word of `INSTANCE_NEEDS`) with `need_why` says the check needs another instance of the stand or device; it is
+    written over an unprepared marker (its reason stays) or over a PREPARED request (reason `NEED_REASON`); `need_record_problems` is
+    the one rule; with a need and no recorded walk `not_walked` defaults to `need_why`."""
     task = Path(task).resolve()
     marker = unprepared_request(task, case)
-    if marker is None:
+    prepared = None
+    if need or need_why:
+        problems = need_record_problems(task, case, need, need_why, marker)
+        if problems:
+            raise ValueError("; ".join(problems))
+        prepared = prepared_request(task, case) if marker is None else None
+    elif marker is None:
         import manual_capture as MC
         _load_request(task, MC.case_root(task, case), case)       # called for its refusal: a missing / refused request speaks in its own words
         raise ValueError(f"{case} was prepared (its request.json holds no `unprepared`): close it with `manual_evidence.py build`. "
@@ -1542,6 +1633,7 @@ def write_unprepared(task, case, observations, not_walked="") -> Path:
     dispatch = _running_dispatch(task, case)
     walks = _recorded_walks(task, case)
     why = _squash(not_walked or "")
+    need_why = _cut(_squash(need_why or "")) if need else ""
     if walks:
         name, steps, probes = walks[-1]
         if why:
@@ -1550,18 +1642,22 @@ def write_unprepared(task, case, observations, not_walked="") -> Path:
         started, ended = min(moments).isoformat(timespec="seconds"), max(moments).isoformat(timespec="seconds")
         flag = {"walked": True}
     else:
+        why = why or need_why        # a need and no walk: what was not walked still says why
         if not why:
             raise ValueError(f"nothing of {case} was walked with the recorder: say why with --not-walked \"<why>\", or walk it first "
                              "(`manual_capture.py ...`)")
         name = ""
         started = ended = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        flag = {"walked": False, "not_walked": why if len(why) <= NOT_WALKED_MAX else why[:NOT_WALKED_MAX - 1] + "…"}
-    revision = marker.get("source_revision")
+        flag = {"walked": False, "not_walked": _cut(why)}
+    source = marker or prepared or {}
+    revision = source.get("source_revision")
     if not revision:
         from controller import Controller
         revision = Controller(task).state().get("source_revision")
-    record = {"schema_version": 2, "case": case, "obligation_ids": list(marker.get("obligation_ids") or []),
-              "unprepared": {"reason": marker.get("reason"), **flag}, "observations": observations,
+    mark = {"reason": source.get("reason") if marker else NEED_REASON,
+            **({"need": need, "need_why": need_why} if need else {}), **flag}
+    record = {"schema_version": 2, "case": case, "obligation_ids": list(source.get("obligation_ids") or []),
+              "unprepared": mark, "observations": observations,
               "dispatch_id": dispatch, "attempt_started_at": started, "attempt_ended_at": ended, "source_revision": revision}
     if name:
         record["attempt_id"] = name
@@ -1594,6 +1690,9 @@ def walk_result(thens) -> str:
             "inconclusive" if not words or any(w in ("inconclusive", "unreached") for w in words) else "pass")
 
 
+NEED_THEN_PROBLEM = "a check that needs another instance gives no Then a pass or fail"
+
+
 def walk_rule_errors(task, case, walk_record) -> list:
     """The rules `record_from_walk` will meet, asked while the walk's session LIVES (t-2016 F2: a verdict that the build refuses after the
     session is gone is a lost case, because the role can no longer act). The SAME functions `validate` calls on the record - the
@@ -1623,7 +1722,12 @@ def walk_rule_errors(task, case, walk_record) -> list:
         errors.append(f"attempt {attempt} of {case} holds no captures: take one - `look` (or `capture <phase> <label>`) in a step call, then give the verdict")
     errors += _surprise_cite_errors(record["observations"], {row["id"] for row in surprises_of(folder)}, [attempt],
                                     "a walk's observation cites a surprise line of its own attempt only")      # N2: the build asks it too
-    if unprepared_request(task, case) is None:
+    needs = walk_record.get("needs")
+    if isinstance(needs, str):     # U7 E7: a need record has no result to judge: the one rule asks it INSTEAD of `_result_errors`
+        errors += need_record_problems(task, case, needs, walk_record.get("limitation"), unprepared_request(task, case))
+        if any(t.get("result") in ("pass", "fail") for t in thens):
+            errors.append(NEED_THEN_PROBLEM)
+    elif unprepared_request(task, case) is None:
         phases, by_phase = _by_phase(refs)
         errors += _result_errors(record, request.get("evidence_policy"), phases, by_phase)
     return sorted(set(errors))
@@ -1643,6 +1747,12 @@ def record_from_walk(task, case, walk_record) -> dict:
     thens = [t for t in walk_record.get("thens") or [] if isinstance(t, dict)]
     observations = _walk_observations(walk_record)
     try:
+        needs = walk_record.get("needs")
+        if isinstance(needs, str) and needs:      # U7 E7: a need record on either request kind; a Then verdict is never dropped without a refusal
+            if any(t.get("result") in ("pass", "fail") for t in thens):
+                return {"refused": NEED_THEN_PROBLEM}
+            path = write_unprepared(task, case, observations, not_walked="", need=needs, need_why=walk_record.get("limitation") or "")
+            return {"written": True, "unprepared": True, "case": case, "block": path.relative_to(task).as_posix()}
         if unprepared_request(task, case) is not None:
             walked = bool(_recorded_walks(task, case))
             path = write_unprepared(task, case, observations, not_walked="" if walked else "the walker ran no step for this case")
@@ -2204,6 +2314,9 @@ def main(argv=None):
                                                     "[{step, expected, seen, evidence, quote[, surprise]}]; absent = []")
     parser.add_argument("--about", action="append", metavar="SIDE",
                         help="build: a side of the story this walk speaks about (repeat per side); absent = the record has no `about`")
+    from project_knowledge import INSTANCE_NEEDS      # lazy: only the CLI needs the choices (U7 E7); hidden until the role text names them
+    parser.add_argument("--needs", choices=INSTANCE_NEEDS, help=argparse.SUPPRESS)
+    parser.add_argument("--need-why", help=argparse.SUPPRESS)
     parser.add_argument("--not-walked", help="unprepared: why nothing of the case was walked with the recorder (required when no "
                                              "attempt holds a step, refused when one does)")
     args = hooklib.exact_options(parser).parse_args(argv)
@@ -2244,11 +2357,14 @@ def main(argv=None):
     if args.command == "unprepared":
         if not args.case:
             return refuse("manual_evidence.py unprepared", "--case missing")
+        if args.need_why is not None and args.needs is None:      # N3: one rule, blank or not
+            return refuse("manual_evidence.py unprepared", "--need-why is read with --needs only: give both, or neither")
         if args.not_walked is not None and not args.not_walked.strip():
             return refuse("manual_evidence.py unprepared", "--not-walked is blank: say why it was not walked, or leave it out when "
                           "the case was walked with the recorder")
         try:
-            block = write_unprepared(args.task_root, args.case, observations, args.not_walked or "")
+            block = write_unprepared(args.task_root, args.case, observations, args.not_walked or "",
+                                     need=args.needs or "", need_why=args.need_why or "")
         except ValueError as exc:
             return refuse("manual_evidence.py unprepared", str(exc))
         print(json.dumps({"written": True, "case": args.case, "block": Path(block).relative_to(Path(args.task_root).resolve()).as_posix()}))

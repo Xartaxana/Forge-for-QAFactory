@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """wave.py -- the one merge road of a wave (offload spec r2, §3.C3; mechanism M6).
 
-  python -B tools/wave.py merge <branch> --task t-NNN [--node <slug> <N> <id>] [--sha <tip>] [--piles-skip "<items> -- <reason>"] [--tests-over "<reason>"] [--repo DIR]
+  python -B tools/wave.py merge <branch> --task t-NNN [--node <slug> <N> <id>] [--sha <tip>] [--piles-skip "<items> -- <reason>"] [--tests-over "<reason>"] [--leftover-ok "<reason>"] [--repo DIR]
+
+Before anything (even the fetch) the branch's own worktree, if one is checked out, is read for a real leftover (uncommitted
+or untracked files that are not junk and differ from origin/main ignoring CR): found, the merge is refused (exit 2) with the
+files and two doors -- commit them, or --leftover-ok "<reason>" (saved to a salvage ref; the summary line `leftover:`).
 
 --tests-over names the Lead's reason for a branch whose added test lines exceed its product lines (test_volume.py's
 classifier over `git diff --numstat origin/main...<tip>`); without it such a branch is refused before any push. With it
@@ -62,7 +66,8 @@ SWEEP_WAIT = 20.0                 # seconds on a running worktree sweep before a
 SHOW_PATHS = 5
 ATTEMPTS = 3
 MAIN = "main"
-REASON_MAX = 300                  # the longest --tests-over reason
+REASON_MAX = 300                  # the longest --tests-over / --leftover-ok reason
+LEFTOVER_SHOW = 20                # leftover files named in a refusal, then "+N more"
 PIN_RE = re.compile(r"[0-9a-fA-F]{7,40}", re.ASCII)
 _NONFF = ("non-fast-forward", "fetch first", "failed to update ref", "(stale info)")
 
@@ -125,7 +130,9 @@ def _sha(data):
 
 class Wave:
     def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print, pin=None, piles_skip=None,
-                 tests_over=None):
+                 tests_over=None, leftover_ok=None):
+        self.leftover_ok = leftover_ok    # the validated reason, or None
+        self.leftover_line = "leftover: none"
         self.branch, self.task, self.node, self.ci, self.out = branch, task, node, ci, out
         self.pin = pin
         self.tests_over = tests_over      # the validated reason, or None
@@ -179,7 +186,48 @@ class Wave:
         return data if rc == 0 else b""
 
     # ---- steps
+    def check_leftover(self):
+        """Uncommitted files in the branch's own worktree never go silently missing from main (owner, 18.11). Before any fetch
+        or push: a worktree with a REAL leftover (not junk by worktree_sweep's list, not equal to origin/main ignoring CR; an
+        untracked file counts) refuses with its files and two doors -- the builder commits (a new tip, a new canon), or
+        --leftover-ok "<reason>" saves the files to a salvage archive ref (worktree_sweep.salvage_leftover) and merges. The
+        worktree itself is never written. Sets self.leftover_line."""
+        self.leftover_line = "leftover: none"
+        try:
+            git_ = ws.Git()
+            repo = ws.repo_context(git_, self.root)
+            wt = next((w for w in ws.list_worktrees(git_, repo) if w.branch == "refs/heads/" + self.branch
+                       and w.prunable is None and Path(w.path).exists()), None)     # a prunable or missing one is E2
+            ctx = ws.Ctx(git_, repo, ws.DEFAULT_REF, ws.load_junk(), {}, time.time(), 0, set(), set())
+            entries, diff, nested = ws.read_leftover(ctx, wt) if wt is not None else ([], [], "")
+            if not diff:
+                if self.leftover_ok is not None:
+                    self.say("note: no leftover; --leftover-ok unused")
+                return
+            if nested:                                  # the sweep never saves or removes a nested repo: no door (F4)
+                raise Refuse("step 1: %s holds a nested repository (%s) among its uncommitted files; the sweep never saves or "
+                             "removes nested repositories, so --leftover-ok does not pass it: commit or move it away, then "
+                             "merge again" % (wt.path, nested))
+            if self.leftover_ok is None:
+                shown = "".join("\n  %s" % p for p in diff[:LEFTOVER_SHOW])
+                more = "\n  +%d more" % (len(diff) - LEFTOVER_SHOW) if len(diff) > LEFTOVER_SHOW else ""
+                raise Refuse('step 1: %s holds %d uncommitted file(s) differing from origin/main as last fetched, which the merge '
+                             'would leave out of main:%s%s\n'
+                             '  door 1: the builder commits them (a new tip, a new canon), then merge again\n'
+                             '  door 2: --leftover-ok "<reason>" saves them to a salvage archive ref, merges, and the sweep '
+                             'cleans the worktree' % (wt.path, len(diff), shown, more))
+            ev = ws.Eval("candidate", leftover=diff, entries=entries, cls="merged-leftover-salvage")
+            ok, ref = ws.salvage_leftover(ctx, wt, ev)
+            if not ok:
+                raise Refuse("step 1: the leftover of %s could not be saved (%s); nothing merged, the worktree is untouched"
+                             % (wt.path, ref))
+            self.leftover_line = "leftover: salvaged %s (%s)" % (ref, self.leftover_ok)
+        except (ws.Refuse, RuntimeError, OSError) as exc:
+            raise Refuse("step 1: the worktree of %s cannot be checked for a leftover (%s); nothing merged" % (self.branch, exc))
+
     def locked(self):
+        if self.branch != MAIN:
+            self.check_leftover()
         self.fetch()
         if self.branch != MAIN:
             self.check_pin_local()
@@ -571,8 +619,13 @@ class Wave:
         if rc != 0:
             if "stale info" in err or "rejected" in err:
                 self.say("remote branch kept: it moved")
+            elif re.search(r"\b403\b", err):
+                # the cloud git proxy answers a remote delete with HTTP 403 (trial t-1281): say what to do, not the raw stderr
+                self.say("remote branch kept: the host refused the delete (HTTP 403, e.g. the cloud git proxy); "
+                         "delete %s locally with git push origin --delete %s, or in the GitHub UI" % (self.branch, self.branch))
             else:
-                self.say("remote branch not deleted: %s" % err)
+                first = next((ln.strip() for ln in err.splitlines() if ln.strip()), "no message")
+                self.say("remote branch not deleted: %s" % first[:120])
 
     def root_line(self, why):
         if why is None:
@@ -592,6 +645,7 @@ class Wave:
         self.say("branch: %s" % btext)
         if self.over_line is not None:
             self.say("tests-over: %s" % self.over_line)
+        self.say(self.leftover_line)
         self.say(self.root_line(why))
         if self.piles_text:
             self.say("piles status not recorded (the merge is pushed without the status commit): %s" % self.piles_text)
@@ -637,6 +691,9 @@ def build_parser():
     m.add_argument("--tests-over", default=None, metavar="REASON",
                    help='the Lead\'s reason for a branch with more test lines than product lines (one line, up to '
                         '%d characters); written as "tests-over: <reason>" in the merge commit (always --no-ff)' % REASON_MAX)
+    m.add_argument("--leftover-ok", default=None, metavar="REASON",
+                   help='the door for uncommitted files in the branch\'s worktree: they are saved to a salvage archive ref, '
+                        'then the merge goes on (one line, up to %d characters)' % REASON_MAX)
     m.add_argument("--repo", default=str(_TOOLS.parent))
     return p
 
@@ -652,6 +709,15 @@ def door_problem(text):
             return None
     return '--piles-skip %r: expected "<item>[, <item>] -- <reason>" on one line (items: %s); %s' % (
         text, piles.ITEMS_HELP, piles.DOOR_HELP)
+
+
+def _one_line_reason(flag, value):
+    """The stripped reason, or None after printing the refusal: one non-empty line of at most REASON_MAX characters."""
+    text = value.strip()
+    if not text or "\n" in text or "\r" in text or len(text) > REASON_MAX:
+        print("refused: %s %r: expected one non-empty line of at most %d characters" % (flag, text[:60], REASON_MAX))
+        return None
+    return text
 
 
 def main(argv=None):
@@ -673,14 +739,14 @@ def main(argv=None):
         if bad:
             print("refused: " + bad)
             return 2
-    over = None
-    if a.tests_over is not None:
-        over = a.tests_over.strip()
-        if not over or "\n" in over or "\r" in over or len(over) > REASON_MAX:
-            print("refused: --tests-over %r: expected one non-empty line of at most %d characters" % (over[:60], REASON_MAX))
+    over, left = a.tests_over, a.leftover_ok
+    for flag, value in (("--tests-over", over), ("--leftover-ok", left)):
+        if value is not None and _one_line_reason(flag, value) is None:
             return 2
+    over = over.strip() if over is not None else None
+    left = left.strip() if left is not None else None
     try:
-        wave = Wave(a.repo, a.branch, a.task, a.node, pin=a.sha, piles_skip=skip, tests_over=over)
+        wave = Wave(a.repo, a.branch, a.task, a.node, pin=a.sha, piles_skip=skip, tests_over=over, leftover_ok=left)
     except jl.LockError as exc:
         print("refused: %s" % exc)
         return 2
