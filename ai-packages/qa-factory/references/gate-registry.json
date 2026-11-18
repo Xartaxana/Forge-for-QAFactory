@@ -563,7 +563,7 @@
       "unknown_branch": "question", "on_no_answer": "wait", "waits_at": "stage_entry",
       "closed_by": ["person"], "addressee": ["person"], "person_subject": "world",
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": "environment",
-      "test": "scripts/tests/test_story_run_stand_identity.py",
+      "test": "scripts/tests/test_story_run_stand_identity_k35_k36.py",
       "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
