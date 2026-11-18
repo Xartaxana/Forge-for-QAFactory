@@ -316,6 +316,33 @@ def test_status_line_table(hists, case):
         assert tok in text
 
 
+HOSTS = {"github": ("python tools/ci_read.py start --workflow quarantine-watch.yml --ref br", "quarantine-watch.yml", "Settings -> CI/CD"),
+         "gitlab": ("web pipeline with QUARANTINE_WATCH=1 on br", "Settings -> CI/CD -> Schedules", None)}
+
+
+def _host_config(root, host):
+    W(root, tq.CONFIG_REL, json.dumps({"branch": "br", "max_gap_days": 4, "ci": host}))
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_status_line_start_words_follow_the_host(hists, host):           # FG7-80
+    root, entry, head = hists(V2)
+    apply(root, entry, head, [run_row(1, "0.11.0", **GREEN)], [], [pull()])
+    _host_config(root, host)
+    text = " ".join(tq.status_line(root, TODAY))
+    assert "start it: " + HOSTS[host][0] in text and ("QUARANTINE_WATCH=1" in text) == (host != "github")
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_enter_schedule_door_follows_the_host(tmp_path, monkeypatch, capsys, host):          # FG7-80
+    root, ci = enter_world(tmp_path)
+    _host_config(root, host)
+    monkeypatch.setattr(tq, "_schedules", lambda branch: "missing")
+    assert tq.main(["enter", "--root", str(root), "--pipeline", "100", "--coverage-pipeline", "101"], ci=ci) == 1
+    out = capsys.readouterr().out
+    assert HOSTS[host][1] in out and ("Settings -> CI/CD" in out) == (host != "github") and "%s" not in out
+
+
 def test_status_line_empty_worlds_and_duplicates(hists, tmp_path):
     root, entry, head = hists(V2)
     apply(root, entry, head, [run_row(1, **G1), run_row(1, **G1)], [verdict(), verdict()])

@@ -450,7 +450,7 @@ def status_data(root, today=None):
     """Everything `status` and the session line print, from local files only (no network)."""
     root, today = Path(root), today or date.today()
     out = {"no_quarantine": False, "unknown": None, "cohorts": [], "alerts": [], "complete_runs": 0, "runs": [], "pulls": [],
-           "head_version": None, "branch": None, "max_gap_days": 4}
+           "head_version": None, "branch": None, "max_gap_days": 4, "ci": None}
     if not (root / LAYERS_REL).is_file():                  # no test-layers.json: no quarantine, and no package needed to say so (D.5)
         out["no_quarantine"] = True
         return out
@@ -466,7 +466,7 @@ def status_data(root, today=None):
         cfg = _config(root)
         runs, pulls = _watch_rows(root)
         verdicts, lands = _verdict_rows(root)
-        out.update(runs=runs, pulls=pulls, branch=cfg["branch"], max_gap_days=cfg["max_gap_days"])
+        out.update(runs=runs, pulls=pulls, branch=cfg["branch"], max_gap_days=cfg["max_gap_days"], ci=cfg.get("ci"))
         try:
             out["head_version"] = _pkg_module(root, "install_paths").plugin_version(Path(root) / PKG)
         except ValueError:
@@ -544,7 +544,7 @@ def _cohort_line(c, d, today):
     done = [t for t in done if t]
     head = d.get("head_version")
     if head and done and _newer(head, max(done)):
-        line += "; release %s has no complete watch run yet -- start it: web pipeline with QUARANTINE_WATCH=1 on %s" % (head, d["branch"])
+        line += "; release %s has no complete watch run yet -- start it: %s" % (head, ci_class(d.get("ci")).START_WATCH % d["branch"])
     return line
 
 
@@ -573,7 +573,12 @@ def status_line(root, today=None):
 # --- enter / drop-keep ---------------------------------------------------------------------------------------------
 
 class GitlabCI:
-    """The reader of CI used by enter: ci_read's request, no other network code. Tests pass their own object."""
+    """The reader of CI used by enter: ci_read's request, no other network code. Tests pass their own object.
+    START_WATCH and SCHEDULE_DOOR are the host's words for starting a watch run and for creating the schedule (FG7-80): one place per
+    host, read through ci_class() so the status line and the enter refusal need no token."""
+
+    START_WATCH = "web pipeline with QUARANTINE_WATCH=1 on %s"
+    SCHEDULE_DOOR = 'Settings -> CI/CD -> Schedules, cron "0 3 * * 1,4", branch %s, variable QUARANTINE_WATCH=1'
 
     def __init__(self, token=None):
         import ci_read
@@ -625,6 +630,9 @@ class GithubCI(GitlabCI):
     workflow is active on GitHub and its file here carries a cron. An unknown path is `missing`."""
 
     WATCH_WORKFLOW = "quarantine-watch.yml"
+    START_WATCH = "python tools/ci_read.py start --workflow quarantine-watch.yml --ref %s"
+    SCHEDULE_DOOR = ("the schedule is the cron of .github/workflows/quarantine-watch.yml on branch %s; check the workflow is active "
+                     "(Actions tab), or start one run: " + START_WATCH)
     EVENTS = {"schedule": "schedule", "workflow_dispatch": "web", "repository_dispatch": "api", "push": "push"}
 
     def __init__(self, token=None, root=None):
@@ -722,6 +730,14 @@ class GithubCI(GitlabCI):
                 return archive.read(member).decode("utf-8", errors="replace")
         except zipfile.BadZipFile:
             raise CIError("missing", f"the artifact {job} of run {pid} is not a readable zip") from None
+
+
+_GITLAB_HOST = GitlabCI                      # the words of GitLab; a test that replaces GitlabCI by a stub does not touch them
+
+
+def ci_class(host):
+    """The reader class of a host name ("ci" of the config); an unknown or absent host keeps the GitLab words (today's behaviour)."""
+    return GithubCI if host == "github" else _GITLAB_HOST
 
 
 def ci_reader(root=None):
@@ -1171,9 +1187,10 @@ def cmd_enter(args, ctx):
     schedule_passed = False
     if _schedules(cfg["branch"]) != "ok":
         if not word:
-            _refuse_enter("the watch schedule cannot be confirmed", 'ask the owner to create it: Settings -> CI/CD -> Schedules, cron "0 3 * * 1,4", '
-                          "branch %s, variable QUARANTINE_WATCH=1; then record it in docs/RUNBOOK.md section 7; or, if the owner says it may wait, "
-                          "pass --owner-word \"<the owner's words, who, date>\"" % cfg["branch"])
+            door = ci_class(cfg.get("ci")).SCHEDULE_DOOR
+            _refuse_enter("the watch schedule cannot be confirmed", "ask the owner to create it: " + door.replace("%s", cfg["branch"]) +
+                          "; then record it in docs/RUNBOOK.md section 7; or, if the owner says it may wait, "
+                          "pass --owner-word \"<the owner's words, who, date>\"")
         schedule_passed = True                              # a person's word passes this one gate and is recorded (P13)
         _say("schedule not confirmed -- passed by the owner's word: %s" % word)
     covered_lines, total, keep_set_line = _coverage(root, ctx, args, keep, word)
