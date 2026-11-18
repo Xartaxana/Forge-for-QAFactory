@@ -642,6 +642,10 @@ def verdict_problems(task_root, item, attempt, verdict) -> list:
     wanted = ME._request_thens(task, item)
     steps, captures = attempt_rows(task, item, attempt)
     out, given = [], set()
+    if "needs" in verdict:       # U7 E7: a closed word of project_knowledge, or the key is absent (null, a list, a number: refused)
+        from project_knowledge import INSTANCE_NEEDS
+        if not isinstance(verdict["needs"], str) or verdict["needs"] not in INSTANCE_NEEDS:
+            out.append("`needs` is `another_instance` or absent")
     for entry in verdict["thens"]:
         n = entry.get("n")
         number = int(n) if isinstance(n, int) and not isinstance(n, bool) else int(n) if isinstance(n, str) and n.isascii() and n.isdigit() else None
@@ -796,6 +800,8 @@ def walk_record_of(task, walk, item, verdict, *, actor="", attempt="", started_a
         record["actual"] = str(verdict["actual"])
     if verdict.get("about") is not None:       # t-2181 PC-5a: the sides the walk speaks about travel to the case record (C11 checks the names)
         record["about"] = verdict["about"]
+    if isinstance(verdict.get("needs"), str):
+        record["needs"] = verdict["needs"]
     if missing:
         record["missing_verdict"] = True
     return record
@@ -1218,7 +1224,7 @@ class Walk:
                 self.hosts = set(MC.stand_hosts({**self.cfg, "environments": [self.stand]}, root=self.project_root))      # the named stand's hosts ONLY (AR-4)
             self.http_hosts = set(MC.stand_hosts({**self.cfg, "environments": [self.stand]}, root=self.project_root))
             self.profile = self._surface_profile()
-            self.timeout_s, self.element_s = MC.timeout_for(self.stand), MC.element_wait_for(self.cfg)
+            self.timeout_s, self.element_s = MC.timeout_for(self.project_root, self.cfg, self.stand), MC.element_wait_for(self.cfg)
             if self.screenless:       # no browser: no sign-in page, no landing rule (the actor signs in by the HTTP request, `_open_actor`)
                 self.recipe, url_not = {}, ()
             else:

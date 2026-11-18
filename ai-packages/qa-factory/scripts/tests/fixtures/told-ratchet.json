@@ -345,7 +345,7 @@
    "tagged": 0
   },
   "manual_evidence.py::write_unprepared": {
-   "bare": 4,
+   "bare": 5,
    "tagged": 0
   },
   "place_answers.py::_cli": {

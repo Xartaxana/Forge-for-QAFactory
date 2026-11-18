@@ -1,0 +1,134 @@
+{
+ "schema": 1,
+ "group": "s5",
+ "recipes": {
+  "to-s5-repair-limit": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "s5.repair_limit"
+    }
+   }
+  ],
+  "to-s5-nobody-review": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "s5.nobody_review"
+    }
+   }
+  ],
+  "to-s5-nobody-environment": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "s5.nobody_environment"
+    }
+   }
+  ],
+  "to-s5-nobody-tooling": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "s5.nobody_tooling"
+    }
+   }
+  ],
+  "to-exit-resume-limit": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "exit.resume_limit"
+    }
+   }
+  ],
+  "to-exit-resume-limit-halted": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "exit.resume_limit_halted"
+    }
+   }
+  ],
+  "to-s6-walk-supply": [
+   {
+    "drive_until": {
+     "stage": "S6",
+     "question": "s6.walk_supply"
+    }
+   }
+  ],
+  "to-s6-walk-account": [
+   {
+    "drive_until": {
+     "stage": "S6",
+     "question": "s6.walk_account"
+    }
+   }
+  ],
+  "to-s6-data-change": [
+   {
+    "drive_until": {
+     "stage": "S6",
+     "question": "s6.data_change"
+    }
+   }
+  ],
+  "to-code-close-stage": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "code_close.stage"
+    }
+   }
+  ],
+  "to-code-close-factory-file": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "code_close.factory_file"
+    }
+   }
+  ],
+  "to-code-close-closed-story": [
+   {
+    "drive_until": {
+     "stage": "S9",
+     "question": "code_close.closed_story"
+    }
+   }
+  ],
+  "to-code-close-behind": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "code_close.behind"
+    }
+   }
+  ],
+  "to-kind-data-change": [
+   {
+    "drive_until": {
+     "stage": "S6",
+     "question": "data_change"
+    }
+   }
+  ],
+  "to-kind-walk-account": [
+   {
+    "drive_until": {
+     "stage": "S6",
+     "question": "walk_account"
+    }
+   }
+  ],
+  "to-kind-walk-supply": [
+   {
+    "drive_until": {
+     "stage": "S6",
+     "question": "walk_supply"
+    }
+   }
+  ]
+ }
+}

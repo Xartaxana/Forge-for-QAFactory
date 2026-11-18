@@ -575,10 +575,22 @@ def _leftover_equal(ctx, wt, xy, path):
     return rc == 0 and not out.strip(b"\0")
 
 
+def differing_leftover(ctx, wt, entries, real):
+    """The paths of `real` that do NOT equal the reference ignoring CR: what a removal or a merge would lose. The one list for
+    classify_leftover and for wave.py's merge check."""
+    xy_of = {path: xy for xy, path in entries}
+    return [p for p in real if not _leftover_equal(ctx, wt, xy_of.get(p, "??"), p)]
+
+
+def read_leftover(ctx, wt):
+    """(entries, differing paths, first nested-repository path or ""): the copy read once, for a caller outside the sweep."""
+    real, _traces, entries = _read_status(ctx, wt)
+    return entries, differing_leftover(ctx, wt, entries, real), _nested(ctx, wt, entries, real)
+
+
 def classify_leftover(ctx, wt, entries, real):
     """('equal' | 'differs', text): equal = every leftover path equals the reference (the CRLF-only copies): nothing to save."""
-    xy_of = {path: xy for xy, path in entries}
-    diff = [p for p in real if not _leftover_equal(ctx, wt, xy_of.get(p, "??"), p)]
+    diff = differing_leftover(ctx, wt, entries, real)
     if not diff:
         return "equal", "leftover: %d files equal %s ignoring CR" % (len(real), ctx.ref)
     return "differs", "leftover: %d of %d files differ from %s: %s" % (len(diff), len(real), ctx.ref, _shown(diff))

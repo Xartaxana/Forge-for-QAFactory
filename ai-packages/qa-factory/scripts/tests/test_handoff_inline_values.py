@@ -195,7 +195,7 @@ def test_check_reads_the_template() -> None:
             raw = _form_path(raw_art, S5)
             raw.parent.mkdir(parents=True)
             # the control differs from the real form ONLY in the inline lists: the real init also empties the optional
-            # `findings` list of this contract (EMPTIED, F1 (b)), so the control is emptied the same way
+            # `findings` list of this contract (empty_optional_lists, F1 (b)), so the control is emptied the same way
             raw.write_text(handoff_init.empty_optional_lists(
                 handoff_init.fill_head(text, task="QA-9", dispatch=S5, role="qa-code-critic", stage="S5", scope=""),
                 "s5-critic-to-automator"), encoding="utf-8")
