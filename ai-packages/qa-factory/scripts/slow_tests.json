@@ -18,7 +18,7 @@
     "test_codex_hooks_matchers.py": 22.3,
     "test_codex_host.py": 9.7,
     "test_conductor_doors.py": 36.8,
-    "test_config_migration.py": 18.2,
+    "test_config_migration.py": 63.7,
     "test_console_encoding.py": 20.0,
     "test_contract_slices.py": 26.2,
     "test_controller_gate_decision.py": 65.6,
