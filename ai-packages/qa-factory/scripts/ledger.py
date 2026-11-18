@@ -867,20 +867,25 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
     # with the person (`run_unread`), not a factory refusal. POSITION INVARIANT: AFTER every failure, flaky, partial, error,
     # unknown-word and unconfirmed-expectation word (none is hidden), BEFORE `skipped`; `passed_green` stays unreachable for it. A case
     # whose reading is "unanswered" (or any other skipped-class sibling) keeps `skipped:inconclusive run`: only an all-read set moves.
-    # U7 7c (N6): a case whose word is `""` has NO result (a walked unprepared manual case, or a manual row nobody filled). SAME POSITION as
-    # `report_unread` and ahead of it, so that branch (which looks only at skipped-class words) never hides a no-result case: AFTER every
-    # failure, flaky, partial, error, unknown-word and unconfirmed word (none hidden), BEFORE `skipped`; `passed_green` is unreachable
-    # for it. Every such case in `manual_evidence.current_unprepared` -> `unprepared_walk` (left with the person); any other -> no result.
+    # U7 7c (N6, F1): a case whose word is `""` has NO result (a walked unprepared manual case, or a manual row nobody filled). SAME
+    # POSITION as `report_unread` and ahead of it: AFTER every failure, flaky, partial, error, unknown-word and unconfirmed word, BEFORE
+    # `skipped`; `passed_green` is unreachable for it. Every such case in `manual_evidence.current_unprepared` (and in no disqualifying
+    # row, `unprepared_disqualified`) -> `unprepared_walk`; any other -> no result (`no`). INVARIANT (F1): BOTH left-with-you returns
+    # (`after_checks`) are reached only when no state below that says `no` applies: `deferred_by_decision` is the one (the only `no` state
+    # evaluated below them), computed here and returned in their place; a left-with-you state never hides a deferral nobody decided.
+    deferred = [r for r in manifest.get("then_bindings") or [] if isinstance(r, dict)
+                and str(r.get("status") or "") != "covered" and C.unresolved_decided(r.get("reason"))
+                and any(C.case_matches(str(r.get("case") or ""), c) for c, _ in outcomes)]
     blank = [c for c, r in outcomes if r == ""]
     if blank:
-        from manual_evidence import current_unprepared
-        walked = current_unprepared(report)
-        if all(C.names_case(walked, c, cfg_u) for c in blank):
-            return (UNPREPARED_WALK_STATE, ", ".join(blank))
-        return ("not_executed:no result recorded for this row's cases", ", ".join(blank))
+        from manual_evidence import current_unprepared, unprepared_disqualified
+        walked, off = current_unprepared(report), unprepared_disqualified(report)
+        if not all(C.names_case(walked, c, cfg_u) and not C.names_case(off, c, cfg_u) for c in blank):
+            return ("not_executed:no result recorded for this row's cases", ", ".join(blank))
+        return _deferral(deferred) if deferred else (UNPREPARED_WALK_STATE, ", ".join(blank))
     read = [c for c, r in outcomes if r == "not_run" and unread.get(c) == "read"]
     if read and all(c in read for c, r in outcomes if r in ("skipped", "inconclusive", "not_run", "blocked")):
-        return (REPORT_UNREAD_STATE, ", ".join(read))
+        return _deferral(deferred) if deferred else (REPORT_UNREAD_STATE, ", ".join(read))
     skipped = [c for c, r in outcomes if r in ("skipped", "inconclusive", "not_run", "blocked")]
     if skipped:
         return (f"skipped:{ 'inconclusive run' }", ", ".join(skipped))
@@ -908,13 +913,8 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
     # case as a Then behind a red or left with its owner and print another sentence over the decision.
     # A row whose `then` reads as none (`contract.then_number` 0) is still a deferral, said by its case alone: the unknown
     # never becomes `passed_green`.
-    deferred = [r for r in manifest.get("then_bindings") or [] if isinstance(r, dict)
-                and str(r.get("status") or "") != "covered" and C.unresolved_decided(r.get("reason"))
-                and any(C.case_matches(str(r.get("case") or ""), c) for c, _ in outcomes)]
     if deferred:
-        return ("deferred_by_decision", "; ".join(
-            f"{r['case']}" + (f" Then {C.then_number(r.get('then'))}" if C.then_number(r.get("then")) else "") + f": {r['reason']}"
-            for r in deferred))
+        return _deferral(deferred)
     # HF2-3 (3c1): a Then that stands behind another check's red (E(C), or a `blocked_by_check` row whose blocker no longer
     # reads red: a stale row is not a pass) is not proved by the green runs beside it. After every failure word above and
     # BEFORE the hand-off branch below: the branch can only turn a would-be `passed_green` into the blocked state.
@@ -943,6 +943,13 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
     if sides:
         return sides
     return ("passed_green", ", ".join(c for c, _ in outcomes))
+
+
+def _deferral(deferred: list) -> tuple:
+    """The `deferred_by_decision` state of the `then_bindings` rows a decision deferred (the one sentence for every road to it)."""
+    return ("deferred_by_decision", "; ".join(
+        f"{r['case']}" + (f" Then {C.then_number(r.get('then'))}" if C.then_number(r.get("then")) else "") + f": {r['reason']}"
+        for r in deferred))
 
 
 def _env_owner(report: dict) -> str:

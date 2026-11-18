@@ -1124,13 +1124,14 @@ def k_u7_7b_b_the_trace_reads_the_bound_verdict_of_an_unread_case() -> None:
 
 def k_u7_7c_the_trace_reads_a_walked_unprepared_case() -> None:
     """U7 7c: a walked, current, result-less unprepared manual case -> gap `unresolved:unprepared_walk`; a stale or not-walked one keeps
-    `result:none`; an automated result row of the same case decides (no marker gap)."""
+    `result:none`; an automated result row of the same case (even a blank one) is never replaced by the marker."""
     walk = {"case": "TC-002", "attempt_id": "a1", "unprepared": {"reason": "r", "walked": True}}
     for label, row, results, want in (
             ("walked", walk, None, ["unresolved:unprepared_walk"]),
             ("stale", dict(walk, current_reason="stale"), None, ["result:none"]),
             ("not walked", dict(walk, unprepared={"reason": "r", "walked": False}), None, ["result:none"]),
-            ("an automated row names the case", walk, [{"case": "TC-002", "instance_id": "t2", "test": "t2", "status": "passed"}], [])):
+            ("an automated row names the case (blank): the marker never replaces it", walk,
+             [{"case": "TC-002", "instance_id": "t2", "test": "t2", "status": ""}], ["result:none"])):
         task = story()
         try:
             edit(task, "work/run-report.json", lambda r: r.update(current_manual_checks=[row], **({"current_results": results} if results else {})))

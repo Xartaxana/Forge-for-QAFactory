@@ -1183,10 +1183,13 @@ def f5_unprepared_cases():
         u = {"reason": "r", "walked": True}
         for label, rep, want in (
                 ("walked, ids of both spellings", {"current_manual_checks": [{"case": "A", "unprepared": u, "current_obligation_ids": ["O1"]},
-                                                                           {"case": "B", "unprepared": {"reason": "r"}, "obligation_ids": ["O2"]}]}, {"A": ["O1"], "B": ["O2"]}),
+                                                                           {"case": "B", "unprepared": u, "obligation_ids": ["O2"]}]}, {"A": ["O1"], "B": ["O2"]}),
                 ("stale / not walked / has a result", {"current_manual_checks": [
                     {"case": "A", "unprepared": u, "current_reason": "x"}, {"case": "B", "unprepared": dict(u, walked=False)},
                     {"case": "C", "unprepared": u, "result": "pass"}]}, {}),
+                ("F9: no walked field, or anything but True, is not walked", {"current_manual_checks": [
+                    {"case": "A", "unprepared": {"reason": "r"}}, {"case": "B", "unprepared": dict(u, walked=0)},
+                    {"case": "C", "unprepared": dict(u, walked="true")}, {"case": "D", "unprepared": "x"}]}, {}),
                 ("one unprepared row and one with a result", {"current_manual_checks": [{"case": "A", "unprepared": u}, {"case": "A", "result": "pass"}]}, {}),
                 ("broken input: a junk row is skipped", {"current_manual_checks": ["x", None, {"case": "A", "unprepared": u, "obligation_ids": ["O1"]}]}, {"A": ["O1"]}),
                 ("broken input: none, a non-dict, a non-list", None, {}), ("a string report", "x", {}), ("a non-list", {"current_manual_checks": {"case": "A"}}, {})):

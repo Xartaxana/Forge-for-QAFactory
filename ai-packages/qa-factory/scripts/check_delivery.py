@@ -1722,6 +1722,11 @@ def ledger_records(ledger: dict, facts: dict | None = None) -> list:
             if kind is None:
                 kind = f"ledger_state:{state}"
             rec_cases = cases
+            if state in (L.UNPREPARED_WALK_STATE, L.REPORT_UNREAD_STATE) and row.get("kind") == "plan_row":
+                # F2: the plan row's state names the cases it is about (`plan_row_state` detail, ", "-joined); a passed, skipped or
+                # deferred sibling is not "left with you". An empty scope keeps every case (the old reading)
+                named = {_bare(c.strip()) for c in str(row.get("detail") or "").split(",")}
+                rec_cases = [c for c in cases if c in named] or cases
             if kind == "assert_stricter":
                 # B1 (t-1338): the kind belongs to the cases whose triage row is the word with a well-formed experiment, not to
                 # every case of the plan row (the ledger gives a plan row the verdict of its first failed case): a green or
@@ -1827,9 +1832,9 @@ def unprepared_obligations(doc: dict, report: dict) -> frozenset:
         walked = current_unprepared(report)
         cases_of: dict = {}
         for row in (report or {}).get("current_manual_checks") or []:
-            if isinstance(row, dict) and row.get("case"):
+            if isinstance(row, dict):       # F4: a row with no case is keyed "", which is never a walked case: no excuse
                 for oid in row.get("current_obligation_ids") or row.get("obligation_ids") or []:
-                    cases_of.setdefault(oid, set()).add(str(row["case"]))
+                    cases_of.setdefault(oid, set()).add(str(row.get("case") or ""))
         out = set()
         for ob in (doc or {}).get("coverage", {}).get("obligations", []):
             oid = ob.get("obligation_id")
