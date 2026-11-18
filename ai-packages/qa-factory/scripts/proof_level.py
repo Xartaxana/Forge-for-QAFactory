@@ -1152,8 +1152,15 @@ def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
     path under `task_root` (posix) or None when there is no file; `why` is the one line a person reads for the state ("" when
     judged); `refused` is the record's `refused` word ("tool" for a refusal of the tool, "" otherwise). Error direction: toward
     `not_run`, never toward 'probed'. Never raises."""
+    product = False
     try:
         path = probe_record_path(task_root, identity)
+        if not path.is_file():
+            # RD1-37c: no live record - the PRODUCT probe's record (`red_sandbox.py --probe`) of this instance is read instead, through
+            # the same state machine; a live record that exists is read exactly as before (no answer changes when it does)
+            other = probe_record_path(task_root, identity, "product")
+            if other.is_file():
+                path, product = other, True
         record = _read_record(path, [])
         rel = path.relative_to(Path(task_root)).as_posix() if path.is_file() else None
     except Exception:
@@ -1161,10 +1168,18 @@ def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
     current = str(input_hash or "")
     verdict = str(record.get("verdict") or "") if record else ""
     bound = str(record.get("test_file_sha256") or "") if record else ""
+    if product and record and str(record.get("instance_id") or "") != str(identity):
+        bound = ""          # a product record that does not name this instance is of other bytes (the binding: instance id + test hash)
     refused = str(record.get("refused") or "") if record and isinstance(record.get("refused"), str) else ""
     notes = [n for n in (record.get("notes") or []) if isinstance(n, str) and n.strip()] \
         if record and isinstance(record.get("notes"), list) else []
-    if not record:
+    if product and not record:
+        state, why = "not_run", f"the product probe record {rel} cannot be read as a JSON object"
+    elif product and not (current and bound and current == bound):
+        state, why = "not_run", f"the product probe record {rel} is of other bytes"
+    elif product and verdict not in ("not_executed", "incomplete") and not probe_judged(record):
+        state, why = "not_run", f"the product probe record {rel} has no verdict this reader knows"
+    elif not record:
         state, why = "not_run", "no probe of these bytes was run"
     elif not (current and bound and current == bound):
         state, why = "not_run", "the probe record is of other bytes"
@@ -1252,7 +1267,9 @@ def cannot_judge_facts(task_root, identity: str, current: str):
     try:
         if probe_owes_judgment(task_root, identity, current) != "cannot_judge":
             return None
-        record = _read_record(probe_record_path(task_root, identity), []) or {}
+        where = probe_record_state(task_root, identity, current).get("record")       # the record the state was read from: live, else the product's
+        record = _read_record(Path(task_root) / where, []) if where else {}
+        record = record or {}
         said = record.get("judgment") if isinstance(record.get("judgment"), dict) else {}
         facts = record.get("judgment_facts") if isinstance(record.get("judgment_facts"), dict) else {}
         return {"at": str(said.get("at") or ""), "why": " ".join(str(said.get("why") or "").split()),

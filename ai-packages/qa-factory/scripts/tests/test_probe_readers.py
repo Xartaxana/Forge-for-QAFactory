@@ -411,5 +411,50 @@ def test_unreadable_aggregate_is_stale_not_live(tmp_path, monkeypatch):
     assert block["verdict"] == WR.MODEL_CHANGED and "RuntimeError" in block["stale_note"], block
 
 
+PRODUCT_ROWS = [  # (name, record patch or raw text, state, owes_judgment, cannot_judge facts?, why names the product path)
+    ("owed", {"verdict": "incomplete", "cause": "judgment"}, "incomplete", "unjudged", False, False),
+    ("cannot_judge", {"verdict": "incomplete", "cause": "judgment", "judgment": {"verdict": "cannot_judge", "at": JUDGED_AT, "why": "w"},
+                      "judgment_facts": {"file": "t.py", "line": 3, "failure_text": "boom"}}, "incomplete", "cannot_judge", True, False),
+    ("judged", {"verdict": "survived"}, "judged", "", False, False),
+    ("tooling incomplete", {"verdict": "incomplete"}, "incomplete", "", False, False),
+    ("other bytes", {"verdict": "incomplete", "cause": "judgment", "test_file_sha256": "else"}, "not_run", "", False, True),
+    ("other instance", {"verdict": "incomplete", "cause": "judgment", "instance_id": "i2"}, "not_run", "", False, True),
+    ("unknown verdict", {"verdict": "probe_defect"}, "not_run", "", False, True),
+    ("no verdict", {}, "not_run", "", False, True),
+    ("broken json", "{not json", "not_run", "", False, True),
+    ("not an object", "[1]", "not_run", "", False, True),
+]
+
+
+@pytest.mark.parametrize("name,patch,state,owes,facts,names", PRODUCT_ROWS, ids=[r[0] for r in PRODUCT_ROWS])
+def test_product_record_is_read_when_live_is_absent(tmp_path, name, patch, state, owes, facts, names):
+    """RD1-37c: with no live record the readers read the product record of THESE bytes (`work/probes/product/`); one of other bytes, another
+    instance, broken or with an unknown verdict is `not_run` naming its path, never raising; the door's facts come from that record."""
+    product = PL.probe_record_path(tmp_path, IID, "product")
+    product.parent.mkdir(parents=True)
+    product.write_text(patch if isinstance(patch, str) else json.dumps({"instance_id": IID, "test_file_sha256": HASH, **patch}), encoding="utf-8")
+    got = PL.probe_record_state(tmp_path, IID, HASH)
+    assert got["state"] == state and (product.name in got["why"]) is names, got
+    assert got["record"] == product.relative_to(tmp_path).as_posix()
+    assert PL.probe_owes_judgment(tmp_path, IID, HASH) == owes
+    assert (PL.cannot_judge_facts(tmp_path, IID, HASH) or {}).get("failure_text") == ("boom" if facts else None)
+    assert PL.probe_could_not_run(tmp_path, IID, HASH) is (name == "tooling incomplete")
+
+
+def test_live_record_present_is_read_as_today(tmp_path):
+    """RD1-37c invariant: a live record that exists answers alone, whatever the product record says; both absent is `not_run`."""
+    assert PL.probe_record_state(tmp_path, IID, HASH)["state"] == "not_run" and PL.probe_record_state(tmp_path, IID, HASH)["record"] is None
+    product = PL.probe_record_path(tmp_path, IID, "product")
+    product.parent.mkdir(parents=True)
+    product.write_text(json.dumps({"instance_id": IID, "test_file_sha256": HASH, "verdict": "incomplete", "cause": "judgment"}), encoding="utf-8")
+    live = PL.probe_record_path(tmp_path, IID)
+    live.write_text(json.dumps({"test_file_sha256": HASH, "verdict": "survived"}), encoding="utf-8")
+    got = PL.probe_record_state(tmp_path, IID, HASH)
+    assert got["state"] == "judged" and got["record"] == live.relative_to(tmp_path).as_posix()
+    assert PL.probe_owes_judgment(tmp_path, IID, HASH) == ""
+    live.write_text("{broken", encoding="utf-8")          # a live file that exists and cannot be read is read as today: not_run, not the product's word
+    assert PL.probe_record_state(tmp_path, IID, HASH)["state"] == "not_run" and PL.probe_owes_judgment(tmp_path, IID, HASH) == ""
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))
