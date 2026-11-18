@@ -1629,6 +1629,64 @@ def c3_b2_match_reads_the_identity_through_the_registry_row() -> None:
              same_file[:2], ("passed", ""))
 
 
+def c3_k1_one_producer_names_the_provenance_word() -> None:
+    """RD1-14 k1 (C3-k): `profile_contract.provenance_word` is the ONE producer of the word each provenance consumer asks
+    `gate_template.acceptable` about (live registry). Rows r2 §2.4 R1-R15; columns automation, rehearsal, fingerprint, manual.
+    Expected from card item 1, the docstrings of validate_runtime_provenance / person_confirmed / no_changed_file and FR-59."""
+    import gate_registry as GR
+    import gate_template as GT
+    import profile_contract as P
+    base = {"profile_id": "api", "timestamp": "2026-09-17T12:00:00Z", "environment_id": "qa", "result": "matched",
+            "expected_source_revision": "source-1", "observed_runtime_identity": "build-1", "evidence_refs": ["deploy/1"],
+            "provenance": {"technical_verification": True, "source_linkage": "exact", "deployed_source_revision": "source-1"}}
+    s, M, loc, no, yes = provenance_shapes(base, task="T"), base, {"local_source": True}, (False,) * 4, (True,) * 4
+    PC, NA, R2 = s["PC"], s["NA2"], {**base, "observed_without_evidence": True, "evidence_refs": []}
+    R8 = {k: v for k, v in NA.items() if k != "timestamp"}
+    rows = [("R1", M, {}, "matched", yes), ("R2", R2, {}, "unknown", (False, True, False, False)),
+            ("R2-rehearsal", R2, {"rehearsal": True}, "matched", None), ("R3", PC, {}, "person_confirmed", yes),
+            ("R4", provenance_shapes(base, task="OTHER")["PC"], {}, "unknown", (False, True, True, False)),
+            ("R5", s["NA1"], {}, "no_changed_file", yes), ("R5-local E-k1.3", s["NA1"], loc, "no_changed_file", yes),
+            ("R6", NA, {}, "not_applicable", (False, False, True, False)), ("R6-local", NA, loc, "local_source", (True, False, True, True)),
+            ("R7", {**NA, "reason_code": "No_Changed_File"}, {}, "not_applicable", (False, False, True, False)),
+            ("R8 E-k1.2", R8, {}, "unknown", no), ("R8-local E-k1.2", R8, loc, "unknown", no),
+            ("R8-ncf E-k1.2", {k: v for k, v in s["NA1"].items() if k != "timestamp"}, {}, "unknown", no),
+            ("R9", {**M, "result": "MATCHED"}, {}, "unknown", no), ("R10", {**PC, "result": "Person_Confirmed"}, {}, "unknown", no),
+            ("R11", {**M, "provenance": {**M["provenance"], "deployed_source_revision": "other-1"}}, {}, "mismatched", no),
+            ("R12", {**PC, "provenance": {**PC["provenance"], "technical_verification": True}}, {}, "unknown", no),
+            ("R13", s["MM"], {}, "mismatched", no), ("R14", s["U"], {}, "unknown", no)]
+    rows += [(f"R15-{n} E-k1.1", v, {}, "unknown", no) for n, v in enumerate((None, [], "x", {}, {**M, "provenance": "x"}))]
+
+    def consumers(record, local):
+        return tuple(GT.acceptable(P.provenance_word(record, **kw), c) for c, kw in (
+            ("provenance.automation", {"task": "T", "local_source": local}), ("provenance.rehearsal", {"rehearsal": True}),
+            ("provenance.fingerprint", {}), ("provenance.manual", {"task": "T", "local_source": local})))
+    for case, record, kw, word, columns in rows:
+        check_eq(f"C3-k1 {case}: the word", P.provenance_word(record, task="T", **kw), word)
+        if columns:
+            check_eq(f"C3-k1 {case}: automation, rehearsal, fingerprint, manual", consumers(record, "local_source" in kw), columns)
+    # critic t-1371 F3 (Lead: option a): a wrong-typed field is a validation error, never a raise in the validator or the refusal
+    for field, bad in (("provenance", "x"), ("provenance", ["x"]), ("result", ["matched"]), ("result", {"w": "matched"}),
+                       ("expected_source_revision", ["a"]), ("mr_source_revision", ["a"]),
+                       ("provenance", {**M["provenance"], "source_linkage": ["exact"]})):
+        record = {**M, field: bad}
+        check_eq(f"C3-k1 F3 {field}={bad!r}: invalid, unknown, and a refusal sentence", (
+            P.validate_runtime_provenance(record)["valid"], P.provenance_word(record), type(P.refusal_text(record))), (False, "unknown", str))
+    for bad in (5, True, "src/a.vue"):   # critic t-1372 F7: `differing_files` is read only as a list; a mismatch is still said
+        said = P.refusal_text({**s["MM"], "differing_files": bad})
+        check_eq(f"C3-k1 F7 differing_files={bad!r}: a non-empty mismatch sentence", (P.provenance_word({**s["MM"], "differing_files": bad}),
+                 "runtime probe returned mismatched" in said, "s, r, c" in said), ("mismatched", True, False))
+    # P-7: an unreadable registry judged nothing, so refusal_text names it (registry_why) and quotes today's sentence
+    said, saved = P.refusal_text(NA), list(GT._READ)
+    GT._READ[:] = [({"rows": "x"}, GR.structural_error({"rows": "x"}))]
+    try:
+        unjudged = P.refusal_text(NA)
+    finally:
+        GT._READ[:] = saved
+    check_in("C3-k1 P-7 control: a readable registry keeps today's sentence", "runtime not_applicable requires a verified local_source", said)
+    check_in("C3-k1 P-7: an unreadable registry is named", "the gate registry cannot be read (", unjudged)
+    check_in("C3-k1 P-7: ...and today's sentence is quoted", f"the probe's answer was not judged (it said: {said})", unjudged)
+
+
 def hf8_18_c_k11_a_row_of_another_spelling_is_admitted_outside_the_scope() -> None:
     """C-K11 (HF8-18 N1 widens the door `_admitted_outside` asks): the critic's red probe of a case OUTSIDE its dispatch is admitted
     when the row holds a receipt of another spelling of the same test on other bytes (the row had no probe of its own); the row
@@ -2266,6 +2324,7 @@ def main() -> None:
     ep1_28_stand_probe_spec()
     rh1_9_same_instance_bytes_asks_the_one_comparator()
     c3_b2_match_reads_the_identity_through_the_registry_row()
+    c3_k1_one_producer_names_the_provenance_word()
     hf8_18_c_k11_a_row_of_another_spelling_is_admitted_outside_the_scope()
     if ROOT.exists():
         shutil.rmtree(ROOT)
