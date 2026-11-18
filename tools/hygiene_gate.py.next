@@ -734,7 +734,9 @@ _GIT_FLAG_GLOBALS = frozenset({"--no-pager", "--literal-pathspecs", "--no-option
                                "--no-replace-objects", "--glob-pathspecs", "--noglob-pathspecs"})
 
 
-def _rollback_form(args: list):
+def _git_globals(args: list):
+    """(c_chain, unresolvable, i): git's global options at the head of `args` and the index of the verb (FG7-89: the
+    one parser of them, shared by the rollback shapes and the commit-road recogniser)."""
     texts = [a.text for a in args]
     c_chain, unresolvable, i = [], None, 0
     while i < len(texts):
@@ -753,6 +755,12 @@ def _rollback_form(args: list):
             i += 1 if "=" in t else 2
         else:
             break
+    return c_chain, unresolvable, i
+
+
+def _rollback_form(args: list):
+    texts = [a.text for a in args]
+    c_chain, unresolvable, i = _git_globals(args)
     if i >= len(texts):
         return None
     reader = ROLLBACK_SHAPES.get(texts[i].lower())
@@ -1216,7 +1224,7 @@ class _Walker:
     def __init__(self, command: str, tool_name: str):
         self.cap = SHELL_CAPABILITIES.get(tool_name, SHELL_CAPABILITIES["PowerShell"])   # decide() passes only known names
         self.rules = _RULES[self.cap["dq_escape"]]
-        self.sig = {"cd": [], "write_targets": [], "journal": False, "rollback_forms": [],
+        self.sig = {"cd": [], "write_targets": [], "journal": False, "rollback_forms": [], "roads": [],
                     "pyc_payload": "U", "payload_uncertain": False}
         self.over_cap = command.count("<<") > MAX_HEREDOC_OPENERS
         self.raw, self.bodies = _scan_heredocs(command)
@@ -1248,6 +1256,7 @@ class _Walker:
             cmd = _cmd_name(cmdwords[0].text) if cmdwords else ""
             args = cmdwords[1:]
             self._cd_class(cmd, args, st, idx)
+            self._roads(cmd, args)
             if not (self.over_cap and "<<" in self.masked[a:st.end]):
                 self._write_classes(cmd, args, [t for t in toks if isinstance(t, _Redir)], st)
                 if cmd == "git":
@@ -1255,6 +1264,28 @@ class _Walker:
         self._dotnet()
         self._bare_return()
         return self.sig
+
+    def _roads(self, cmd: str, args: list) -> None:
+        """FG7-89: the statement-start roads the read check triggers on, from the masked statements (E14): a git
+        `commit`/`merge`, a python `tools/wave.py merge` (-> "commit"), a python `journal_write.py accept|reject`
+        (-> "verdict"). Quoted and heredoc text is blanked before the split, so a mention never lands here."""
+        if cmd == "git":
+            i = _git_globals(args)[2]
+            if i < len(args) and args[i].text.lower() in COMMIT_GIT_VERBS:
+                self.sig["roads"].append("commit")
+        elif _PYTHON_PROGRAM_RE.fullmatch(cmd):
+            rest, skip = [], False
+            for w in args:
+                if skip:
+                    skip = False
+                elif w.text in ("-X", "-W"):
+                    skip = True
+                elif not w.text.startswith("-"):
+                    rest.append(w.text)
+            if len(rest) >= 2 and _cmd_name(rest[0]) == "wave.py" and rest[1].lower() == "merge":
+                self.sig["roads"].append("commit")
+            elif len(rest) >= 2 and _cmd_name(rest[0]) == "journal_write.py" and rest[1].lower() in WORKER_VERDICT_VERBS:
+                self.sig["roads"].append("verdict")
 
     def _enter_scope(self, depth: int) -> None:
         del self.scopes[depth + 1:]
@@ -1935,68 +1966,24 @@ def _worker_verdict_call(command: str) -> bool:
 
 
 COMMIT_GIT_VERBS = ("commit", "merge")                      # FG7-89 (F5 b): the git roads a coordinator commits by
-_GIT_OPTS_WITH_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"})
-_STMT_WORD_RE = re.compile(r"\"[^\"]*\"|'[^']*'|\S+")
-_PYTHON_PROGRAM_RE = re.compile(r"(?:python[0-9.]*|py)(?:\.exe)?", re.IGNORECASE)
+_PYTHON_PROGRAM_RE = re.compile(r"(?:python[0-9.]*|py)", re.IGNORECASE)    # _cmd_name has already dropped `.exe`
 
 
-def _base(word: str) -> str:
-    return word.replace("\\", "/").rsplit("/", 1)[-1].lower()
-
-
-def _commit_road(command: str) -> bool:
-    """True when a statement STARTS a commit road: `git [global options] commit|merge`, or a python program
-    `tools/wave.py` whose first positional is `merge` (wave.py runs git commit itself). Statements come from the quote-
-    and heredoc-masked text, so `echo "git commit"` and a commit body naming it are data (E14)."""
-    raw, _bodies = _scan_heredocs(command)
-    masked = _mask_quoted_segments(raw)
-    for st in _split_statements(masked):
-        words = [w.strip("\"'") for w in _STMT_WORD_RE.findall(raw[st.start:st.end])]
-        while words and _ASSIGN_RE.match(words[0]):
-            words.pop(0)
-        if not words:
-            continue
-        prog = _base(words[0])
-        if prog in ("git", "git.exe"):
-            i = 1
-            while i < len(words) and words[i].startswith("-"):
-                i += 2 if words[i] in _GIT_OPTS_WITH_VALUE else 1
-            if i < len(words) and words[i].lower() in COMMIT_GIT_VERBS:
-                return True
-        elif _PYTHON_PROGRAM_RE.fullmatch(prog):
-            rest, i = [], 1
-            while i < len(words):
-                if words[i] in ("-X", "-W"):
-                    i += 1
-                elif not words[i].startswith("-"):
-                    rest.append(words[i])
-                i += 1
-            if len(rest) >= 2 and _base(rest[0]) == "wave.py" and rest[1].lower() == "merge":
-                return True
-    return False
-
-
-def _coordinator_read_trigger(command: str, payload: dict):
-    """"verdict" | "commit" | None. Main thread with a transcript only, and the transcript is opened by the callee
-    only for a trigger: a worker, a probe payload and every other command cost nothing (E1, E4, E6a, E17)."""
+def _coordinator_read_trigger(sig: dict, payload: dict):
+    """"verdict" | "commit" | None from the walker's `roads` (masked statements). Main thread with a transcript only:
+    a worker, a probe payload and every other command never open the transcript (E1, E4, E6a, E17)."""
     agent_id = payload.get("agent_id")
     if isinstance(agent_id, str) and agent_id:
         return None
     if not (isinstance(payload.get("transcript_path"), str) and payload.get("transcript_path")):
         return None
-    try:
-        if _worker_verdict_call(command):
-            return "verdict"
-        if _commit_road(command):
-            return "commit"
-    except Exception:  # noqa: BLE001 -- an unrecognisable command is no trigger; the layer never changes a verdict
-        return None
-    return None
+    roads = sig.get("roads") or []
+    return "verdict" if "verdict" in roads else ("commit" if "commit" in roads else None)
 
 
-def _coordinator_read_warn(command: str, payload: dict) -> str:
+def _coordinator_read_warn(sig: dict, payload: dict) -> str:
     """The COORDINATOR-READ text for this command ("" for none); additive, never raises (E12)."""
-    trigger = _coordinator_read_trigger(command, payload)
+    trigger = _coordinator_read_trigger(sig, payload)
     if trigger is None:
         return ""
     try:
@@ -2036,7 +2023,7 @@ def _decide_command(tool_name: str, command: str, payload: dict):
         notes.append(MSG_WAIT_NOT_CHECKED.format(exc_type=sig["wait_loops_unchecked"]))
     if sig["wait_loops"]:                           # G1 comes AFTER the three classes: their first reason stays first
         deny.append(capability["wait_door"])
-    coord = _coordinator_read_warn(command, payload)   # FG7-89: additive; the deny / notes above are final (E13, E16)
+    coord = _coordinator_read_warn(sig, payload)   # FG7-89: additive; the deny / notes above are final (E13, E16)
     if deny:
         return 0, {"hookSpecificOutput": {
             "hookEventName": "PreToolUse",

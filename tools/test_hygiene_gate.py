@@ -589,7 +589,7 @@ def test_collect_signals_is_pure_and_returns_forms_only(monkeypatch):
                         (time, "time"), (time, "monotonic")):
         monkeypatch.setattr(owner, name, forbid)
     sig = hg._collect_signals("git checkout -- f.py; echo x > docs/a.md; cd x")
-    assert set(sig) == {"cd", "write_targets", "journal", "rollback_forms", "pyc_payload", "payload_uncertain", "wait_loops"}
+    assert set(sig) == {"cd", "write_targets", "journal", "rollback_forms", "roads", "pyc_payload", "payload_uncertain", "wait_loops"}
     hg._collect_signals("until x; do sleep 1; done; for i in $(seq 1 3); do sleep 1; done", "Bash")
     assert hg.wait_loop_forms("until x; do sleep 1; done")[0]["cap"] == "none"
     assert sig["rollback_forms"][0]["shape"] == "checkout -- paths" and sig["write_targets"] == [("redirect", "docs/a.md")]
@@ -813,6 +813,8 @@ COORD_ROWS = [
     ("wave-status", "python -B tools/wave.py status", None, None),
     ("quoted-echo", 'echo "git commit"', None, None),
     ("heredoc-body", "cat <<'EOF'\ngit commit\nEOF", None, None),
+    ("heredoc-commit-body-names-verdict", "git commit -F - <<'EOF'\nrun journal_write.py accept t-1\nEOF", None, "commit"),
+    ("quoted-verdict", 'echo "python -B tools/journal_write.py accept t-1"', None, None),
     ("worker-commit", "git commit -m x", "agent-1", None),
     ("worker-accept", "python -B tools/journal_write.py accept t-1", "agent-1", "deny-worker"),
     ("cd-then-commit", "cd /elsewhere && git commit -m x", None, "deny-commit"),

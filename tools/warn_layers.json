@@ -326,7 +326,7 @@
       "hook_event": "PreToolUse",
       "matcher": "Task|Agent|Bash|PowerShell",
       "denominator": "Z1",
-      "listed_in_density_check": false,
+      "listed_in_density_check": true,
       "reachable": "unmeasured",
       "reason": "FG7-89: the line is built in coordinator_rules.read_warn (the literal lives there; both gates only call it) -- population is a main-thread dispatch, verdict or commit after a start/compaction with a rule file unread; the promotion to a refusal reads this layer's counts (F6 a)"
     }
