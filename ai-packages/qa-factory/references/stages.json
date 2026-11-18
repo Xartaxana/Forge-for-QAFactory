@@ -184,6 +184,7 @@
         "qa-automator",
         "qa-code-critic"
       ],
+      "reviewed_by": "qa-code-critic",
       "requires": [
         "S4"
       ],

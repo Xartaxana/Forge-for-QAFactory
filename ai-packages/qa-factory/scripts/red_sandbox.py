@@ -49,8 +49,9 @@ run carries for the instance, EXACTLY (`bind_row`); a request that carries none 
 pytest command only, to the pinned node id's tail. A mutated target no report row answers for is
 `probe_defect` (the probe's own run); a baseline target with no row is `not_executed` (exit 1);
 neither is ever `survived`. Only `.py::` nodes are passed as `--node-id`; a case holding any other
-node is launched whole. The failure site of a `junit-xml` row of a runner that is not pytest is not
-read yet (B-337): that proof is `incomplete` (exit 1) with the reason. One path takes one mutation:
+node is launched whole. The failure site of a `junit-xml` row of a runner that is not pytest is read
+only by the suffix's frame grammar or when the failure text names the pinned location with the pinned
+message; otherwise not read yet (B-337): that proof is `incomplete` (exit 1) with the reason. One path takes one mutation:
 two differing replacements of it are refused by `prepare` (B-314).
 """
 import argparse
@@ -1202,6 +1203,27 @@ def _frame_grammar(expected_file: str) -> dict:
     return {"frames": frames, "skip_frames": skip_frames, "frame_path": frame_path}
 
 
+def _pinned_read(target: dict, row, reporter: str, clone_root, expected_file: str, hint: dict, reason: str) -> tuple:
+    """`(site, "")` or `(None, why)` (RD1-24, B-337): the site of a row the suffix's grammar left unread, read from the failure text
+    ONLY when that makes a FULL proof - a failed row naming the pinned `<path>:<line>` inside the clone as an assertion, with the
+    pinned message. Any other answer is `(None, why)` and the caller keeps the typed unread, so this step can turn an incomplete
+    proof into an accepted one and never into a verdict (FR-59, AR-28). `(None, "")`: nothing is pinned."""
+    wanted = str(target.get("expected_location") or "")
+    found = _LOCATION_RE.match(wanted)
+    pinned = reporters.pinned_frames(expected_file, found.group("line")) if found else None
+    if pinned is None:
+        return None, ""
+    second = reporters.assertion_site(row, reporter, clone_root, expected_file, **hint, frames=pinned, skip_frames=[],
+                                      frame_path="path")
+    if "site_unread" in second:
+        return None, f"{wanted} was not found in the failure text as a path inside the clone ({second['reason']})"
+    if second.get("location") != wanted or second.get("failure_kind") != "assertion":
+        return None, f"the failure text names {wanted} as another kind of failure or another place"
+    if not reason_matches(reason, target.get("expected_reason")):
+        return None, f"the failure text names {wanted}, but its message is not the pinned one"
+    return second, ""
+
+
 def target_result(target: dict, row, reporter: str, clone_root, command=None) -> dict:
     """The result `verify()` reads for one target. Status comes from the row (`not_run` when no
     row was bound); the failure site and kind from `reporters.assertion_site`, which for a TRX
@@ -1210,9 +1232,10 @@ def target_result(target: dict, row, reporter: str, clone_root, command=None) ->
 
     `command` is the run's argv as its summary recorded it. With it, a `junit-xml` row of a command
     that is not pytest has an UNREAD site (B-337) - unless the target's file has an `assertion_probes`
-    entry, whose frame grammar then reads it (`_frame_grammar`): the result carries `site_unread` (typed)
-    and `site_unread_reason`, no location, and the failure's own message stays the `reason`, when the
-    frame cannot be resolved to a project file. Without `command` the pytest grammar is read, as it
+    entry, whose frame grammar then reads it (`_frame_grammar`), or the failure text names the pinned
+    location with the pinned message (`_pinned_read`, only after the grammar and only on an unread
+    site): the result carries `site_unread` (typed) and `site_unread_reason`, no location, and the
+    failure's own message stays the `reason`, when the frame cannot be resolved to a project file. Without `command` the pytest grammar is read, as it
     always was."""
     entry = {"instance_id": str(target.get("instance_id") or ""), "status": "not_run"}
     if row:
@@ -1224,8 +1247,12 @@ def target_result(target: dict, row, reporter: str, clone_root, command=None) ->
         expected_file = str(target.get("expected_location") or "").rpartition(":")[0]
         hint = {} if command is None else {"pytest_command": _is_pytest(command), "runtime": _launcher(command)}
         site = reporters.assertion_site(row, reporter, clone_root, expected_file, **hint, **_frame_grammar(expected_file))
+        why = ""
+        if "site_unread" in site and row["status"] == "failed":
+            read, why = _pinned_read(target, row, reporter, clone_root, expected_file, hint, entry["reason"])
+            site = read or site
         if "site_unread" in site:
-            entry["site_unread"], entry["site_unread_reason"] = site["site_unread"], site["reason"]
+            entry["site_unread"], entry["site_unread_reason"] = site["site_unread"], site["reason"] + (f"; {why}" if why else "")
         else:
             entry.update(site)
     for key in ("obligation_id", "defect_location", "assertion_id"):

@@ -1600,9 +1600,17 @@ def filled_share(doc, contract: str) -> tuple:
         if path in by_code:
             continue
         total += 1
-        if not handoff.is_placeholder(node.value):
+        if not _blank(path, node.value, tmpl.nodes):       # t-1338 K-A8: an untouched author token row is not the role's word
             filled += 1
     return filled, total
+
+
+def _blank(path: str, value, leaves: dict) -> bool:
+    """THE blank reading of a form value (the field loop and `filled_share`): a placeholder, or - in a list row - a value equal to
+    its template leaf when that leaf carries a `<...>` token (`work/handoffs/<the author's dispatch>.yaml`, the S4/S5 critic's
+    author row in the unknown-author world: it names no file; t-1325 F4, `only_template`'s rule). Literal template text with no
+    `<...>` stays a value."""
+    return handoff.is_placeholder(value) or ("[" in path and handoff.only_template(value, getattr(leaves.get(path), "value", None)))
 
 
 def _investigation_dispatch(art) -> bool:
@@ -1724,6 +1732,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                       f"`{said['word']}` says {said['means']}, and `{section}` lists {rows_in_scope} row(s). "
                       f"`{said['word']}` belongs only to the empty `{section}` of the null outcome."),
                 f'--set {path}="{handoff.template(contract).get(path) or "<the value of the field>"}"'))
+    leaves = handoff.template(contract).nodes
     for path, node in list(doc.nodes.items()):
         if handoff.owned_by_contract(path) or any(path == p or path.startswith(p + "[") for p in empty_sections):
             continue
@@ -1732,7 +1741,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
         if not field:
             continue                                  # a value the role added: never refused
         value = doc.get(path)
-        blank = handoff.is_placeholder(value)
+        blank = _blank(path, value, leaves)
         underived = ""
         if blank and fix and path.startswith("claims.") and path[len("claims."):] in CLAIMS:
             continue            # a claim with a verifier is filled (or left open with a reason) by `_fill_claims`, after this loop

@@ -539,7 +539,8 @@ def k8_legacy():
 
 # The size of the plan critic's full brief on the K7 fixture, in path-normalised bytes (`harness.normalised_bytes`; AR-4, AR-20).
 # SHRINK-ONLY: a raise needs a named reason in the verdict, never a quiet edit of this number.
-S5_PLAN_BRIEF_BYTES_MAX = 9559   # FV1-4 N1 (AR-20): re-based from DOORS_ONLY_BRIEF_MAX (6443 budget B) to normalised bytes (harness.normalised_bytes); measured 2026-11-13 on Windows (the helper makes the number machine-independent). TQ2-1 K2 (AR-20): +39 B, the plan brief states the case critic's concerns, "none carried" on the K7 story (AR-23)
+# FV3-31 (AR-10, AR-20): +192 B, the plan critic is told the automator dispatch it reviews (the `Reviewed dispatch:` line); was 9559
+S5_PLAN_BRIEF_BYTES_MAX = 9751   # FV1-4 N1 (AR-20): re-based from DOORS_ONLY_BRIEF_MAX (6443 budget B) to normalised bytes (harness.normalised_bytes); measured 2026-11-13 on Windows (the helper makes the number machine-independent). TQ2-1 K2 (AR-20): +39 B, the plan brief states the case critic's concerns, "none carried" on the K7 story (AR-23)
 
 
 def size_verdict(n):

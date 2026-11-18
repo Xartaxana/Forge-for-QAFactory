@@ -1116,6 +1116,21 @@ def tooling_gap_key(task_root, identity: str, current_hash: str) -> str:
 PROBE_JUDGED_VERDICTS = ("intended_failure", "no_failure", "wrong_location")   # a record that JUDGED the test (E8)
 
 
+def probe_fired(record) -> bool:
+    """The probe's broken check fired: `record` is a dict whose `verdict` the row `probe_verdict` accepts for `fired`
+    (the one reader: the window, the repeat check and the product-receipt repeat all ask it). Error direction: False -
+    a non-dict, a missing or non-str verdict, another word (`partial_product`, `model_changed`, case or padding variants)
+    and an unreadable registry never fire, so the window says `sensitivity:` and the probe runs (AR-28)."""
+    return isinstance(record, dict) and acceptable(record, "probe_verdict.fired")
+
+
+def probe_found_defect(record) -> bool:
+    """A record that judged the test defective on its bytes (`no_failure`, `wrong_location`, `survived`: the row's mismatched
+    words) - a repeat of the same bytes is refused. It accepts nothing and reads no registry. Error direction: False - a
+    non-dict, a missing or non-str verdict and every other word do not block, so the probe runs."""
+    return isinstance(record, dict) and record.get("verdict") in ("no_failure", "wrong_location", "survived")
+
+
 def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
     """`{"state", "record", "why", "refused"}` - what the probe's own record of THIS instance says about THESE bytes. The ONE
     reader (AR-13) of that fact: the window (`window_record.probe_gap_block`) and the class word (`probe_could_not_run`) ask it.
@@ -1419,7 +1434,7 @@ def _product_receipt_repeat(entry, ids, now, task_root, project, check_key, note
     folder = _P(task_root) / "work" / "sensitivity-receipts"
     for one in ids:
         record = _read_record(probe_record_path(task_root, one, "product"), notes)
-        if not (record is not None and record.get("verdict") == "intended_failure"
+        if not (record is not None and probe_fired(record)
                 and acceptable(same_test(now, proof_identity(record)), "test_identity.probe_repeat")
                 and _mutated_files_hold(record, entry, project)):
             continue
@@ -1505,7 +1520,7 @@ def already_probed(entry, manifest, task_root, *, now=None, project=None, stage:
             # overwrites (a `not_executed` rerun over another oracle, say). It is the receipt's own probe
             # only while it says `intended_failure` and names this very receipt; otherwise it says
             # nothing about what the receipt's probe mutated.
-            own = (behind if behind is not None and behind.get("verdict") == "intended_failure"
+            own = (behind if behind is not None and probe_fired(behind)
                    and (level_of(receipt) == PRODUCT
                         or (behind.get("receipt") or {}).get("path") == ref.get("path")) else None)
             # What the probe mutated is carried by the receipt itself (`mutated_file`); a receipt from
@@ -1533,7 +1548,7 @@ def already_probed(entry, manifest, task_root, *, now=None, project=None, stage:
                     # the per-check record of this line speaks for another model entry (or for none recorded): the probe runs
                     notes.append(f"the check record {path.name} was made for another model entry; this probe runs")
                     continue
-                if (record is not None and record.get("verdict") in ("no_failure", "wrong_location")
+                if (record is not None and probe_found_defect(record)
                         and acceptable(same_test(now, proof_identity(record)), "test_identity.probe_repeat")
                         and _mutated_files_hold(record, entry, project)):
                     if not _same_target(record, target):
@@ -1549,7 +1564,7 @@ def already_probed(entry, manifest, task_root, *, now=None, project=None, stage:
     if hit is None:
         for one in ids:
             record = _read_record(probe_record_path(task_root, one, "product"), notes)
-            if (record is not None and record.get("verdict") == "survived"
+            if (record is not None and probe_found_defect(record)
                     and acceptable(same_test(now, proof_identity(record)), "test_identity.probe_repeat")
                     and _mutated_files_hold(record, entry, project)):
                 hit = {"by": "product_record", "level": None, "receipt_ref": {},

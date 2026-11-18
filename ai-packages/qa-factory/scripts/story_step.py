@@ -318,9 +318,10 @@ def _project_rel(task: str, template: str, dispatch_id: str) -> str:
     return f"qa-factory/artifacts/{task}/" + template.format(dispatch_id=dispatch_id)
 
 
-def _author_argv(stage_id: str, role: str, contract: str, task_root: Path) -> list:
+def _author_argv(stage_id: str, role: str, contract: str, task_root: Path, dispatch: dict | None = None) -> list:
     """`["--author-dispatch", id]` when the form's contract holds the author token and the dispatch the role reviews
-    (`brief_pack.reviewed_dispatch`) is known, else []. Never raises: every doubt is no argument."""
+    (`brief_pack.reviewed_dispatch`; `dispatch` = the reviewing dispatch's record with its id, which the S5 critic's author is bound
+    to) is known, else []. Never raises: every doubt is no argument."""
     try:
         import handoff
         name = contract or handoff.contract_of(stage_id, role, "")
@@ -332,7 +333,7 @@ def _author_argv(stage_id: str, role: str, contract: str, task_root: Path) -> li
         import brief_pack
         pipeline = _read_pipeline(Path(task_root))      # the module's one reader (utf-8-sig, a dict or {}), as brief_pack._load
         # TR4-12 (2): the ONE reader the brief line uses (a stage critic's own stage author; a consumer's awaiting author, S7/S8)
-        author = brief_pack.reviewed_dispatch_id(stage_id, role, Controller(task_root).state(), pipeline)
+        author = brief_pack.reviewed_dispatch_id(stage_id, role, Controller(task_root).state(), pipeline, dispatch)
     except Exception:                                   # noqa: BLE001 - an unreadable state is an unknown author
         return []
     return ["--author-dispatch", str(author)] if author else []
@@ -367,7 +368,8 @@ def _handoff_form(task: str, stage_id: str, role: str, dispatch_id: str, task_ro
     # F1 (B-2): the stage critic's contract (S4) carries the token `<the author's dispatch>`; the author's last accepted dispatch is a
     # value code knows (the same function `stage_done` compares with). Unknown or unreadable state -> no argument, the token stays
     # a placeholder (FR-59: a guessed author never stands in a form).
-    argv += _author_argv(stage_id, role, contract, task_root)
+    argv += _author_argv(stage_id, role, contract, task_root,
+                         dict(record if isinstance(record, dict) else {}, id=dispatch_id))
     code, out = _run("handoff_init.py", "--task", task, "--stage", stage_id, "--role", role,
                      "--dispatch", dispatch_id, "--scope", scope or "",
                      "--task-root", str(task_root), *argv)

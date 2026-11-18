@@ -1,0 +1,1 @@
+When a manual check needs another instance of the stand or device and nobody has said whether the factory may start one, S7 now asks the person once (`start it`, `by hand` or `stop`), keeps the answer for the stand, walks the checks again on a yes, and the delivery report says which world each check ended in.

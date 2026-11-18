@@ -1979,7 +1979,17 @@ def handed_records(artifacts: Path) -> list:
     return out
 
 
-def unprepared_records(ledger: dict) -> list:
+def extra_instance_outcomes(task_root) -> dict:
+    """`{case: {"answer": "no" | "yes", "why": clause, "at"}}` - what the S7 another-instance step noted per case
+    (`work/extra-instance.json`, written by `Driver.s7_extra_instance_note` alone; one entry per case, the latest wins). Absent, unreadable
+    or another `schema_version` reads as `{}`: the delivery then says no answer was recorded, never "allowed" or "said no" without a note."""
+    import hooklib
+    doc = hooklib.read_json(Path(task_root) / "work" / "extra-instance.json", {}, kind=dict)
+    cases = doc.get("cases") if doc.get("schema_version") == 1 else None
+    return {str(k): v for k, v in cases.items() if isinstance(v, dict)} if isinstance(cases, dict) else {}
+
+
+def unprepared_records(ledger: dict, outcomes=None) -> list:
     """One record per manual case the factory failed to prepare and the manual agent walked without a result (F5(e) 3, AR-27):
     kind `unprepared_walk` (`after_checks`, owner factory) - the case is a "Left with you" item under its own name, with the
     reason as what is left to check. The ONE reader of the ledger's `unprepared_walks` (the list `ledger.build` writes from
@@ -2006,7 +2016,10 @@ def unprepared_records(ledger: dict) -> list:
                     if walk.get("prepared") is True else
                     f"the factory could not prepare this check ({reason}) and it needs another instance of the stand or device, "
                     "which was not started")
-            to_check = (head + "; no answer about starting one was recorded; what the runner would start and why: "
+            note = outcomes.get(case) if isinstance(outcomes, dict) else None
+            said = note.get("why") if isinstance(note, dict) else None       # the S7 step's note of this case, else the fixed words
+            to_check = (head + "; " + (said.strip() if isinstance(said, str) and said.strip() else "no answer about starting one was recorded")
+                        + "; what the runner would start and why: "
                         + str(walk.get("need_why") or "no reason recorded")
                         + ("; it was not walked either - not walked: " + str(walk.get("not_walked") or "no reason recorded")
                            if walk.get("walked") is False else ""))
@@ -2771,7 +2784,7 @@ def assess(artifacts: Path, finalized_delivery: bool = False) -> dict:
 
         doc = mark_handed(L.build(artifacts), artifacts)
         records += ledger_records(doc, facts)
-        records += unprepared_records(doc)
+        records += unprepared_records(doc, extra_instance_outcomes(artifacts))
         # F1 (P21): no case with an observed failure reads kind `handed` - the hand-off record of a case whose ledger row is
         # `failed:*` (any triage class but the stand's: an ENV_ISSUE is the person's answer to the card, and `handed` is one
         # of its words) is dropped; the failed row's own kind decides, and `after_checks` stays out of reach while it stands -

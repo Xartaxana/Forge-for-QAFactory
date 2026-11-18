@@ -550,9 +550,7 @@ def _keys_form(role: str, stage) -> list:
             return lines + [f"NOT KNOWN: no handoff contract is registered for {role} in handoffs/index.yaml."]
         doc = handoff.template(contract)
         spec = handoff.spec_of(doc)
-        first = {}
-        for path, node in doc.nodes.items():
-            first.setdefault(re.sub(r"\[\d+\]", "[]", path), node)
+        first = handoff.field_nodes(doc)            # the row spec_of read: a list whose rows differ speaks by its placeholder row
         lines += [f"Contract `{contract}` (fill `work/handoffs/<dispatch>.yaml`; `handoff_check.py` reads it):", ""]
         for generic, field in spec.items():
             node = first.get(generic)

@@ -659,7 +659,7 @@ PINNED_ELSEWHERE = {"package.copies": "test_package_generation.py (D3)", "s0.fla
                     "exit.resume_limit": "test_story_run_exit_limit.py (EL1-EL7, EL10, EL14)", "s7.repair_limit": "test_story_run_repair_limit.py (RL8)",
                     "s4.repair_limit": "test_no_move_seam_n2b_n15.py",
                     "exit.resume_limit_halted": "test_exit_limit_halt_answered.py (t-1955 N4: the halted variant of the exit-limit question)",
-                    "s7.open_work": "test_story_run_s7_live.py (FX-2)",
+                    "s7.open_work": "test_story_run_s7_live.py (FX-2)", "s7.extra_instance": "test_no_move_seam_sites.py (E7)",
                     "code_close.stage": "test_story_run_refusals.py (CC1, CC8)", "code_close.closed_story": "test_story_run_refusals.py (CC13)",
                     "code_close.factory_file": "test_story_run_refusals.py (CC14)",
                     "code_close.behind": "test_code_close_behind.py (t-1988 N3: the close refused behind an earlier stage)",
@@ -676,7 +676,7 @@ PINNED_ELSEWHERE = {"package.copies": "test_package_generation.py (D3)", "s0.fla
                     "s3.grounding_coverage.nothing_asked": "test_grounding_coverage.py (G2-2: N = 0)",
                     "s3.grounding_refactoring": "test_grounding_coverage.py (G2-2: the refactoring stop after the coverage one)",
                     "arrival.not_waiting": "test_story_run_arrival.py (A9: the question, its three tokens and their executors)",
-                    "awaiting.absent_side": "test_story_sides.py (t-2559 W2 B3: the question at the S5 hold, its two tokens and their executors)",
+                    "awaiting.absent_side": "test_story_sides_absent_side.py (t-2559 W2 B3: the question at the S5 hold, its two tokens and their executors)",
                     "first_look.dead": "test_first_look_step.py (FL-5: below_floor_asks_once, the question and its tokens)",
                     "first_look.same_code": "test_first_look_code_look.py (FL-6: bare_relaunch_head_same_asks_same_code, the question and its answers)",
                     "explore.frame": "test_exploration.py (frame_text_passes_form, frame_prices)"}

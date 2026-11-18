@@ -1087,7 +1087,9 @@ D13_TRIPLES = [
     ("proof_level.py", "_run_freshness", "test_identity"),  # C3-b2 (t-1080): the two `('unknown', ...)` state returns, allowed (F-T1 (a) word `unknown`)
     ("proof_level.py", "already_probed", "test_identity"),
     ("proof_level.py", "novelty_of", "live_check_demand"),
+    ("proof_level.py", "probe_found_defect", "probe_verdict"),    # RD1-28 (t-1342): the repeat refusal, one literal comparison of the row's mismatched words
     ("proof_level.py", "same_test", "test_identity"),      # C3-b2 (t-1080): `verdict == 'same'` counts once the row's words gain `same`; `same_test` is a produce site
+    ("red_sandbox.py", "product_verdict", "probe_verdict"),    # RD1-28 (t-1342): `proof['verdict'] == 'probe_defect'`, the second producer
     ("run_history.py", "_compare_shas", "test_identity"),   # RD1-26 (t-1309): the returned unknown tuple (allowed), a state returned to the caller
     ("run_suite.py", "build_run_block", "equivalence_metric"),
     ("run_suite.py", "selection_line", "equivalence_metric"),
@@ -1153,7 +1155,11 @@ D13_TRIPLES = [
 # critic's words there: `_row_outcome` `row['verdict'] in CASE_CRITIC_VERDICTS` (allowed), `scoped_verdict` `declared not in CASE_CRITIC_VERDICTS` (allowed),
 # `findings_errors` `verdict not in CASE_CRITIC_VERDICTS`, `verdict == 'approve_with_fixes'`, `verdict not in ('approve_with_fixes', '')`, and
 # `_merge_concern_errors` `word == 'approve_with_concerns'` (the last four are `validate` sites, allowed by role). Triples added: those four functions.
-D13_ITEM_COUNT = 158
+# 158 -> 160 (RD1-28, t-1342, AR-20; measured on 152 / 55 -> 154 / 57 before RD1-32, the same +2 items / +2 triples on top of it): `probe_verdict` gains `survived` / `probe_defect`, so the scan
+# counts `proof_level.probe_found_defect` (`record.get('verdict') in ('no_failure', 'wrong_location', 'survived')`, a validate site: the one literal
+# the repeat refusal keeps, F1 (a)) and `red_sandbox.product_verdict` (`proof['verdict'] == 'probe_defect'`, a produce site, F2 (a)); no allow entry.
+# `probe_fired` compares no word; `already_probed`, `_product_receipt_repeat` and `validate_window` lose their probe comparisons (never counted).
+D13_ITEM_COUNT = 160
 
 
 def part_site_attribution() -> None:
@@ -1161,6 +1167,14 @@ def part_site_attribution() -> None:
     triples = sorted({(i["file"], i["function"], row) for i in result["items"] for row in i["rows"]})
     check_eq("D13: the set of (file, function, row) the scan attributes its comparisons to", triples, D13_TRIPLES)
     check_eq("D13: and the number of comparisons it counts", len(result["items"]), D13_ITEM_COUNT)
+    # RD1-28 (E28-6): the scan's raw items (not `analyse`, which keeps only the words of a function's own rows) must show no probe word
+    # in the three old bodies; the control: probe_found_defect keeps its one comparison
+    pw = set(next(r for r in GR.load_registry(PLUGIN_ROOT)[0]["rows"] if r["id"] == "probe_verdict")["words"])
+    raw = GR.scan_package(PLUGIN_ROOT)
+    left = lambda f, fn: [i["line"] for i in raw[f]["items"] if i["function"] == fn and i["words"] & pw]  # noqa: E731
+    check_eq("RD1-28 E28-6: no probe word is compared in the three old bodies",
+             [left("proof_level.py", "already_probed"), left("proof_level.py", "_product_receipt_repeat"), left("acceptance.py", "validate_window")], [[], [], []])
+    check_eq("RD1-28 E28-6 control: probe_found_defect keeps its one comparison", len(left("proof_level.py", "probe_found_defect")), 1)
     # B-283: the row below has no triple on purpose, and the pin says so, so the move that gives it one changes this line too
     # (the row's real consumers are the R7 callers - `_card_items` via `_environment_cover`, `_reporter_card`; B-283 moves them here
     # and updates this pin).
