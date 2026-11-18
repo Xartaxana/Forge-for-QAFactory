@@ -32,14 +32,15 @@ SNAP_ETALON = {
               "json": (0, 20, "052f5b4cc7f8ce7b3f8dc1155cdb3050cf3c284a82727d7a3885926158b6d0da")},
     "problems": {"text": (1, 60, "a2ec16473e483dd022f463d036197d47ea713c75fc39c6b5c031200cf8c189b0"),
                  # SC2-38 F-2: each problem gained the key `code_fills` (one line each); re-recorded from the run's own text
-                 "json": (1, 184, "0d1a8df3178ac2859b060415953787804c577e31ae76bdb318bce5c488a6df74")},
+                 "json": (1, 184, "5b635ea940e8b5574e3af49b9de5866dc5ea156a19235c5cec8e7402aa7f00a1")},
     "applied": {"text": (1, 63, "a3599c6b7eae2dcea3422f7b0f8a5a0d8fe273d6a6a1f059bbaaa9f8b50daa0b"),
-                "json": (1, 224, "4b60d733d11da4ed4f35daf758f0a34a7a4150e85d10df79aa9acc470db48d52")},
+                "json": (1, 224, "22f0757f1b7124a6f6e18e7c6112e465fce8bcd00c327da268076b618dc1bcaa")},
     "pending": {"text": (1, 63, "e0c585bd6ea0fcc7e3a165cb6d8423210e44ed890f6278b42a34c4447840dc94"),
-                "json": (1, 224, "3de579178f38b77e1ed3832afc391ea44e5f3831a48a1d377fc8d8988cdc91c7")},
+                "json": (1, 224, "4616d0129be24e59fd6b3ee2edbf9c499f4da78e7e5482f4fb572a654d26ef70")},
+    # FV3-32 (t-1312): the five cells that print a fields count were re-recorded (emptied optional lists leave fewer fields; no problem moved, the text cells of problems/applied/pending still match)
     # re-recorded at the X7-7 integration (35 to 58 fields) and again at t-1946 (the form gained the `rows_owed_when` block, t-1936 F4; the json cell was already at this value on c75ec3789, the text cell moved with the block)
-    "cut": {"text": (0, 2, "5792448a0e31ed43067261f8fcb76b4f631886f5207be92d03df5969bd806d53"),
-            "json": (0, 21, "825d5bda28373f5b0983348ce82a28c7ab96c5666360141c7e5d6ba5b516ad6d")},
+    "cut": {"text": (0, 2, "83920bb34ce64b28c215bc8976927b58ec0b8644fe46fdc1cbe56bbf02cccc36"),
+            "json": (0, 21, "f600f6c333725700b307f5cbd23ef250825562b52074cb64fc8c16f0b42d265d")},
 }
 
 
