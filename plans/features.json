@@ -403,6 +403,7 @@
         "scripts/tests/fixtures/driver-*.json",
         "scripts/module_facade.py",
         "scripts/driver_*.py",
+        "scripts/stage_close.py",
         "scripts/tests/test_module_facade.py",
         "scripts/tests/scenario_clock.py",
         "scripts/tests/clock_sitecustomize/**",
