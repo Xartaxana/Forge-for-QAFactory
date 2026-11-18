@@ -161,7 +161,7 @@ SECRET = "s3cr3t-value"
     # the reader's semantics: no file -> the default name; a file without the key or with a bad name -> a refusal note
     (None, {"GITHUB_TOKEN": SECRET}, "environment variable GITHUB_TOKEN: SET"),
     ("github_token_env: MY_TOK\n", {"GITHUB_TOKEN": SECRET}, "environment variable MY_TOK: NOT SET"),
-    ("developer: x\n", {"GITHUB_TOKEN": SECRET}, "note: environment variable: none to check"),
+    ("developer: dev1\n",{"GITHUB_TOKEN": SECRET}, "note: environment variable: none to check"),
     ("github_token_env: my_tok\n", {"GITHUB_TOKEN": SECRET}, "note: dev_config.py refused"),
 ])
 def test_token_step_prints_the_reader_answer_and_never_the_value(tmp_path, config, env, expect):
