@@ -1043,6 +1043,7 @@
         "scripts/stage_joints.py",
         "references/stage-joints.json",
         "scripts/tests/test_stage_joints*.py",
+        "scripts/tests/stage_joints_common.py",
         "scripts/tests/test_judgment_census.py",
         "scripts/tests/fixtures/judgment-census.json",
         "scripts/tests/fixtures/told-ratchet.json",

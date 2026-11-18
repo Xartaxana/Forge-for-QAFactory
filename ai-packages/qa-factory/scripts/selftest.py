@@ -32,7 +32,7 @@ Subcommands (all but --hooks run when no flag is given):
                         it twice cost 25 s and reported one result under two names.
   --contracts            runs the registry walks on their own: scripts/tests/test_null_outcomes.py
                          (the null outcomes), test_gate_registry.py (the gate registry, audit A26) and
-                         test_stage_joints.py (the stage joints: every check has its producer and its told place, F6-51).
+                         the test_stage_joints_*.py parts (the stage joints: every check has its producer and its told place, F6-51).
                         Not part of a full run: --tests runs the same file.
   --tests                runs every scripts/tests/test_*.py as its own subprocess, --jobs of
                         them at a time (default 4, 1 = serial). Result lines keep file order
@@ -560,7 +560,7 @@ def cmd_hooks() -> bool:
     return _run_test_file(wiring_test)
 
 
-CONTRACT_TESTS = ("test_null_outcomes.py", "test_gate_registry.py", "test_stage_joints.py")
+CONTRACT_TESTS = ("test_null_outcomes.py", "test_gate_registry.py", "test_stage_joints_k1_k8.py", "test_stage_joints_k9_k14.py", "test_stage_joints_v2_rows.py", "test_stage_joints_told_variants.py", "test_stage_joints_told_legs.py", "test_stage_joints_told_real.py")
 
 
 def cmd_contracts() -> bool:

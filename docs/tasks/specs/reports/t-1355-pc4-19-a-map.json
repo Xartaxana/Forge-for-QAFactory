@@ -1,0 +1,472 @@
+{
+ "source": "test_stage_joints.py",
+ "common": "stage_joints_common",
+ "shim": false,
+ "parts": [
+  "test_stage_joints_k1_k8",
+  "test_stage_joints_k9_k14",
+  "test_stage_joints_v2_rows",
+  "test_stage_joints_told_variants",
+  "test_stage_joints_told_legs",
+  "test_stage_joints_told_real"
+ ],
+ "names": [
+  {
+   "name": "PINS",
+   "kind": "assign",
+   "home": "stage_joints_common",
+   "_line": 34
+  },
+  {
+   "name": "ENV",
+   "kind": "assign",
+   "home": "stage_joints_common",
+   "_line": 35
+  },
+  {
+   "name": "REAL",
+   "kind": "assign",
+   "home": "stage_joints_common",
+   "_line": 36
+  },
+  {
+   "name": "_WHY",
+   "kind": "assign",
+   "home": "stage_joints_common",
+   "_line": 36
+  },
+  {
+   "name": "UNI",
+   "kind": "assign",
+   "home": "stage_joints_common",
+   "_line": 37
+  },
+  {
+   "name": "kind_keys",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 40
+  },
+  {
+   "name": "member",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 45
+  },
+  {
+   "name": "audit",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 49
+  },
+  {
+   "name": "mutated",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 53
+  },
+  {
+   "name": "row_of",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 62
+  },
+  {
+   "name": "text_of",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 66
+  },
+  {
+   "name": "k1_real_tree",
+   "kind": "def",
+   "home": "test_stage_joints_k1_k8",
+   "_line": 70,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "k2_k3_pins",
+   "kind": "def",
+   "home": "test_stage_joints_k1_k8",
+   "_line": 99,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "k4_k5_directions",
+   "kind": "def",
+   "home": "test_stage_joints_k1_k8",
+   "_line": 110,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "k6_legs",
+   "kind": "def",
+   "home": "test_stage_joints_k1_k8",
+   "_line": 127,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "code_sites",
+   "kind": "def",
+   "home": "test_stage_joints_k1_k8",
+   "_line": 165
+  },
+  {
+   "name": "k7_reach",
+   "kind": "def",
+   "home": "test_stage_joints_k1_k8",
+   "_line": 196,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "k8_direction_c",
+   "kind": "def",
+   "home": "test_stage_joints_k1_k8",
+   "_line": 216,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "k9_unreadable_shapes",
+   "kind": "def",
+   "home": "test_stage_joints_k9_k14",
+   "_line": 242,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "k10_data_file",
+   "kind": "def",
+   "home": "test_stage_joints_k9_k14",
+   "_line": 293,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "k11_ratchet",
+   "kind": "def",
+   "home": "test_stage_joints_k9_k14",
+   "_line": 324,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "k12_joint_census",
+   "kind": "def",
+   "home": "test_stage_joints_k9_k14",
+   "_line": 345,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "k13_threshold",
+   "kind": "def",
+   "home": "test_stage_joints_k9_k14",
+   "_line": 360,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "cli",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 378
+  },
+  {
+   "name": "k14_cli",
+   "kind": "def",
+   "home": "test_stage_joints_k9_k14",
+   "_line": 385,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "a_row",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 415
+  },
+  {
+   "name": "a_rows_file",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 421
+  },
+  {
+   "name": "v2_reader",
+   "kind": "def",
+   "home": "test_stage_joints_v2_rows",
+   "_line": 425,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "lookups",
+   "kind": "def",
+   "home": "test_stage_joints_v2_rows",
+   "_line": 468,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "renderers",
+   "kind": "def",
+   "home": "test_stage_joints_v2_rows",
+   "_line": 521,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "light_import",
+   "kind": "def",
+   "home": "test_stage_joints_v2_rows",
+   "_line": 566,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "rename",
+   "kind": "def",
+   "home": "test_stage_joints_v2_rows",
+   "_line": 578,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "merges",
+   "kind": "def",
+   "home": "test_stage_joints_v2_rows",
+   "_line": 614,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "exit_gate_sites",
+   "kind": "def",
+   "home": "test_stage_joints_v2_rows",
+   "_line": 645,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "TOLD_FIXTURE",
+   "kind": "assign",
+   "home": "stage_joints_common",
+   "_line": 670,
+   "_section": "# ----------------------------------------------------------------------------------------"
+  },
+  {
+   "name": "CENSUS",
+   "kind": "assign",
+   "home": "test_stage_joints_told_real",
+   "_line": 671
+  },
+  {
+   "name": "GROUP_RE",
+   "kind": "assign",
+   "home": "stage_joints_common",
+   "_line": 672
+  },
+  {
+   "name": "UNGROUPED",
+   "kind": "assign",
+   "home": "stage_joints_common",
+   "_line": 673
+  },
+  {
+   "name": "GROUP_REASONS",
+   "kind": "assign",
+   "home": "stage_joints_common",
+   "_line": 674
+  },
+  {
+   "name": "_WORLD",
+   "kind": "assign",
+   "home": "test_stage_joints_told_real",
+   "_line": 680
+  },
+  {
+   "name": "reachable",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 683
+  },
+  {
+   "name": "load_told",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 688
+  },
+  {
+   "name": "covered",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 701
+  },
+  {
+   "name": "rowless_of",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 707
+  },
+  {
+   "name": "rowless_problems",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 719
+  },
+  {
+   "name": "untold_problems",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 726
+  },
+  {
+   "name": "unit_problems",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 730
+  },
+  {
+   "name": "measure_untold",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 744
+  },
+  {
+   "name": "KEY_PAGE_ROLES",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 757
+  },
+  {
+   "name": "row_counts",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 762
+  },
+  {
+   "name": "k5_problems",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 778
+  },
+  {
+   "name": "told_unit_rows",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 790
+  },
+  {
+   "name": "conductor_only",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 806
+  },
+  {
+   "name": "conductor_line",
+   "kind": "def",
+   "home": "stage_joints_common",
+   "_line": 818
+  },
+  {
+   "name": "told_world",
+   "kind": "def",
+   "home": "test_stage_joints_told_real",
+   "_line": 822
+  },
+  {
+   "name": "told_baselines",
+   "kind": "def",
+   "home": "test_stage_joints_told_real",
+   "_line": 848
+  },
+  {
+   "name": "told_real",
+   "kind": "def",
+   "home": "test_stage_joints_told_real",
+   "_line": 853,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "told_variants",
+   "kind": "def",
+   "home": "test_stage_joints_told_variants",
+   "_line": 880,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "told_leg_and_rows",
+   "kind": "def",
+   "home": "test_stage_joints_told_legs",
+   "_line": 1020,
+   "_runs": [
+    "func:main:call"
+   ]
+  },
+  {
+   "name": "t1rp",
+   "kind": "def",
+   "home": "test_stage_joints_told_legs",
+   "_line": 1123,
+   "_runs": [
+    "func:main:call"
+   ]
+  }
+ ],
+ "statements": [],
+ "_notes": {
+  "runner_blocks": [
+   {
+    "key": "func:main",
+    "kind": "func",
+    "line": 1208,
+    "entries": 23,
+    "reads_run_lists": []
+   },
+   {
+    "key": "u1",
+    "kind": "guard",
+    "line": 1235,
+    "entries": 1,
+    "reads_run_lists": []
+   }
+  ],
+  "runner_names_not_in_names": [
+   "main"
+  ],
+  "run_lists": {},
+  "importers": {},
+  "refused": [],
+  "warnings": []
+ },
+ "closing": 1232
+}
