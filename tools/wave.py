@@ -65,8 +65,6 @@ JOURNAL_WAIT = 15.0
 SWEEP_WAIT = 20.0                 # seconds on a running worktree sweep before a worktree is left to it (C3-7)
 SHOW_PATHS = 5
 ATTEMPTS = 3
-REPLACE_TRIES = 5                 # os.replace tries on PermissionError (module constant: a test moves it)
-REPLACE_PAUSE = 0.2               # seconds between those tries
 MAIN = "main"
 REASON_MAX = 300                  # the longest --tests-over / --leftover-ok reason
 LEFTOVER_SHOW = 20                # leftover files named in a refusal, then "+N more"
@@ -120,15 +118,7 @@ def _atomic_write(path, data):
     tmp = path.with_name(path.name + ".wave-tmp")
     try:
         tmp.write_bytes(data)
-        for attempt in range(REPLACE_TRIES):
-            try:
-                os.replace(tmp, path)
-                break
-            except PermissionError:
-                # t-1414 (18.11): another process held the journal for a moment (WinError 5/32)
-                if attempt == REPLACE_TRIES - 1:
-                    raise
-                time.sleep(REPLACE_PAUSE)
+        jl.replace_retrying(tmp, path)       # t-1414: another process held the journal for a moment (WinError 5/32)
     except OSError:
         tmp.unlink(missing_ok=True)
         raise

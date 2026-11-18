@@ -137,6 +137,23 @@ def _unlock(fd: int) -> None:
         pass
 
 
+REPLACE_RETRY_SECONDS = 1.0       # Windows refuses os.replace onto a file another handle has open (t-1414 WinError 5)
+REPLACE_PAUSE = 0.02
+
+
+def replace_retrying(tmp, path) -> None:
+    """`os.replace(tmp, path)`, retried on PermissionError only until the deadline: the one rule for journal_write and wave."""
+    deadline = time.monotonic() + REPLACE_RETRY_SECONDS
+    while True:
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(REPLACE_PAUSE)
+
+
 def _write_holder(fd: int) -> None:
     text = f"{os.getpid()} {datetime.datetime.now().isoformat(timespec='seconds')}"
     os.lseek(fd, 0, os.SEEK_SET)
