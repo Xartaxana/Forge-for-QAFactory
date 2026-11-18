@@ -232,8 +232,7 @@ def sha256(data: bytes) -> str:
 
 
 def fold(text: str, limit: int = 160) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
+    return C.one_line(text, limit)
 
 
 # --- the test ----------------------------------------------------------------------------------
