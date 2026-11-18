@@ -33,15 +33,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import gate_template  # noqa: E402  (the approving class of the case critic's words is the row `case_rollcall`, RD1-32)
 import detector_verdict as DV  # noqa: E402  (`unreadable_line`, `EXIT_UNREADABLE`: a detector that could not run, RH1-5)
 from detector_verdict import named, one_line  # noqa: E402  (a finding is one physical line in a detector's output)
 from person_words import WHOLE_PART, door  # noqa: E402
 from hooklib import sorted_paths  # noqa: E402
 
 # The closed verdict list of the case critic. `partial` is what an incomplete roll-call
-# computes to; `approve_with_fixes` carries the last round's exact replacements.
+# computes to; `approve_with_fixes` carries the last round's exact replacements. The words that APPROVE are the
+# registry row `case_rollcall` (RD1-32), read through `gate_template.acceptable`; a test pins that this list minus
+# that row's words is exactly `partial` and `reject`, so a new word is decided in data (E11).
 CASE_CRITIC_VERDICTS = ("approve", "approve_with_fixes", "approve_with_concerns", "partial", "reject")
-APPROVING_VERDICTS = ("approve", "approve_with_fixes", "approve_with_concerns")
 
 ROLLCALL_HEADING = "## Roll-call"
 FIXES_HEADING = "## Fixes without a new round"
@@ -247,12 +249,16 @@ def _row_outcome(case: str, row: dict, declared: str = "") -> tuple:
     the round's own `declared` word (`round_word`) - what the critic wrote, never one it did not (FR-35)."""
     if not row["reviewed"]:
         return "partial", "no_review", f"the roll-call does not mark {case} as reviewed"
+    reason = gate_template.registry_problem()
+    if reason:      # an unreadable registry never approves a row (AR-28); `no_review` above keeps its own reason (E6)
+        return "partial", "unreadable", gate_template.registry_why(
+            reason, f"whether the case critic's word for {case} approves is not known")
     if row["verdict"] is None:
-        word = "accepted" if declared in APPROVING_VERDICTS else declared
+        word = "accepted" if gate_template.acceptable(declared, "case_rollcall.row") else declared
         return word, "round_word", ("" if word == "accepted" else
                                     f"no per-case verdict for {case} (the roll-call has no `verdict` column); "
                                     f"the round's word is {declared!r}")
-    if row["verdict"] in APPROVING_VERDICTS:
+    if gate_template.acceptable(row["verdict"], "case_rollcall.row"):
         return "accepted", "column", ""
     if row["verdict"] in CASE_CRITIC_VERDICTS:
         return row["verdict"], "column", f"the roll-call's verdict for {case} is {row['verdict']!r}"
@@ -296,7 +302,7 @@ def _round_word_rule(rows: list, declared: str):
     direction is one way: a doubt is never `accepted`."""
     if declared != "reject" or not rows:
         return None
-    if any(row.get("verdict") is None or row.get("reviewed") is not True or row["verdict"] not in APPROVING_VERDICTS
+    if any(row.get("verdict") is None or row.get("reviewed") is not True or not gate_template.acceptable(row["verdict"], "case_rollcall.word_rule")
            for row in rows):
         return None
     return ("round_word_rule", "the round says `reject`, and no case of it fails: by the rule a round without a failing "
@@ -359,7 +365,7 @@ def scoped_verdict(data: bytes, sha256: str, cases, artifacts=None, area: str = 
         if declared not in CASE_CRITIC_VERDICTS:
             why.append(("round_word", f"the round declares {declared!r}, which is no word of the critic's list"))
             return declared, listed
-        if declared not in APPROVING_VERDICTS and all(_row_outcome("", row, declared)[0] == "accepted"
+        if not gate_template.acceptable(declared, "case_rollcall.round_word") and all(_row_outcome("", row, declared)[0] == "accepted"
                                                        for row in rows):
             rule = _round_word_rule(rows, declared)
             if rule:     # the role's word is not rewritten (FR-35): the round is not read, and the critic is told how to mend it
@@ -447,6 +453,9 @@ def _read_round(data: bytes, sha256: str, receipts, artifacts, memo, review: str
         print(f"critic_rollcall: no concern carried from this round: {reason}", file=sys.stderr)
         return set(), [], []
     try:
+        reason = gate_template.registry_problem()
+        if reason:      # F3: the rows' approving words are not known, so no row is listed as rejected
+            return silent(gate_template.registry_why(reason, "which cases this round approves is not known"))
         text, doubt = _receipt_round(data, sha256, receipts, memo)
         if doubt:
             return silent(doubt[1])
@@ -590,6 +599,10 @@ def findings_errors(path: Path, text: str | None = None, task_root=None) -> list
         errors.append(f"{name}: verdict '{verdict}' outside {list(CASE_CRITIC_VERDICTS)}")
     elif not verdict:
         errors.append(f"{name}: no `Verdict:` line — the verdict is the point of the review")
+    reason = gate_template.registry_problem() if verdict else ""
+    if reason:      # the refusals below read the approving class: an unknown registry is a line, never a skipped refusal (AR-28)
+        errors.append(f"{name}: " + gate_template.registry_why(
+            reason, "whether the verdict approves cannot be judged - repair the package install, then write the file again"))
 
     facts = derive(rows)
     if rows and facts["unstated"]:
@@ -604,7 +617,7 @@ def findings_errors(path: Path, text: str | None = None, task_root=None) -> list
             "until then is `partial`")
     if rows and facts["unreviewed"]:
         listed = ", ".join(facts["unreviewed"])
-        if verdict in APPROVING_VERDICTS:
+        if gate_template.acceptable(verdict, "case_rollcall.findings_check"):
             errors.append(
                 f"{name}: verdict '{verdict}' with {len(facts['unreviewed'])} of {facts['total']} rows "
                 f"not semantically reviewed ({listed}) — an unreviewed row is a failed review, not a "
@@ -1004,9 +1017,9 @@ def _merge_concern_errors(rounds_new_first: list, answers: dict, artifacts) -> t
         word = row["verdict"]
         if word == "approve_with_concerns" and _carries(row["note"], partners, cfg):
             continue
-        if word is None and rnd["word"] not in APPROVING_VERDICTS:
+        if word is None and not gate_template.acceptable(rnd["word"], "case_rollcall.merge_concern"):
             continue
-        if word is not None and word not in APPROVING_VERDICTS:
+        if word is not None and not gate_template.acceptable(word, "case_rollcall.merge_concern"):
             continue
         why = ("the roll-call has no `verdict` column, so the round's own word approves it and no concern reaches S5; add the column"
                if word is None else "")
@@ -1138,6 +1151,10 @@ def _detector_body(root) -> int:
     if not files:
         print(f"critic_rollcall: {task_root.name} has no critic-findings.md yet — nothing to check")
         return 0
+    reason = gate_template.registry_problem()
+    if reason:      # no detector line is computed from a word the registry could not judge (E12)
+        print(DV.unreadable_line(gate_template.registry_why(reason, "the case critic's verdict words cannot be judged")))
+        return DV.EXIT_UNREADABLE
     errors = [error for path in files for error in findings_errors(path, task_root=task_root)]
     more, notes = merge_candidate_errors(task_root, files)      # TQ1-27: exit-only, like `## Branch homes` (the write-time hook path is unchanged)
     errors += more

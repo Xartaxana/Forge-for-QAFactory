@@ -22,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import case_versions as V  # noqa: E402
 import contract as C  # noqa: E402
 import critic_rollcall as R  # noqa: E402
+import gate_registry as GR  # noqa: E402
+import gate_template as GT  # noqa: E402
 
 LIVE_SAMPLE_ENV = "QA_FACTORY_LIVE_SAMPLE"
 
@@ -268,7 +270,63 @@ def test_md_column_empty_header() -> None:
         check_eq(f"{label}: None, never a raise", C.md_column(header, name), None)
 
 
+APPROVING = ("approve", "approve_with_fixes", "approve_with_concerns")
+HOSTILE_WORDS = ("Approve", " approve", "approve ", "", None, ["approve"], {"verdict": "approve"}, "\u0430pprove", "approve;reject", "approved", "a" * 10000)
+
+
+def test_case_rollcall_row_approves_exactly_the_three_words() -> None:
+    row = next(r for r in GR.load_registry(GR.PLUGIN_ROOT)[0]["rows"] if r["id"] == "case_rollcall")
+    check_eq("E11 the code list minus the row's words is the two refusing words", set(R.CASE_CRITIC_VERDICTS) - set(row["words"]), {"partial", "reject"})
+    check("E11 the row's words are known to the code list", set(row["words"]) <= set(R.CASE_CRITIC_VERDICTS))
+    registry = GR.load_registry(GR.PLUGIN_ROOT)[0]
+    no_row = {**registry, "rows": [r for r in registry["rows"] if r["id"] != "case_rollcall"]}
+    for consumer in row["accepts"]:
+        for word in (*R.CASE_CRITIC_VERDICTS, *HOSTILE_WORDS):
+            want = isinstance(word, str) and word in APPROVING
+            check_eq(f"E1/E3 {consumer} {str(word)[:12]!r}", GT.acceptable(word, consumer), want)
+            check_eq(f"E10 {consumer} {str(word)[:12]!r}: no row, no approval", GT.acceptable(word, consumer, registry=no_row), False)
+
+
+def test_unreadable_registry_never_approves() -> None:
+    row = {"reviewed": True, "verdict": "approve", "ids": ["TC-1"]}
+    text = _roll("| plan row | case | reviewed | verdict |", "| TS-1 | TC-1 | yes | approve |", "| TS-2 | TC-2 | no | approve |") + "\nVerdict: approve\n"
+    check_eq("T3 readable: an approving row is accepted", R._row_outcome("TC-1", row)[:2], ("accepted", "column"))
+    saved = list(GT._READ)
+    GT._READ[:] = [(None, "boom")]
+    try:
+        word, basis, why = R._row_outcome("TC-1", row)
+        check("E2 an approve row is partial/unreadable naming the registry", (word, basis) == ("partial", "unreadable") and "gate registry cannot be read" in why, why)
+        check_eq("E6 an unreviewed row keeps no_review", R._row_outcome("TC-1", {**row, "reviewed": False})[1], "no_review")
+        lines = [e for e in R.findings_errors(Path("critic-findings.md"), text) if "gate registry cannot be read" in e]
+        check_eq("E2 findings_errors has exactly one registry line", len(lines), 1)
+        check_eq("F3 a round is not read", R._read_round(text.encode(), "", {}, None, {}, "r")[2], [])
+        check_eq("E2 the design review is never accepted", design_review("approve"), "partial")
+    finally:
+        GT._READ[:] = saved
+
+
+def design_review(word: str) -> str:
+    """`Controller._declared_review_verdict` over a task folder whose findings file declares `word` (None: no file)."""
+    from controller import Controller
+    root = temp_project("qa-factory-design-review-")
+    try:
+        if word is not None:
+            (root / "test-cases").mkdir()
+            (root / "test-cases" / R.FINDINGS_FILE_NAME).write_text(f"## Roll-call\n\nVerdict: {word}\n", encoding="utf-8")
+        return Controller._declared_review_verdict(root)
+    finally:
+        cleanup(root)
+
+
+def test_design_review_reads_the_declared_word_through_the_row() -> None:
+    for word, want in (("approve", "accepted"), ("approve_with_concerns", "accepted"), ("reject", "reject"), ("Approve", "Approve"), (None, "accepted")):
+        check_eq(f"T4 declared {word!r}", design_review(word), want)
+
+
 if __name__ == "__main__":
+    test_case_rollcall_row_approves_exactly_the_three_words()
+    test_unreadable_registry_never_approves()
+    test_design_review_reads_the_declared_word_through_the_row()
     test_note_column_is_found_by_one_helper()
     test_verdict_and_fix_columns_are_found_by_one_helper()
     test_md_column_empty_header()

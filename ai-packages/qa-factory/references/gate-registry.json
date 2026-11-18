@@ -299,6 +299,35 @@
       "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
+      "id": "case_rollcall", "inventory": "RD1-32", "vocabulary": "code",
+      "decides": "the S4 case critic's verdict word - a roll-call row's `verdict` cell, or the round's `Verdict:` line where the table has no such column - approves: `approve`, `approve_with_fixes` and `approve_with_concerns` approve (the row is `accepted`, gate A's design review reads `accepted`, an approving round over unreviewed rows or over a merge without its concern is refused). Every other word or none does not approve: `partial` and `reject` (the critic's other words, `critic_rollcall.CASE_CRITIC_VERDICTS`) and an unknown word, which the roll-call names as no word of the critic's list (FR-35). Case-exact: each site reads the word as it does today (`parse_rollcall` lower-cases a cell; `scoped_verdict` and the S4 limit lower-case the `Verdict:` line; `findings_errors` and gate A's fallback do not). Per-word checks that are not this class (the concern carrier, the fixes block, the level rows) are not sites",
+      "sites": [
+        {"file": "critic_rollcall.py", "function": "_row_outcome", "role": "accept", "allow": [
+          {"compare": "row['verdict'] in CASE_CRITIC_VERDICTS", "why": "a known-word check of the critic's list (an unknown word is kept as written, FR-35), not an acceptance"}]},
+        {"file": "critic_rollcall.py", "function": "scoped_verdict", "role": "accept", "allow": [
+          {"compare": "declared not in CASE_CRITIC_VERDICTS", "why": "a known-word check of the critic's list (an unknown declared word is kept as written, FR-35), not an acceptance"}]},
+        {"file": "critic_rollcall.py", "function": "_round_word_rule", "role": "validate"},
+        {"file": "critic_rollcall.py", "function": "findings_errors", "role": "validate"},
+        {"file": "critic_rollcall.py", "function": "_merge_concern_errors", "role": "validate"},
+        {"file": "controller.py", "function": "_declared_review_verdict", "role": "accept"},
+        {"file": "driver_stage_plan.py", "function": "s4_limit_unknowns", "role": "validate"}
+      ],
+      "field": null,
+      "words": ["approve", "approve_with_fixes", "approve_with_concerns"],
+      "verdict_map": {"approve": {"class": "matched"}, "approve_with_fixes": {"class": "matched"}, "approve_with_concerns": {"class": "matched"}},
+      "accepts": {
+        "case_rollcall.row": ["matched"], "case_rollcall.round_word": ["matched"], "case_rollcall.word_rule": ["matched"],
+        "case_rollcall.findings_check": ["matched"], "case_rollcall.merge_concern": ["matched"],
+        "case_rollcall.design_review": ["matched"], "case_rollcall.limit_question": ["matched"]
+      },
+      "promotable": false,
+      "unknown_branch": "refuse_with_door", "on_no_answer": "refuse_with_door", "waits_at": null,
+      "closed_by": [], "addressee": ["role:qa-case-critic"], "person_subject": null,
+      "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
+      "test": "scripts/tests/test_critic_rollcall_apply_fixes.py",
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
+    },
+    {
       "id": "delivery", "inventory": "G11", "vocabulary": "code",
       "decides": "delivery_verdict: the aggregator that maps every typed record of every other gate to a kind (references/delivery-verdict-kinds.json) and the kinds to one of three words - yes, after_checks (ready once the person finishes the checks left with them) or no; a kind the file does not hold, or a kinds file that cannot be read, is no (it never asks): refused with the kinds-file door (owner: factory); after_checks is not a refusal, it hands the person their checks (P21)",
       "sites": [
