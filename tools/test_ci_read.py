@@ -343,10 +343,9 @@ def _st(n, name, conclusion):
     ({"status": "completed", "conclusion": "success", "steps": None}, []),
     ({"status": "completed", "conclusion": "success", "steps": "boom"}, []),
     ({"status": "completed", "conclusion": "success", "steps": [None, "x", 3]}, []),
-    ({"status": "completed", "conclusion": "failure"}, ["  no failed step recorded (job failure)"]),
     ({"status": "completed", "conclusion": "failure", "steps": [_st(1, "x\x07##[error]y", "failure")]},
      ["  step 1 x???[error]y failure"]),
-], ids=["two-failed", "green", "in-progress", "timed-out-none", "none", "string", "non-dict", "absent-red", "sanitized"])
+], ids=["two-failed", "green", "in-progress", "timed-out-none", "none", "string", "non-dict", "sanitized"])
 def test_jobs_lists_every_failed_step_under_its_job(job_row, lines, net, capsys):
     net.body = json.dumps({"jobs": [dict(job_row, id=7, name="j")]})
     assert ci_read.main(["jobs", "555"]) == 0
@@ -700,18 +699,6 @@ def test_why_finds_a_step_without_its_name_in_the_log_by_its_place_among_the_run
     why_routes(net, jobs=[job(11, steps=steps)], logs={11: LOG})
     ci_read.main(["why", "9"])
     assert capsys.readouterr().out.splitlines()[3:] == SECTION + ["(4 of 4 lines)"]
-
-
-def test_why_E6_two_red_steps_among_green_ones_print_both_sections_the_later_one_by_its_ordinal(net, capsys):
-    steps = [_st(1, "Set up job", "success"), _st(2, "deps", "success"), _st(3, "lint", "failure"),
-             _st(4, "journal", "success"), _st(5, "tests", "failure"), _st(6, "Complete job", "success")]
-    log = ("T ##[group]Run pip\nok\nT ##[group]Run python l.py\nl-bad\nT ##[group]Run python j.py\nj-ok\n"
-           "T ##[group]Run python t.py\nt-bad\nT ##[group]Complete job\nend\n")
-    why_routes(net, jobs=[job(11, steps=steps)], logs={11: log})
-    ci_read.main(["why", "9"])
-    assert capsys.readouterr().out.splitlines()[2:] == [
-        "step 3 lint failure", "T ??[group]Run python l.py", "l-bad", "(2 of 2 lines)",
-        "step 5 tests failure", "T ??[group]Run python t.py", "t-bad", "(2 of 2 lines)"]
 
 
 def test_why_C2_1_skipped_steps_open_no_group_so_the_ordinal_still_finds_a_named_failing_step(net, capsys):

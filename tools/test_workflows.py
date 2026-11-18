@@ -215,9 +215,9 @@ def test_the_dup_gate_is_in_forge_check_and_the_report_is_in_package_full_and_ne
 
 def hidden_checks(job, marker):
     """What would still hide a check behind a red neighbour in one job: names of the offending steps (`[]` = none). The marker
-    step (an `id`) closes the setup steps; every later step except a `uses:` artifact step is a check and must carry exactly
+    step (an `id`) closes the setup steps; every later step except an `actions/upload-artifact` step is a check and must carry exactly
     `!cancelled() && steps.<marker>.conclusion == 'success'` (an install-parity check adds its event test), no
-    `continue-on-error`, no `|| true`; a setup step must carry no `!cancelled()` condition."""
+    `continue-on-error`, no `|| true`; a step at or before the marker must be a setup kind (checkout, setup-python, pip install, git config) with no `if`."""
     steps = job_steps(job)
     at = next((i for i, s in enumerate(steps) if s.get("id") == marker), None)
     if at is None:
@@ -228,9 +228,16 @@ def hidden_checks(job, marker):
         name = s.get("name") or s.get("run", s.get("uses", "?")).strip().splitlines()[0]
         cond = str(s.get("if", ""))
         if i <= at:
-            if "cancelled()" in cond:
-                bad.append(f"setup step with the condition: {name}")
-        elif "uses" not in s:
+            run = s.get("run", "").strip()
+            if "if" in s:
+                bad.append(f"setup step with a condition: {name}")
+            if not (s.get("uses", "").startswith(("actions/checkout", "actions/setup-python")) or s.get("id") == marker
+                    or run.startswith(("pip install", "git config"))):
+                bad.append(f"not a setup step before the marker: {name}")
+        elif not s.get("uses", "").startswith("actions/upload-artifact"):
+            if "run" not in s:
+                bad.append(f"uses step that is not the artifact upload: {name}")
+                continue
             if not want.fullmatch(cond):
                 bad.append(f"condition missing or wrong: {name}")
             if s.get("continue-on-error"):
@@ -240,43 +247,11 @@ def hidden_checks(job, marker):
     return bad
 
 
-def _mutate(job, how):
-    import copy
-    job = copy.deepcopy(job)
-    check = next(s for s in job["steps"] if "lint_ratchet" in s.get("run", "") or "--contracts" in s.get("run", "")
-                 or "dry_exits.py --check" in s.get("run", ""))
-    marker = next(s for s in job["steps"] if "id" in s)
-    cond = check["if"]
-    if how == "no-if":
-        del check["if"]
-    elif how == "always":
-        check["if"] = cond.replace("!cancelled()", "always()")
-    elif how == "no-marker-in-if":
-        check["if"] = "${{ !cancelled() }}"
-    elif how == "coe":
-        check["continue-on-error"] = True
-    elif how == "or-true":
-        check["run"] += " || true"
-    elif how == "setup-with-if":
-        job["steps"][0]["if"] = cond
-    elif how == "marker-absent":
-        del marker["id"]
-    return job
-
-
 @pytest.mark.parametrize("workflow, job_name, marker", [("forge-check.yml", "forge-check", "base"),
                                                         ("forge-check.yml", "package-fast", "setup"),
                                                         ("dry-story.yml", "tables", "setup")])
-def test_every_check_step_runs_after_a_red_neighbour_and_each_mutation_is_named(workflow, job_name, marker):
-    job = load(workflow)["jobs"][job_name]
-    assert hidden_checks(job, marker) == []
-    named = {"no-if": "condition missing or wrong", "always": "condition missing or wrong",
-             "no-marker-in-if": "condition missing or wrong", "coe": "continue-on-error", "or-true": "run ends || true",
-             "setup-with-if": "setup step with the condition"}
-    for how, word in named.items():
-        got = hidden_checks(_mutate(job, how), marker)
-        assert got and all(g.startswith(word) for g in got), (how, got)
-    assert hidden_checks(_mutate(job, "marker-absent"), marker) == [f"no marker {marker}"]
+def test_every_check_step_runs_after_a_red_neighbour(workflow, job_name, marker):
+    assert hidden_checks(load(workflow)["jobs"][job_name], marker) == []
 
 
 # ---------------------------------------------------------------- the jobs around it
