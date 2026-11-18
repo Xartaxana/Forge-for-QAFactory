@@ -45,7 +45,7 @@ EXPECTED_IDS = [
     "witness_backstop", "equivalence_metric", "then_oracle",
     "exploratory_oracle",   # MR !10 W4 (t-1594): the exploratory findings oracle that accepts person_confirmed (F2(a)); unknown branch debt
     "stand_login_gate", "stand_check",
-    "s5_stand_limits", "reporter_rehearsal_identity", "environment_property_cover", "source_freshness",
+    "reporter_rehearsal_identity", "environment_property_cover", "source_freshness",
     "probe_verdict",      # B-373 (c) adds the probe verdict (t-531, integration batch 0.9)
     "finish_exit_gate",   # GW1-8 (t-1264): `story_step finish` re-runs the stage's exit gate; unknown branch refuse_with_door
     "branch_accounting",  # TQ1-20 / G2-11 (S6.01): the S2 exit detector of branch accounting; unknown branch refuse_with_door
@@ -65,9 +65,9 @@ EXPECTED_IDS = [
 # Merged (t-1083): both cards on one branch; 6 -> 4 debt rows.
 # C3-g (t-1157, AR-20): baseline_identity converted (B-281; the receipt's status word through the predicate); 4 -> 3 debt rows.
 # C3-h (RD1-11, t-1179, AR-20): stand_identity converted (B-257; no code, the probe's own result words); 3 -> 2 debt rows.
+# C3-j2, t-1269: s5_stand_limits deleted (owner, 17.11.2026); 2 -> 1 debt rows, 33 -> 32 rows in all, converted unchanged.
 EXPECTED_DEBT = {
-    "provenance_acceptance": "B-255",
-    "s5_stand_limits": "B-282"}
+    "provenance_acceptance": "B-255"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
 EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "stand_check", "probe_verdict",
@@ -262,7 +262,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "2 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "1 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -319,6 +319,8 @@ def part_live_registry() -> None:
                                               "('unknown', WHY_RUN_NO_IDENTITY)",
                                               "('unknown', why or WHY_RUN_NOT_COMPARED)",
                                               "how in ('instance_code', 'file_code')",
+                                              "word == 'raw'",
+                                              "('unknown', 'unknown', _first_sha(red), _first_sha(green))",
                                               "row['verdict'] in CASE_CRITIC_VERDICTS",         # RD1-32 (t-1335): known-word checks of the case critic's list
                                               "declared not in CASE_CRITIC_VERDICTS"])
 
@@ -345,7 +347,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the two rows left after C3-R, its fix round, C3-b1, C3-d, C3-b2, C3-g and C3-h", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the one row left after C3-R, its fix round, C3-b1, C3-d, C3-b2, C3-g, C3-h and C3-j2", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -364,8 +366,9 @@ def part_live_registry() -> None:
     # merged (t-1083): converted 21 -> 23, debt 6 -> 4
     # C3-g (t-1157): baseline_identity converted, converted 23 -> 24, debt 4 -> 3
     # C3-h (t-1179): stand_identity converted, converted 24 -> 25, debt 3 -> 2
-    check_eq("K-T1.14 the registry file's rows split 27 converted / 2 debt / 6 exempt (C3-R converted six debt rows for good; RD1-32 adds case_rollcall)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 27, "debt": 2, "exempt": 6})
+    # C3-j2 (t-1269): s5_stand_limits deleted (owner, 17.11.2026), debt 2 -> 1, converted unchanged
+    check_eq("K-T1.14 the registry file's rows split 27 converted / 1 debt / 6 exempt (C3-R converted six debt rows for good; RD1-32 adds case_rollcall)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 27, "debt": 1, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -1027,6 +1030,7 @@ def part_text() -> None:
 # of a registered site (or a registry edit that dropped a site) was seen only as a smaller count. These are the triples, with no line
 # numbers (a moved line never breaks the pin). An addition or a removal here is a decision, taken in the diff that makes it.
 D13_TRIPLES = [
+    ("acceptance.py", "green_on_current_bytes_why", "test_identity"),   # RD1-26 (t-1309): `word == 'raw'`, the declared E11 narrowing (allowed)
     ("check_delivery.py", "assess", "delivery"),
     ("contract.py", "resolve_then_oracle", "then_oracle"),
     ("contract.py", "then_oracle_errors", "then_oracle"),
@@ -1084,6 +1088,7 @@ D13_TRIPLES = [
     ("proof_level.py", "already_probed", "test_identity"),
     ("proof_level.py", "novelty_of", "live_check_demand"),
     ("proof_level.py", "same_test", "test_identity"),      # C3-b2 (t-1080): `verdict == 'same'` counts once the row's words gain `same`; `same_test` is a produce site
+    ("run_history.py", "_compare_shas", "test_identity"),   # RD1-26 (t-1309): the returned unknown tuple (allowed), a state returned to the caller
     ("run_suite.py", "build_run_block", "equivalence_metric"),
     ("run_suite.py", "selection_line", "equivalence_metric"),
     ("runtime_probe.py", "conclude", "stand_identity"),
@@ -1140,12 +1145,15 @@ D13_TRIPLES = [
 # `window_record.review_note` (an `acceptable(...)` call, role `accept` under `s5_window`), so the triple `("window_record.py", "build", "s5_window")`
 # leaves the set (54 -> 53 triples) and the count falls by that one comparison. Measured with `gate_registry.py --sites` before (151) and after (150).
 # The new row `critic_review` (six sites) adds no counted comparison: its sites ask `acceptable` and compare no row word.
-# 150 -> 156 (RD1-32, t-1335, AR-20): card estimate +6 items / +4 triples, measured with `gate_registry.py --sites` before (150 / 53) and after
-# (156 / 57). The new row `case_rollcall` registers `critic_rollcall.py` accept/validate sites, so the scan counts the comparisons of the case
+# 150 -> 152 (RD1-26, t-1309, AR-20; `--sites` 150 / 53 triples before, 152 / 55 after), both allowed under `test_identity`: `green_on_current_bytes_why`
+# `word == 'raw'` (the E11 narrowing, F3 (a)) and `_compare_shas` `('unknown', 'unknown', ...)` (a state returned to the caller).
+# `_bound_to` and `_job_contract` add none (`basis == 'content'` is a word of no row).
+# 152 -> 158 (RD1-32, t-1335, AR-20): card estimate +6 items / +4 triples, measured with `gate_registry.py --sites` before (152 / 55) and after
+# (158 / 59). The new row `case_rollcall` registers `critic_rollcall.py` accept/validate sites, so the scan counts the comparisons of the case
 # critic's words there: `_row_outcome` `row['verdict'] in CASE_CRITIC_VERDICTS` (allowed), `scoped_verdict` `declared not in CASE_CRITIC_VERDICTS` (allowed),
 # `findings_errors` `verdict not in CASE_CRITIC_VERDICTS`, `verdict == 'approve_with_fixes'`, `verdict not in ('approve_with_fixes', '')`, and
 # `_merge_concern_errors` `word == 'approve_with_concerns'` (the last four are `validate` sites, allowed by role). Triples added: those four functions.
-D13_ITEM_COUNT = 156
+D13_ITEM_COUNT = 158
 
 
 def part_site_attribution() -> None:

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import contract as C  # noqa: E402
 import proof_level  # noqa: E402
-from gate_template import acceptable  # noqa: E402  (the ONE predicate the critic's review word is accepted through: row `s5_window`)
+from gate_template import acceptable, registry_problem, registry_why  # noqa: E402  (the ONE predicate: rows `s5_window` and `test_identity`)
 from hooklib import read_json, sorted_paths  # noqa: E402
 
 # A mechanical fix (a sleep, a raw locator, a lint) made on the critic's word after the review
@@ -173,12 +173,18 @@ def green_on_current_bytes_why(item, window, root) -> tuple:
             reasons.append(f"job {attempt}: {missing}")
             continue
         # The one predicate, asked of the raw file shas only (E11): the review of a mechanical round is bound to
-        # the raw bytes the reviewer saw, so `instance`/`file_code` answers are not accepted here.
-        if proof_level.same_test({"input_hash": item.get("input_hash")}, {"input_hash": raw}) != "raw":
-            reasons.append(f"job {attempt} ran the test file as sha256 {raw}, the instance now holds "
-                           f"{item.get('input_hash')}")
-            continue
-        return True, ""
+        # the raw bytes the reviewer saw, so `instance`/`file_code` answers are not accepted here. The row's class
+        # `matched` does not separate raw from instance, so the narrowing to `raw` is declared at this site (F3 (a)).
+        word = proof_level.same_test({"input_hash": item.get("input_hash")}, {"input_hash": raw})
+        if acceptable(word, "test_identity.mechanical_bytes") and word == "raw":
+            return True, ""
+        # An unreadable registry says so here (E26-5): after the job's raw sha is read, before the bytes reason, which
+        # would claim a difference nobody measured (FR-41).
+        problem = registry_problem()
+        if problem:
+            return False, registry_why(problem, "whether the author's green run used these bytes is not known")
+        reasons.append(f"job {attempt} ran the test file as sha256 {raw}, the instance now holds "
+                       f"{item.get('input_hash')}")
     if not reasons:
         reasons.append(f"no run block under work/run-blocks/ of {record['author_dispatch_id']} has "
                        f"input_fingerprint {fingerprint}")
@@ -205,10 +211,13 @@ def _bound_to(item, proof, window, root):
     """A review or probe is current when it still speaks for THIS test - `proof_level.same_test`, the
     one predicate the reports, the probes and this window share (per test instance: the same bytes, the
     same test after an edit of another one, or the same code of it after a comment) - or the bytes it
-    was bound to before a mechanical fix that the author has since run green on the current bytes.
+    was bound to before a mechanical fix that the author has since run green on the current bytes. Both roads read
+    the `test_identity` row (consumers `window_bound`, `mechanical_bytes`), so on an unreadable registry nothing binds (AR-28).
     The `bound == record["reviewed_input_hash"]` comparison (and its twin at the window check) is intentional: it
     compares a RECORDED value with its copy (`window_record`), not a measurement of a test (RH1-9, §2 (vii))."""
-    if proof_level.same_test(proof_level.proof_identity(item), proof_level.proof_identity(proof)):
+    # Row `test_identity`, consumer `window_bound`: the matched words of `same_test` bind; an unreadable registry binds nothing.
+    if acceptable(proof_level.same_test(proof_level.proof_identity(item), proof_level.proof_identity(proof)),
+                  "test_identity.window_bound"):
         return True
     bound = (proof or {}).get("input_hash")
     record = mechanical_round(window)

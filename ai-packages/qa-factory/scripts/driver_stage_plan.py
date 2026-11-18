@@ -798,7 +798,7 @@ class DriverStagePlan:
 
     def s4_limit_unknowns(self, dispatch: str, form: str, counted, cap, findings):
         """The unknowns of the S4 limit question: `(rows, ())` when the roll-call is known and names rejected cases, else `(None, (what
-        the conductor seam returned,))`. Order: a repair count that is no pair of numbers, a roll-call that cannot be read, one that names
+        the conductor seam returned,))`. Order: a repair count that is no pair of numbers, a gate registry that cannot be read (the approving words are unjudged), a roll-call that cannot be read, one that names
         a rejecting word over no rejected case (the critic contradicts itself: the seam, never a list), one that names no case under a
         `concerns` header -> the conductor seam (`unreadable=True` for an unknown, FR-59)."""
         import acceptance

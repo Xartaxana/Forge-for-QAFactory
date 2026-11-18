@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -76,10 +77,19 @@ def write_config(root, text):
 
 
 @pytest.fixture
-def set_origin(monkeypatch):
+def git_diff_answer():
+    """The faked `git diff` of the workflow note: .answers = the (rc, out, err) replies in call order, .calls = the asks."""
+    return SimpleNamespace(answers=[], calls=[])
+
+
+@pytest.fixture
+def set_origin(monkeypatch, git_diff_answer):
     """set_origin(url) makes `git remote get-url origin` answer url; set_origin(None) = there is no origin."""
     def setter(url):
         def fake_git(root, *args, **kwargs):
+            if args[0] == "diff":                      # the workflow note of `start`: faked, never a real tree
+                git_diff_answer.calls.append(args)
+                return git_diff_answer.answers.pop(0) if git_diff_answer.answers else (0, b"", b"")
             assert args == ("remote", "get-url", "origin")
             return (1, b"") if url is None else (0, url.encode("utf-8") + b"\n")
         monkeypatch.setattr(ci_read.gitcmd, "git", fake_git)
@@ -838,3 +848,23 @@ def test_run_state_is_unknown_when_nothing_can_be_known(how, net, monkeypatch, s
     else:
         set_origin(None)
     assert ci_read.run_state(ci_read.ROOT, SHA) == ("unknown", [])
+
+
+NO = (128, b"", b"fatal: bad revision")
+@pytest.mark.parametrize("ref,answers,expect", [
+    ("br", [(0, b"", b"")], None),                                                        # E1 no workflow touched
+    ("br", [(0, b".github/workflows/canon.yml\n", b"")], "canon.yml is changed on br, but this run uses main's version"),        # E2
+    ("br", [(0, b".github/workflows/nightly.yml\n", b"")], "nightly.yml changed on br, which does not affect the run of canon.yml unless it is reusable/called"),  # E3
+    ("br", [NO, NO], "workflow check skipped: neither origin/br nor br resolves (fatal: bad revision)"),  # E4 stderr only
+    ("br", [NO, (0, b".github/workflows/canon.yml\n", b"")], "canon.yml is changed on br"),                                      # only local
+    ("br", [(0, b".github/workflows/canon.yml\n", b"")], "canon.yml is changed on br"),                                          # only on origin (origin wins)
+    ("main", [], None),                                                                   # E5 git not asked
+])
+def test_start_notes_a_branch_edit_of_the_dispatched_workflow(ref, answers, expect, net, capsys, git_diff_answer):
+    git_diff_answer.answers = list(answers)
+    net.routes = [("/dispatches", _Resp(b"", status=204))]
+    assert ci_read.main(["start", "--ref", ref]) == 0                  # the note never changes the exit code
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("dispatched canon.yml for %s" % ref) and len(net.requests) == 1
+    assert len(lines) == (1 if expect is None else 2) and (expect is None or expect in lines[1])
+    assert (ref == "main") == (git_diff_answer.calls == [])

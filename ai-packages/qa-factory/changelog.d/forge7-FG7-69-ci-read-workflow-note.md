@@ -1,0 +1,1 @@
+- `ci_read.py start` now prints one note after dispatching when the ref edits the dispatched workflow file (the run uses main's version of it), a weaker note for other workflow files, or "workflow check skipped: <reason>" when git diff fails; the dispatch and exit code are unchanged.

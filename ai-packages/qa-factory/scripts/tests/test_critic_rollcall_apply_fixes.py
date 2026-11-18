@@ -8,6 +8,8 @@ shapes a hand-built fixture would not reliably reproduce).
 
 Runnable on its own: `python -B scripts/tests/test_critic_rollcall_apply_fixes.py`.
 """
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -280,7 +282,7 @@ def test_case_rollcall_row_approves_exactly_the_three_words() -> None:
     registry = GR.load_registry(GR.PLUGIN_ROOT)[0]
     no_row = {**registry, "rows": [r for r in registry["rows"] if r["id"] != "case_rollcall"]}
     for consumer in row["accepts"]:
-        for word in (*R.CASE_CRITIC_VERDICTS, *HOSTILE_WORDS):
+        for word in (*R.CASE_CRITIC_VERDICTS, *row["words"], *HOSTILE_WORDS):
             want = isinstance(word, str) and word in APPROVING
             check_eq(f"E1/E3 {consumer} {str(word)[:12]!r}", GT.acceptable(word, consumer), want)
             check_eq(f"E10 {consumer} {str(word)[:12]!r}: no row, no approval", GT.acceptable(word, consumer, registry=no_row), False)
@@ -296,6 +298,23 @@ def test_unreadable_registry_never_approves() -> None:
         check("E2 an approve row is partial/unreadable naming the registry", (word, basis) == ("partial", "unreadable") and "gate registry cannot be read" in why, why)
         lines = [e for e in R.findings_errors(Path("critic-findings.md"), text) if "gate registry cannot be read" in e]
         check_eq("E2 findings_errors has exactly one registry line", len(lines), 1)
+        check_eq("F3 current_rejected is None, the round is not read", R.current_rejected(text.encode(), None), None)
+        check_eq("E2 the design review is partial", design_review("approve"), "partial")
+        root = temp_project("qa-factory-detector-")
+        try:
+            (root / "test-cases").mkdir()
+            (root / "test-cases" / R.FINDINGS_FILE_NAME).write_text(text, encoding="utf-8")
+            import planning_contract
+            real, planning_contract.detector_story = planning_contract.detector_story, lambda *a, **k: root
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    code = R.detector_main(root)
+            finally:
+                planning_contract.detector_story = real
+            check("E2/E12 detector_main exits 3 with an UNREADABLE line and no waiver door", code == 3 and "UNREADABLE" in out.getvalue() and "waiver" not in out.getvalue(), out.getvalue())
+        finally:
+            cleanup(root)
     finally:
         GT._READ[:] = saved
 
@@ -314,6 +333,11 @@ def design_review(word: str) -> str:
 
 
 def test_design_review_reads_the_declared_word_through_the_row() -> None:
+    saved, sys.modules["critic_rollcall"] = sys.modules["critic_rollcall"], None
+    try:
+        check_eq("F6 a failed import is partial, never accepted", design_review("approve"), "partial")
+    finally:
+        sys.modules["critic_rollcall"] = saved
     for word, want in (("approve", "accepted"), ("reject", "reject"), ("Approve", "Approve"), (None, "accepted")):
         check_eq(f"T4 declared {word!r}", design_review(word), want)
 
