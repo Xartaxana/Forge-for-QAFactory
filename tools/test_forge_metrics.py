@@ -1391,11 +1391,11 @@ NC_CASES = [
     ("refused_then_passed_counts_once_each",
      [D("t-001", "a1"), A("t-001")], ALL5, None, 1,
      lambda d, r: (_refused(d, r, **{"t-001": 1}) and (r["t-001"]["redelegations"], r["t-001"]["moves"]) == (0, 1)
-                   and d["totals"]["no_node"]["refused"] == {"no_task": 1, "outside": 0} and d["totals"]["failed"] == 1
+                   and d["totals"]["no_node"]["refused"] == {"no_task": 2, "outside": 0} and d["totals"]["failed"] == 1
                    and d["totals"]["refused"] == {"rows": 1, "shared": 0}),
      {"sess": _refusal("y1", "task: t-001\nbody", copies=True)
       + [_call("y2", "task: t-001\nbody", "cy2"), _result("y2", "PreToolUse:Agent hook additional context: x", "ry2", err=False)]
-      + _refusal("y3", "no headers at all") + _refusal("y4", "task: t-001", sidechain=True)
+      + _refusal("y3", "no headers at all") + _refusal("y6", "feature: F19") + _refusal("y4", "task: t-001", sidechain=True)
       + [_call("y5", "task: t-001", "cy5"), _result("y5", "The user doesn't want to proceed", "ry5")]
       + [_call("b1", "x", "cb1", name="Bash"), _result("b1", "PreToolUse:Bash hook error: x", "rb1")]}),
     ("refused_node_only_and_outside",
@@ -1495,11 +1495,12 @@ NC_RENDERS = [
     ("refused_cell_and_cannot_judge",
      [D("t-001", "a1"), A("t-001")], ALL5,
      lambda d, t: ("| 1 (resumes 0, refused 1) |" in t and "refused with no task or node line 1" in t
-                   and "other failed Agent calls" not in t),
-     {"sess": _refusal("y1", "task: t-001") + _refusal("y2", "no headers")}),
+                   and "; other failed Agent calls 1" in t),
+     {"sess": _refusal("y1", "task: t-001") + _refusal("y2", "no headers")
+      + [_call("y5", "task: t-001", "cy5"), _result("y5", "The user doesn't want to proceed", "ry5")]}),
     ("no_session_read_prints_cannot_judge",
      [D("t-001", "a1"), A("t-001")], ALL5,
-     lambda d, t: ("refused cannot judge, unscanned 1" in t
+     lambda d, t: ("refused cannot judge, unscanned 1" in t and "other failed Agent calls" not in t
                    and "; refused dispatches: cannot judge (no parent session read)" in t), "no_root"),
     ("ties_by_name",
      [D("t-002", "a2"), A("t-002"), D("t-001", "a1"), A("t-001")], ALL5,
