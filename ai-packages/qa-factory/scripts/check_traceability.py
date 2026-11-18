@@ -35,6 +35,20 @@ PASSED = ("passed", "pass")
 FAILED = ("failed", "fail")
 
 
+def _walked_unprepared(case: str, report: dict, cfg) -> bool:
+    """True when `manual_evidence.current_unprepared` holds the case (a walked, current, result-less unprepared record), no
+    disqualified row names it, AND no current automated result row names it - a real result is never replaced by the marker. Never raises: False is the old gap."""
+    try:
+        from manual_evidence import current_unprepared, unprepared_disqualified
+        if (not C.names_case(current_unprepared(report), case, cfg)
+                or C.names_case(unprepared_disqualified(report), case, cfg)):       # F3: a not-walked row of the case in another area
+            return False
+        return not any(C.names_case(C._result_row_keys(row, cfg), case, cfg)
+                       for row in C.current_instance_results(report).values())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _case_chain(case: str, row: dict, manifest: dict, report: dict, stricter=frozenset(), handed=frozenset(),
                 cfg=None, triage_rows=None) -> tuple:
     """(outcome, detail, gap): ONE walk of the chain for a case, read by `outcome_for_case` and `gap_of_case` (C5: no
@@ -42,6 +56,7 @@ def _case_chain(case: str, row: dict, manifest: dict, report: dict, stricter=fro
     delivery verdict is decided from the word, never from the detail's sentence (FR-12):
       `unresolved:<reason>`      the manifest's `unresolved[]` row for the case, with no decision attached
                                  (`no_reason` when the row has none);
+      `unresolved:unprepared_walk`  a walked unprepared manual case, read from the run report, not from the manifest's `unresolved[]`;
       `result:<status>`          the run recorded a result that is not terminal (inconclusive, skipped, partial, ...);
       `manual_human_no_package`  a manual-human case with no evidence package;
       `unresolved:handed_to_person`  a manual-agent case the person took by hand at a refused stand (`handed`: the caller's
@@ -101,6 +116,12 @@ def _case_chain(case: str, row: dict, manifest: dict, report: dict, stricter=fro
             if reading == "read":
                 return ("", f"{case}: the run's results could not be read by code; the failure analyst read the log",
                         "result:report_unread")
+        if result == "" and _walked_unprepared(case, report, cfg):
+            # U7 7c: the factory could not prepare this manual case, the runner walked it and described it, and no automated row
+            # names it: the check is left with the person (`unprepared_walk`), not a broken chain. A stale record, a not-walked one
+            # and any other empty word keep `result:none` below (nobody looked, or an old look: `no`, AR-28)
+            return ("", f"{case}: the factory could not prepare this check; the agent walked it without a result",
+                    "unresolved:unprepared_walk")
         return ("", f"{case}: run result '{result}' is not terminal", f"result:{result or 'none'}")
 
     if disposition == "manual-human":

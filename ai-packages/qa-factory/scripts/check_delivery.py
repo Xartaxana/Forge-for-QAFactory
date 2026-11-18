@@ -1722,6 +1722,11 @@ def ledger_records(ledger: dict, facts: dict | None = None) -> list:
             if kind is None:
                 kind = f"ledger_state:{state}"
             rec_cases = cases
+            if state in (L.UNPREPARED_WALK_STATE, L.REPORT_UNREAD_STATE) and row.get("kind") == "plan_row":
+                # F2: the plan row's state names the cases it is about (`plan_row_state` detail, ", "-joined); a passed, skipped or
+                # deferred sibling is not "left with you". An empty scope keeps every case (the old reading)
+                named = {_bare(c.strip()) for c in str(row.get("detail") or "").split(",")}
+                rec_cases = [c for c in cases if c in named] or cases
             if kind == "assert_stricter":
                 # B1 (t-1338): the kind belongs to the cases whose triage row is the word with a well-formed experiment, not to
                 # every case of the plan row (the ledger gives a plan row the verdict of its first failed case): a green or
@@ -1811,6 +1816,37 @@ def unread_obligations(doc: dict, facts: dict) -> tuple:
         return frozenset(excused), frozenset(red)
     except Exception:  # noqa: BLE001
         return frozenset(), frozenset()
+
+
+UNPREPARED_GAP = "not checked by hand: unprepared"      # the head of `coverage_contract`'s gap for an obligation of an unprepared walk
+
+
+def unprepared_obligations(doc: dict, report: dict) -> frozenset:
+    """Obligation ids whose manual rows ALL belong to a walked, current, result-less unprepared case
+    (`manual_evidence.current_unprepared`, U7 7c N9, N10): the item is the case's `unprepared_walk` (`after_checks`), so
+    `coverage_reasons` skips them through the same `excused` set as `unread_obligations`. The coverage guards of that twin: a
+    non-empty string id, `execution_state` present and not `failed`, `oracle_open` False, the gap text starting
+    `not checked by hand: unprepared`. `verified` stays False. Error direction: toward the gap; never raises (-> empty)."""
+    try:
+        from manual_evidence import current_unprepared
+        walked = current_unprepared(report)
+        cases_of: dict = {}
+        for row in (report or {}).get("current_manual_checks") or []:
+            if isinstance(row, dict):       # F4: a row with no case is keyed "", which is never a walked case: no excuse
+                for oid in row.get("current_obligation_ids") or row.get("obligation_ids") or []:
+                    cases_of.setdefault(oid, set()).add(str(row.get("case") or ""))
+        out = set()
+        for ob in (doc or {}).get("coverage", {}).get("obligations", []):
+            oid = ob.get("obligation_id")
+            if not isinstance(oid, str) or not oid:     # same guard as `unread_obligations` (t-1304 F2)
+                continue
+            cases = cases_of.get(oid)
+            if (cases and all(oid in walked.get(c, ()) for c in cases) and ob.get("execution_state", "failed") != "failed"
+                    and ob.get("oracle_open") is False and str(ob.get("gap") or "").startswith(UNPREPARED_GAP)):
+                out.add(oid)
+        return frozenset(out)
+    except Exception:  # noqa: BLE001
+        return frozenset()
 
 
 def coverage_reasons(doc: dict, handed_rows_of_plan: frozenset = frozenset(), excused: frozenset = frozenset(),
@@ -1948,7 +1984,8 @@ def unprepared_records(ledger: dict) -> list:
     kind `unprepared_walk` (`after_checks`, owner factory) - the case is a "Left with you" item under its own name, with the
     reason as what is left to check. The ONE reader of the ledger's `unprepared_walks` (the list `ledger.build` writes from
     `manual_evidence.unprepared_rows`); a ledger without the key has none. The walk never proves a requirement: coverage
-    keeps `verified` False and the requirement keeps its own kind (Fork 13 A, AR-28). The record carries no `requirements`: the
+    keeps `verified` False. U7 7c: a WALKED case's requirement no longer yields its own `chain_broken` or coverage reason (its trace
+    gap is `unresolved:unprepared_walk`, the obligation is excused); a not-walked or stale one keeps both (`no`, AR-28). The record carries no `requirements`: the
     walk row holds none, and `build_left_items` fills the item's from the case index."""
     out = []
     for walk in (ledger or {}).get("unprepared_walks") or []:
@@ -2739,6 +2776,7 @@ def assess(artifacts: Path, finalized_delivery: bool = False) -> dict:
         own(["manual evidence export: " + str(issue) for issue in doc.get("manual_evidence", {}).get("errors", [])],
             "factory_record")
         excused, unread_red = unread_obligations(doc, facts)
+        excused = excused | unprepared_obligations(doc, facts.get("report"))      # U7 7c (N10): the walk twin, the SAME `excused` set
         own(coverage_reasons(doc, handed_plan_rows(artifacts), excused, unread_red), "coverage_gap")
         # TQ1-20: POSITION after the filter above (it must not drop a branch) and before `decide` (which must see it).
         records += branch_records(artifacts)
