@@ -1,0 +1,96 @@
+# The batch / release canon, started by hand or by a push to worktree-agent-** (replaces `tools/ci_read.py start --ref <branch>` and the docker canon).
+# STAGED COPY: goes to .github/workflows/ of Xartaxana/Forge-for-QAFactory at the move.
+# Start: GitHub -> Actions -> canon -> Run workflow -> branch; or from a terminal / a cloud session:
+#   gh workflow run canon.yml -f ref=<branch>
+#   gh run watch            # or: gh run list --workflow canon.yml ; gh run view <id> --log-failed
+# What it runs: tier 1 + tier 2 (forge-check.yml) AND the full tier (nightly.yml package-full) on the same ref,
+# on a clean Linux python:3.12 machine -- the same thing the docker canon proved on the owner's machine; plus the
+# test-redundancy measurement of nightly.yml when the input TEST_REDUNDANCY is 1 or the ref starts with measure/.
+# The quarantine watch is never part of the canon (quarantine-watch.yml; the full selftest skips the quarantine rows).
+# The clock (.gitlab-ci.yml canon-clock): the wall time of the whole canon against 60 minutes, read after a red job too.
+# The hour is a norm to measure, not a gate on duration yet: the door `canon-over-hour: <reason>` in the head commit message
+# is measured in the first week on GitHub (owner's word 28.10.2026, decision FK-4) and tightened or loosened from that number.
+# run-name: the list of runs shows the ref being canonised (head_branch of a dispatched run is always main).
+# Autostart: a push to a branch worktree-agent-** starts the canon alone on that branch (no inputs: no redundancy, not dry_only).
+# Autocancel: a push run is in group canon-push-<branch>, so a newer push of the branch cancels the older push run; a dispatch run
+# is in a group of its own and is never cancelled and never cancels (main, release, TEST_REDUNDANCY, dry_only; FG7-94 F1).
+# GitHub runs a push workflow from the pushed commit's own canon.yml: a branch cut before this file landed starts by hand.
+name: canon
+run-name: ${{ inputs.dry_only && 'dry-story' || 'canon' }} ${{ inputs.ref || github.ref_name }}
+
+# the canonised ref: inputs.ref on a dispatch, the pushed branch (github.ref_name) on a push
+concurrency:
+  group: ${{ github.event_name == 'push' && format('canon-push-{0}', github.ref_name) || format('canon-dispatch-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+on:
+  push:
+    branches: ["worktree-agent-**"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "branch or sha to canonise"
+        required: true
+        default: main
+      # the GitLab api pipeline with TEST_REDUNDANCY=1 [REDUNDANCY_SCOPE=keep] = the canon plus the test-redundancy job
+      # (nightly.yml); `ci_read.py start --ref <b> --var TEST_REDUNDANCY=1` sends them. Empty = the canon alone. The clock
+      # then measures the measurement too, as the GitLab clock stage after it did.
+      TEST_REDUNDANCY:
+        description: "1 = also run the test-redundancy measurement (1-3 hours); empty = not"
+        required: false
+        default: ""
+      REDUNDANCY_SCOPE:
+        description: "keep = measure only the keep rows of test-layers.json; empty = every test file"
+        required: false
+        default: ""
+      # P1-b node N5: true = run ONLY the dry story (dry-story.yml, minutes) and none of the canon; false (the default) = the canon exactly as before
+      # `ci_read.py start --ref <b> --var dry_only=true`; the old input `spike` is gone (a start with it is refused by GitHub, 422)
+      dry_only:
+        description: "true = run only the dry story (dry-story.yml); false = the canon"
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    outputs:
+      created_at: ${{ steps.t.outputs.created_at }}
+    steps:
+      - id: t
+        run: echo "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+  checks:
+    needs: start
+    if: ${{ !inputs.dry_only }}
+    uses: ./.github/workflows/forge-check.yml
+    with:
+      ref: ${{ inputs.ref || github.ref_name }}
+  full:
+    needs: start
+    if: ${{ !inputs.dry_only }}
+    uses: ./.github/workflows/nightly.yml
+    with:
+      ref: ${{ inputs.ref || github.ref_name }}
+      TEST_REDUNDANCY: ${{ inputs.TEST_REDUNDANCY }}
+      REDUNDANCY_SCOPE: ${{ inputs.REDUNDANCY_SCOPE }}
+  dry-story:
+    needs: start
+    if: ${{ inputs.dry_only }}
+    uses: ./.github/workflows/dry-story.yml
+    with:
+      ref: ${{ inputs.ref || github.ref_name }}
+  clock:
+    needs: [start, checks, full]
+    if: ${{ always() && !inputs.dry_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CREATED_AT: ${{ needs.start.outputs.created_at }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref_name }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python tools/canon_clock.py --created-at "$CREATED_AT" --message "$(git log -1 --format=%B)"

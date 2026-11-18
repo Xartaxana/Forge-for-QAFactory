@@ -4,7 +4,7 @@
 # .github exists) against the steps of .gitlab-ci.yml.
 #   forge-check   every push to main and every pull request: lint/clone ratchets, journal, attribution, indexes,
 #                 piles, install parity, the test quarantine check, the whole tools/ suite
-#   runner-facts  push to main and pull request only (not the canon): the runner probe, never blocking
+#   runner-facts  push to main and pull request only (not the canon, not a push canon of an agent branch): the runner probe, never blocking
 #   package-fast  same triggers, only when the package or the workflows changed
 #   min-python-compile  same triggers: every package .py compiled under Python 3.10, the INSTALL.md floor
 # GitLab variables are re-exported under their old names (CI_*), so the tools that read them need no change on day one.
@@ -136,7 +136,8 @@ jobs:
   runner-facts:
     # .gitlab-ci.yml runner-facts: what the runner is (a probe, allow_failure), on a pull request and a push to main only --
     # never in the canon (a called run carries the caller's event, workflow_dispatch, so the condition skips it there)
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    # a push canon of a worktree-agent-** branch calls this file with event push: the ref_name test keeps the probe out of it
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     continue-on-error: true

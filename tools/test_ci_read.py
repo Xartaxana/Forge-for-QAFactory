@@ -118,11 +118,22 @@ def net(monkeypatch, set_origin):
                 if isinstance(answer, Exception):
                     raise answer
                 return answer if isinstance(answer, _Resp) else _Resp(answer)
+        if "/commits/" in req.full_url:                  # FG7-91 E6 lookup of `start`: a head with no run yet
+            return _Resp('{"sha": "%s"}' % HEAD)
+        if "/actions/workflows/" in req.full_url and "/runs?" in req.full_url:
+            return _Resp(runs_json())
         return _Resp(state.body)
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setenv("GITHUB_TOKEN", TOKEN)
     return state
+
+
+HEAD = "ab12cd34" + "0" * 32
+
+
+def posts(net):
+    return [r for r in net.requests if r.get_method() == "POST"]
 
 
 def runs_json(*runs):
@@ -433,19 +444,19 @@ def test_the_member_size_limit_is_checked_before_the_member_is_read(net, monkeyp
 def test_start_dispatches_canon_with_the_ref_input(net, capsys):
     net.routes = [("/dispatches", _Resp(b"", status=204))]
     assert ci_read.main(["start", "--ref", "release"]) == 0
-    req = net.requests[0]
+    req = posts(net)[0]
     assert req.full_url == BASE + "/actions/workflows/canon.yml/dispatches" and req.get_method() == "POST"
     assert json.loads(req.data) == {"ref": "main", "inputs": {"ref": "release"}}
     assert req.get_header("Content-type") == "application/json"
     assert capsys.readouterr().out == "dispatched canon.yml for release; find the run: ci_read.py pipelines\n"
     ci_read.main(["start"])
-    assert json.loads(net.requests[1].data)["inputs"] == {"ref": "main"}
+    assert json.loads(posts(net)[1].data)["inputs"] == {"ref": "main"}
 
 
 def test_start_with_a_non_ascii_ref_and_a_slash_goes_into_the_json_as_is_and_out_sanitized(net, capsys):
     net.routes = [("/dispatches", _Resp(b"", status=204))]
     assert ci_read.main(["start", "--ref", "фича/x\x1b[31m"]) == 0
-    assert json.loads(net.requests[0].data)["inputs"]["ref"] == "фича/x\x1b[31m"
+    assert json.loads(posts(net)[0].data)["inputs"]["ref"] == "фича/x\x1b[31m"
     out = capsys.readouterr().out
     assert out == "dispatched canon.yml for ????/x?[31m; find the run: ci_read.py pipelines\n"
 
@@ -488,7 +499,7 @@ def test_a_bad_var_or_workflow_is_refused_exit_2_naming_the_form_before_any_requ
 def test_start_without_vars_sends_the_body_as_before(net):
     net.routes = [("/dispatches", _Resp(b"", status=204))]
     assert ci_read.main(["start", "--ref", "x"]) == 0
-    assert json.loads(net.requests[0].data) == {"ref": "main", "inputs": {"ref": "x"}}
+    assert json.loads(posts(net)[0].data) == {"ref": "main", "inputs": {"ref": "x"}}
 
 
 def test_start_422_with_vars_names_the_inputs_and_404_names_the_chosen_workflow(net, capsys):
@@ -501,10 +512,10 @@ def test_start_422_with_vars_names_the_inputs_and_404_names_the_chosen_workflow(
 
 
 def test_start_404_says_canon_is_not_on_the_default_branch_and_403_prints_the_status(net, capsys):
-    net.error = http_error(404, '{"message":"Not Found"}')
+    net.routes = [("/dispatches", http_error(404, '{"message":"Not Found"}'))]
     assert ci_read.main(["start"]) == 1
     assert capsys.readouterr().out == ("canon.yml is not on the default branch, or the token cannot see this repository\n")
-    net.error = http_error(403, '{"message":"API rate limit exceeded"}')
+    net.routes = [("/dispatches", http_error(403, '{"message":"API rate limit exceeded"}'))]
     assert ci_read.main(["start"]) == 1
     out = capsys.readouterr().out
     assert out.startswith("HTTP 403: ") and "API rate limit exceeded" in out and TOKEN not in out
@@ -905,6 +916,37 @@ def test_start_notes_a_branch_edit_of_the_dispatched_workflow(ref, answers, expe
     net.routes = [("/dispatches", _Resp(b"", status=204))]
     assert ci_read.main(["start", "--ref", ref]) == 0                  # the note never changes the exit code
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0].startswith("dispatched canon.yml for %s" % ref) and len(net.requests) == 1
+    assert lines[0].startswith("dispatched canon.yml for %s" % ref) and len(posts(net)) == 1
     assert len(lines) == (1 if expect is None else 2) and (expect is None or expect in lines[1])
     assert (ref == "main") == (git_diff_answer.calls == [])
+
+
+# ---- FG7-91 E6: a hand start of a head that the push already started ---------------------------------------------
+
+def _runs_at(*rows):
+    return [("/commits/", '{"sha": "%s"}' % HEAD), ("/runs?head_sha=" + HEAD, runs_json(*rows)),
+            ("/dispatches", _Resp(b"", status=204))]
+
+
+@pytest.mark.parametrize("routes, dispatched, out", [
+    (_runs_at({"id": 77, "head_sha": HEAD, "status": "in_progress", "html_url": "https://gh/runs/77"}), 0,
+     "canon.yml already has a run for b at ab12cd34: 77 https://gh/runs/77; nothing started\n"),
+    (_runs_at({"id": 78, "head_sha": HEAD, "status": "completed", "conclusion": "success",
+               "html_url": "https://gh/runs/78"}), 0,
+     "canon.yml already has a run for b at ab12cd34: 78 https://gh/runs/78; nothing started\n"),
+    (_runs_at({"id": 5, "head_sha": "f" * 40, "html_url": "u"}), 1,
+     "dispatched canon.yml for b; find the run: ci_read.py pipelines\n"),
+    ([("/commits/", http_error(500, "boom")), ("/dispatches", _Resp(b"", status=204))], 1,
+     "note: the run listing failed"),
+], ids=["exists-running", "exists-done", "absent", "listing-failed"])
+def test_start_without_var_starts_nothing_when_the_head_already_has_a_canon_run(routes, dispatched, out, net, capsys):
+    net.routes = routes
+    assert ci_read.main(["start", "--ref", "b"]) == 0
+    assert len(posts(net)) == dispatched
+    assert capsys.readouterr().out.startswith(out)
+
+
+def test_start_with_a_var_never_asks_for_the_head(net):
+    net.routes = [("/dispatches", _Resp(b"", status=204))]
+    assert ci_read.main(["start", "--ref", "b", "--var", "TEST_REDUNDANCY=1"]) == 0
+    assert [r.get_method() for r in net.requests] == ["POST"]

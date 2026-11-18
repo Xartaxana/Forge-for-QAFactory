@@ -212,6 +212,28 @@ def workflow_note(root, ref: str, workflow: str):
     return None
 
 
+def _canon_run_exists(base: str, token: str, ref: str) -> bool:
+    """FG7-91 E6: a push to worktree-agent-** starts the canon by itself, so a hand start of the same head is a duplicate.
+    True (after printing the id and url) when a run of canon.yml exists for the head sha of `ref`, in any state; False
+    to start as today, with one note line when the head or the run listing could not be read. Only a start without --var
+    asks (a --var start is never a push run). Never raises."""
+    try:
+        head = json.loads(_text(_open("%s/commits/%s" % (base, urllib.parse.quote(ref, safe="/")), token)[1])).get("sha")
+        if not head:
+            raise ValueError("no sha")
+        rows = _rows(_open("%s/actions/workflows/%s/runs?head_sha=%s&per_page=10"
+                           % (base, WORKFLOW, urllib.parse.quote(str(head), safe="")), token)[1], "workflow_runs")
+    except Exception as exc:  # noqa: BLE001 -- advisory: whatever fails, the start goes on as before
+        emit_own("note: the run listing failed (%s); starting as before" % sanitize(str(exc)[:80] or type(exc).__name__))
+        return False
+    rows = [r for r in rows if str(r.get("head_sha") or "") == head]
+    if not rows:
+        return False
+    emit_own("%s already has a run for %s at %s: %s %s; nothing started" % (
+        WORKFLOW, sanitize(ref), head[:8], sanitize(str(rows[0].get("id"))), sanitize(str(rows[0].get("html_url") or "-"))))
+    return True
+
+
 def make_commands(repo: str, root=None) -> dict:
     base = "%s/repos/%s" % (API, repo)
 
@@ -270,6 +292,8 @@ def make_commands(repo: str, root=None) -> dict:
         extra = common.parse_vars(args.var)          # already checked by _check (form, duplicates, no ref)
         inputs = {"ref": args.ref}
         inputs.update(extra)
+        if workflow == WORKFLOW and not extra and _canon_run_exists(base, token, args.ref):
+            return
         try:
             _open("%s/actions/workflows/%s/dispatches" % (base, workflow), token, method="POST",
                   body={"ref": "main", "inputs": inputs})
