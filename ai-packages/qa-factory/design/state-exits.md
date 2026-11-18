@@ -122,7 +122,7 @@ Every door here is `manifest_put.py`, which merges by identity and never truncat
 
 | state | the way out | proven by |
 |---|---|---|
-| `<dispatch>.values.yaml` (the role's words, not yet in the form) | the next writing `handoff_check.py` run (`--fix`, `--set` or `--values`: `story_step finish`, the driver's form check, a role's own `--fix`) applies it once and renames it `<dispatch>.values.applied.yaml`; a file that does not parse is not applied, and its problems refuse the form until the role rewrites it | `test_handoff_values_keys.py`, `test_handoff_values_main_block.py` |
+| `<dispatch>.values.yaml` (the role's words, not yet in the form) | the next writing `handoff_check.py` run (`--fix`, `--set` or `--values`: `story_step finish`, the driver's form check, a role's own `--fix`) applies it once and renames it `<dispatch>.values.applied.yaml`; a file that does not parse is not applied, and its problems refuse the form until the role rewrites it | `test_handoff_values_keys.py`, `test_handoff_values_main_block.py`, `test_handoff_values_refusal.py` |
 | `<dispatch>.values.applied.yaml` | not a state: the trace of the last applied file, replaced by the next one; nothing reads it | — |
 | `<dispatch>.values.stale.yaml` | not a state: the trace of a values file whose form was written again (`handoff_init`); replaced by the next; nothing reads it | `test_handoff_inline_values.py` |
 
