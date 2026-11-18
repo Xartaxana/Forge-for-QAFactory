@@ -38,6 +38,8 @@
       "not_verified:sides_unknown": "passed while the record of which parts of the product were real could not be read; run it again",
       "not_verified:placeholder_open": "its test still points at an element the product does not have yet; it proves nothing until the test is run against the real element",
       "not_executed:handed_to_person": "left with you to check",
+      "not_executed:report_unread": "its results could not be read by code; left with you to check against the run log",
+      "not_executed:unprepared_walk": "the factory could not prepare this check; left with you to check",
       "not_executed:blocked_by_check": "stands behind a check that failed, so it was not reached",
       "not_executed:contradicts_requirement": "reported as disagreeing with the requirement; no test was run to show it",
       "not_executed:unresolved": "was not run: something it needs is still unresolved",

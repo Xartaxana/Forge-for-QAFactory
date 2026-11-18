@@ -1878,6 +1878,7 @@ def rd1_26_the_identity_word_is_read_through_its_row():
              ({"test_code_sha": "z"}, {"test_code_sha": "z"}, True), (ident("c", "h"), ident("d", "h"), False), ({}, {}, False)]
     red, two = {"code": "c", "raw": "r", "file": "f"}, {"instance_code_sha": "c", "instance_content_sha": "h"}
     job = {"request": {"instance_contracts": {"t.py::f[1]": two, "t.py::f[2]": dict(two)}}}
+    odd = {"request": {"instance_contracts": {"t.py::f[1]": two, "t.py::f[2]": dict(two, instance_content_sha="k")}}}   # compare_identity: (same, code)
     tmp = temp_dir("qa-rd126-")
     write(tmp / "work" / "run-blocks" / "b.json", {"input_fingerprint": "fp", "dispatch_id": "au", "attempt_id": "j1",
                                                    "results": [{"instance_id": "i1", "status": "passed"}]})
@@ -1894,9 +1895,9 @@ def rd1_26_the_identity_word_is_read_through_its_row():
                 check_eq(f"E26 _bound_to {item} {proof} [{label}]", acceptance._bound_to(item, proof, {}, None), want and label == "live")
             check_eq(f"E26 _compare_shas [{label}]", RH._compare_shas(red, dict(red))[:2], ("same", "code") if ok else ("unknown", "unknown"))
             check_eq(f"E26 _job_contract [{label}]", RH._job_contract(job, "t.py::f[3]"), two if ok else {})
-            check_eq(f"E26 green on equal raw [{label}]", green()[0], ok)
-            check("E26-5 the why names the registry, claims no bytes", ok or (green()[1].startswith("the gate registry cannot be read")
-                                                                              and "ran the test file as sha256" not in green()[1]))
+            check_eq(f"K-R6 same code, other content: no contract [{label}]", RH._job_contract(odd, "t.py::f[3]"), {})
+            check_eq(f"E26 green on equal raw, and the unreadable why claims no bytes [{label}]", (green()[0], ok or (green()[1].startswith(
+                "the gate registry cannot be read") and "ran the test file as sha256" not in green()[1])), (ok, True))
     finally:
         GT._READ[:] = saved
         cleanup(tmp)
