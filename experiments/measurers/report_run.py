@@ -139,11 +139,6 @@ def stage_times(name: str, ticket: str) -> dict:
     return out
 
 
-def journal(name: str, ticket: str) -> dict:
-    found = journal_from(task_root(name, ticket) / "state" / "driver-runs.jsonl")
-    return found[0] if found else {}
-
-
 def journal_from(path: Path):
     """(buckets of calls, bookkeeping row count) of one journal file; None when there is no file.
     Service kinds (journal_kinds.py) are not calls; a non-JSON line is skipped as before."""
@@ -170,7 +165,18 @@ def table(rows: list, head: list) -> None:
     print()
 
 
+def print_journal(name: str, rows_journal: dict, bookkeeping: int) -> None:
+    print(f"## Control layer — {name} (state/driver-runs.jsonl)\n")
+    total = sum(v["cost"] for v in rows_journal.values()) or 1
+    table([[key, v["calls"], f"${v['cost']:.2f}", f"{v['cost'] / total * 100:.0f}%",
+            v["turns"], clock(v["seconds"])]
+           for key, v in sorted(rows_journal.items(), key=lambda kv: -kv[1]["cost"])],
+          ["kind", "calls", "cost", "share", "turns", "wall clock"])
+    print(f"bookkeeping rows: {bookkeeping}\n")
+
+
 def main() -> int:
+    journal_kinds.require()
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--left", default=paths.DEFAULT_LEFT)
@@ -218,16 +224,8 @@ def main() -> int:
 
     for name in (a.left, a.right):
         found = journal_from(task_root(name, a.ticket) / "state" / "driver-runs.jsonl")
-        if found is None:
-            continue
-        rows_journal, bookkeeping = found
-        print(f"## Control layer — {name} (state/driver-runs.jsonl)\n")
-        total = sum(v["cost"] for v in rows_journal.values()) or 1
-        table([[key, v["calls"], f"${v['cost']:.2f}", f"{v['cost'] / total * 100:.0f}%",
-                v["turns"], clock(v["seconds"])]
-               for key, v in sorted(rows_journal.items(), key=lambda kv: -kv[1]["cost"])],
-              ["kind", "calls", "cost", "share", "turns", "wall clock"])
-        print(f"bookkeeping rows: {bookkeeping}\n")
+        if found is not None:
+            print_journal(name, *found)
     return 0
 
 
