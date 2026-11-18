@@ -154,18 +154,7 @@ def read_requests(path: Path) -> list:
     """[(timestamp, model, usage)] of the unique requests of one transcript, by the same rule as
     `compare.scan`: one per message id (the last line of it wins), a zero-token synthetic marker is
     not a request."""
-    seen = {}
-    for line in Path(path).open(encoding="utf-8"):
-        try:
-            obj = json.loads(line)
-        except ValueError:
-            continue
-        message = obj.get("message") or {}
-        if (obj.get("type") == "assistant" and message.get("usage")
-                and not compare.is_empty_marker(message.get("model"), message["usage"])):
-            seen[message.get("id") or obj.get("uuid")] = (
-                parse_ts(obj.get("timestamp")), message.get("model"), message["usage"])
-    return list(seen.values())
+    return [(parse_ts(stamp), model, usage) for model, usage, stamp in compare.requests_of(Path(path)).values()]
 
 
 def request_tokens(usage) -> int:
