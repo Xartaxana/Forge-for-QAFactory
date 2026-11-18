@@ -619,8 +619,13 @@ class Wave:
         if rc != 0:
             if "stale info" in err or "rejected" in err:
                 self.say("remote branch kept: it moved")
+            elif re.search(r"\b403\b", err):
+                # the cloud git proxy answers a remote delete with HTTP 403 (trial t-1281): say what to do, not the raw stderr
+                self.say("remote branch kept: the host refused the delete (HTTP 403, e.g. the cloud git proxy); "
+                         "delete %s locally with git push origin --delete %s, or in the GitHub UI" % (self.branch, self.branch))
             else:
-                self.say("remote branch not deleted: %s" % err)
+                first = next((ln.strip() for ln in err.splitlines() if ln.strip()), "no message")
+                self.say("remote branch not deleted: %s" % first[:120])
 
     def root_line(self, why):
         if why is None:

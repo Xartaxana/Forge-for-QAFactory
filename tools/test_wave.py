@@ -500,6 +500,24 @@ def test_remote_branch_that_moved_is_kept_by_the_lease_C3_3(env, monkeypatch):
     assert g(env.origin, "show", "b19m:late.txt") == "late"
 
 
+@pytest.mark.parametrize("rc,err,want", [
+    (1, "fatal: unable to access 'x': The requested URL returned error: 403", "remote branch kept: the host refused the delete (HTTP 403"),
+    (1, "error: RPC failed; HTTP 403 curl 22", "delete bz locally with git push origin --delete bz, or in the GitHub UI"),
+    (128, "fatal: could not resolve host\nsecond line " + "x" * 200, "remote branch not deleted: fatal: could not resolve host\n"),
+    (128, "y" * 300, "remote branch not deleted: " + "y" * 120 + "\n"),
+    (1, "! [rejected] bz (stale info)", "remote branch kept: it moved\n"),
+    (0, "", ""),
+])
+def test_delete_remote_message_per_git_answer(monkeypatch, rc, err, want):      # FG7-68
+    said = []
+    monkeypatch.setattr(wave, "_hook", lambda n: None)
+    monkeypatch.setattr(wave, "git", lambda *a, **k: (rc, "", err))
+    wave.Wave.delete_remote(SimpleNamespace(branch="bz", branch_sha="s", root=".", say=lambda t: said.append(t + "\n")))
+    text = "".join(said)
+    assert (want in text) if want else text == ""
+    assert "second line" not in text and "y" * 121 not in text
+
+
 def test_unrefreshed_root_deletes_a_merged_local_branch_by_update_ref(env):
     branch(env, "b20", {"f.txt": "x\n"})
     g(env.root, "fetch", "-q", "origin")
