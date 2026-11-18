@@ -73,8 +73,8 @@ def k1_real_tree() -> None:
     print(report.line())
     check_in("K1: the summary line names the walk, the rows, the gaps by leg, the joints and the stages with no detector",
             f"walked exit 8, detector 5, window 28 | rows {len(REAL['joints'])}, gaps ", report.line())
-    check_eq("K1: the rows file holds 285 rows (40 of T1 + 227 landed by T1r; +1 acceptance:novelty_question, C3-b1; +1 manifest_put:probe_owed; +4 T9c conductor rows; +12 by T1r-cards-a, TBW-T1rc-int t-1236); a change is a named change of the file",
-             len(REAL["joints"]), 285)
+    check_eq("K1: the rows file holds 286 rows (40 of T1 + 227 landed by T1r; +1 acceptance:novelty_question, C3-b1; +1 manifest_put:probe_owed; +4 T9c conductor rows; +12 by T1r-cards-a, TBW-T1rc-int t-1236; +1 manifest_put:node_id, RD1-19); a change is a named change of the file",
+             len(REAL["joints"]), 286)
     check_in("K1/E5: a stage with no detector is reported, not invented",
              "stages with no detector: S0, S1, S6, S7, S9", report.line())
     check_eq("K1: no walk error on the real tree", UNI[1], [])

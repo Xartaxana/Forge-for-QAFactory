@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import contract as C  # noqa: E402
+from gate_template import acceptable, registry_problem  # noqa: E402  (row `test_identity`: the one predicate)
 from hooklib import sorted_paths  # noqa: E402
 
 BLOCK_STAMP_RE = re.compile(r"^(\d{8}T\d{6})(\d{0,6})Z-")
@@ -216,9 +217,12 @@ def _job_contract(job, instance_id: str) -> dict:
     # content shas, `instance_content_scope: "function"`) keep the first - the renamed-parameter shape of
     # TP1-13797. Any other mix is twins of other tests: the sha of a stranger never decides "the same".
     # The comparison is `proof_level.compare_identity` (AR-13): ("same", "content") is code AND content
-    # non-empty and equal on both; any other answer, "unknown" included, is no match (AR-28).
+    # non-empty and equal on both; any other answer, "unknown" included, is no match (AR-28). The verdict is read through
+    # the row `test_identity` (consumer `contract_twin`); the content basis is a narrowing declared here (K-R6, F3 (a)):
+    # `("same", "code")` never picks a contract, and the row's class `matched` does not widen it.
     import proof_level as PL
-    if all(PL.compare_identity(found[0], c) == ("same", "content") for c in found[1:]):
+    twins = [PL.compare_identity(found[0], c) for c in found[1:]]
+    if all(acceptable(verdict, "test_identity.contract_twin") and basis == "content" for verdict, basis in twins):
         return found[0]
     return {}
 
@@ -253,12 +257,15 @@ def _compare_shas(red: dict, green: dict) -> tuple:
     quantity (the block's test + helpers) and stays here."""
     import proof_level as PL
     pair = [{"instance_code_sha": side["code"], "instance_content_sha": side["raw"]} for side in (red, green)]
-    verdict, _ = PL.compare_identity(*pair)
-    if verdict != "unknown":
-        basis = "code" if all(str(side["code"] or "").strip() for side in (red, green)) else "raw"
-        return ("same" if verdict == "same" else "changed"), basis, red[basis], green[basis]
-    if red["file"] and green["file"]:
-        return ("same" if red["file"] == green["file"] else "changed"), "file", red["file"], green["file"]
+    verdict, decided_on = PL.compare_identity(*pair)
+    # Row `test_identity`, consumer `pair_same`. An unreadable registry judges no pair: neither basis answers, the
+    # pair stays unknown and so owed (AR-28, FR-41); the routing reads the comparator's own basis, no word of it.
+    if not registry_problem():
+        if decided_on:
+            basis = "code" if all(str(side["code"] or "").strip() for side in (red, green)) else "raw"
+            return ("same" if acceptable(verdict, "test_identity.pair_same") else "changed"), basis, red[basis], green[basis]
+        if red["file"] and green["file"]:
+            return ("same" if red["file"] == green["file"] else "changed"), "file", red["file"], green["file"]
     return "unknown", "unknown", _first_sha(red), _first_sha(green)
 
 

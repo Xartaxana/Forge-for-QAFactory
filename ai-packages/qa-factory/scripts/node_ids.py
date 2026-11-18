@@ -650,6 +650,25 @@ def match(asked, collected, *, ticket=None, stage="S5", project_root=None) -> di
         if siblings and (params is None or any(r[3] == params for r in siblings)):
             resolved[asked_id] = asked_id
             continue
+        # The class step (RD1-19, FR-16): a method of a class, asked by its bare function name (the manifest's own
+        # spelling carries no class). Only when the asked base has no `::` and the file has no module-level sibling;
+        # only rows OF THE SAME FILE whose last segment is this very function; two classes are never chosen between.
+        in_class = []
+        if not siblings and "::" not in base:
+            in_class = [r for r in in_file if "::" in r[2] and r[2].rsplit("::", 1)[-1] == base]
+        classes = sorted({r[2] for r in in_class})
+        if len(classes) > 1:
+            missing.append({"asked": asked_id,
+                            "nearest": [f"{next(r[1] for r in in_class if r[2] == c)}::{c}" for c in classes[:NEAREST]]})
+            notes.append(f"{len(classes)} classes in {file} define {base}; name the class: `<Class>::{base}`")
+            continue
+        class_base = None
+        if len(classes) == 1:
+            class_base, siblings = classes[0], in_class
+            if params is None or any(r[3] == params for r in siblings):
+                resolved[asked_id] = _spell(asked_id, class_base, params)
+                notes.append(f"{asked_id}: the test sits in class {class_base.rsplit('::', 1)[0]}")
+                continue
         if params is not None:
             prefixed = [r for r in siblings if r[3] is not None and
                         (_drop_browser(r[3]) == params or r[3].endswith("-" + params))]
@@ -657,7 +676,7 @@ def match(asked, collected, *, ticket=None, stage="S5", project_root=None) -> di
                         and _drop_browser(params) == r[3]]
             candidates = prefixed or stripped
             if len(candidates) == 1:
-                real = _spell(asked_id, base, candidates[0][3])
+                real = _spell(asked_id, class_base or base, candidates[0][3])
                 resolved[asked_id] = real
                 notes.append(
                     f"{asked_id} is collected as [{candidates[0][3]}], not [{params}]: a plugin "

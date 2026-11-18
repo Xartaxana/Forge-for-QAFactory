@@ -311,6 +311,41 @@ def test_unprepared_goes_to_write_unprepared():
     assert calls == [([{"step": 1, "expected": "e", "seen": "s", "evidence": "p", "quote": "q"}], "")], calls
 
 
+def test_verdict_needs_goes_to_write_unprepared_with_the_need():
+    calls = []
+    for marker in (None, {"reason": "r"}):         # either request kind
+        with mock.patch.object(ME, "unprepared_request", lambda t, c, m=marker: m), \
+                mock.patch.object(ME, "write_unprepared", lambda t, c, o, not_walked="", need="", need_why="": calls.append((not_walked, need, need_why)) or Path(t) / "b.json"), \
+                mock.patch.object(ME, "build_record", side_effect=AssertionError("a need record is never built")):
+            out = ME.record_from_walk(Path("."), "C", {"thens": [{"n": 1, "result": "inconclusive"}], "needs": "another_instance", "limitation": "a second node"})
+            assert out["unprepared"] is True
+            # M14: a pass or fail Then is refused, never dropped and never written as a need
+            refused = ME.record_from_walk(Path("."), "C", {"thens": [{"n": 1, "result": "pass", "quote": "q"}], "needs": "another_instance", "limitation": "x"})
+            assert refused == {"refused": ME.NEED_THEN_PROBLEM}, refused
+    assert calls == [("", "another_instance", "a second node")] * 2, calls
+
+
+def test_verdict_needs_is_one_word_or_absent():
+    with walking() as rig:
+        request(rig, thens=("1",))
+        walk(rig)
+        for bad in (None, ["another_instance"], 1, "other", ""):
+            assert has(problems(rig, [], needs=bad), "`needs` is `another_instance` or absent"), bad
+        assert problems(rig, [{"n": 1, "result": "inconclusive"}], needs="another_instance") == []
+
+
+def test_walk_rule_errors_need_branch():
+    with walking() as rig:
+        request(rig, thens=("1",))
+        walk(rig)
+        def errs(thens, **extra):
+            return ME.walk_rule_errors(rig.t.task, CASE, {"attempt": attempt_of(rig), "thens": thens, **extra})
+        inc = [{"n": 1, "result": "inconclusive"}]
+        assert ME.NEED_THEN_PROBLEM in errs([passes()], needs="another_instance", limitation="a second node")
+        assert has(errs(inc, needs="another_instance"), "a need says why")
+        assert errs(inc, needs="another_instance", limitation="a second node") == []
+
+
 def test_build_refusal_returned_not_raised():
     def refuse(*a, **k):
         raise ValueError("attempt a1 of C holds no captures: capture first")

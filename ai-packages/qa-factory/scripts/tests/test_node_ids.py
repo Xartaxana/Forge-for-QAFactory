@@ -898,7 +898,39 @@ def unknown_branch_rerun_rows() -> None:
              (got["missing"], got["notes"][0].startswith("node ids were not verified: ")), ([], True))
 
 
+def class_step_rows() -> None:
+    """RD1-19 (F2 (a)): a class method asked by its bare function name resolves through the class step, and only inside its file,
+    only to the identical function name, never between two classes. Rows i-vii of the card; expected from FR-16 and the error
+    direction of this module (`missing` is said only when no safe spelling is found)."""
+    a, b = "tests/a.py", "tests/b.py"
+    rows = (
+        ("(i) two classes define it: missing, both named", f"{a}::test_y", [f"{a}::TestA::test_y", f"{a}::TestB::test_y"],
+         {}, {f"{a}::test_y": [f"{a}::TestA::test_y", f"{a}::TestB::test_y"]}),
+        ("(ii) a module-level test_y wins, no class step", f"{a}::test_y", [f"{a}::test_y", f"{a}::TestA::test_y"],
+         {f"{a}::test_y": f"{a}::test_y"}, {}),
+        ("(iii) one class (nested): resolved to the class path", f"{a}::test_y", [f"{a}::TestA::TestInner::test_y"],
+         {f"{a}::test_y": f"{a}::TestA::TestInner::test_y"}, {}),
+        ("(iv) another function name is never matched", f"{a}::test_y", [f"{a}::TestA::test_y_extra"], {}, {f"{a}::test_y": None}),
+        ("(v) the class method of ANOTHER file is never matched", f"{a}::test_y", [f"{b}::TestA::test_y"], {}, {f"{a}::test_y": None}),
+        ("(vi) a bare id with a parameter: the class step, then the browser rule", f"{a}::test_y[p]", [f"{a}::TestA::test_y[chromium-p]"],
+         {f"{a}::test_y[p]": f"{a}::TestA::test_y[chromium-p]"}, {}),
+        ("(vii) a parameter id holding `::` reads the base only", f"{a}::test_y[a::b]", [f"{a}::TestA::test_y[a::b]"],
+         {f"{a}::test_y[a::b]": f"{a}::TestA::test_y[a::b]"}, {}),
+        ("a typed class path is exact, no class step", f"{a}::TestA::test_y", [f"{a}::TestA::test_y"],
+         {f"{a}::TestA::test_y": f"{a}::TestA::test_y"}, {}),
+    )
+    for label, asked, collected, want_resolved, want_missing in rows:
+        got = N.match([asked], collected)
+        check_eq(f"class step {label}: resolved", got["resolved"], want_resolved)
+        check_eq(f"class step {label}: missing", {m["asked"]: (sorted(m["nearest"]) if want_missing.get(m["asked"]) else None)
+                                                  for m in got["missing"]},
+                 {k: (sorted(v) if v else None) for k, v in want_missing.items()})
+    two = N.match([f"{a}::test_y"], [f"{a}::TestA::test_y", f"{a}::TestB::test_y"])
+    check_in("class step (i): the note tells the person to name the class", "name the class: `<Class>::test_y`", " ".join(two["notes"]))
+
+
 def main() -> None:
+    class_step_rows()
     unknown_branch_rerun_rows()
     collect_failed_note_rows()
     launch_and_streams()
