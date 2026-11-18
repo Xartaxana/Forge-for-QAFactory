@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+import stage_close
 from driver_core import OpenWork, Person, Refusal, ReworkRefused, _now, _read_json, open_work_reason
 
 
@@ -43,6 +44,10 @@ class DriverStageS7:
             reasons.append(f"{len(nameless)} failed result row(s) with no id")
         if targets["results"] and not int(totals.get("failed") or 0):
             reasons.append("failed results " + ",".join(sorted(targets["results"])))
+        # U7 7b-A: a coded `report_unread` row is a target the analyst reads from the log; reasons are never "" over one, so
+        # `stage_S7` cannot close by code over it (an `unread` target is no `s7.no_failures`)
+        if targets["unread"]:
+            reasons.append("results the run could not read " + ",".join(sorted(targets["unread"])))
         manifest = _read_json(self.task_root / "work/automation-manifest.json")
         if "contradicts_requirement" in json.dumps(manifest.get("unresolved") or []):
             reasons.append("contradicts_requirement rows")
@@ -91,7 +96,7 @@ class DriverStageS7:
             # a manual `inconclusive` whose own record says what stopped it; a red test is never pre-judged). POSITION
             # INVARIANT: after the entry refusal of `failures_to_triage` (a run that halted - `broken_run`, `timeout`,
             # `env_blocked` - or a `not_executed` with neither an S6 code-only receipt nor a target a role can triage
-            # (`s7_pretriage.triageable_not_executed`) is never triaged, so no row is written over one) and before the analyst's dispatch (an analyst row is never written over, and the analyst
+            # (`s7_pretriage.triageable_not_executed`: a manual target, an observation or an `unread` target) is never triaged, so no row is written over one) and before the analyst's dispatch (an analyst row is never written over, and the analyst
             # is never asked about a failure code answered). It runs on EVERY entry, so a row the analyst dropped is
             # restored; it does not run while an S7 dispatch is in flight (the analyst writes the same file). A pre-triage
             # that cannot run is one printed line and the analyst triages everything, as before (P1).
@@ -122,11 +127,12 @@ class DriverStageS7:
                 return
             left = pre.get("left") or {}
             told = [f"Failures to triage: {reasons}"]
-            if pre.get("kept") and (left.get("results") or left.get("manual") or left.get("unnamed")):
+            if pre.get("kept") and (left.get("results") or left.get("manual") or left.get("unread") or left.get("unnamed")):
                 # only the failures code left to the analyst are named, and the rows code wrote are named once, so the
                 # analyst keeps them (they are listed under `not_for_repair` like any other row) or replaces one (Q10, Q11)
                 told = ["Failures to triage: " + s7_pretriage.brief(
-                            [("result", n) for n in left["results"]] + [("manual", n) for n in left["manual"]],
+                            [("result", n) for n in left["results"]] + [("manual", n) for n in left["manual"]]
+                            + [("unread", n) for n in left.get("unread") or []],
                             left["unnamed"], bool(pre.get("contradicted"))),
                         "Rows already written by code (keep them; you may replace one with your own): "
                         + ", ".join(pre["kept"])]
@@ -766,28 +772,14 @@ class DriverStageS7:
 
     def close_by_code(self, stage: str, reason: str, evidence: list, *, finalize: bool, site: str = "", digest: str = "", role: str = "",
                       journal: bool = False, tail=(), fresh=None) -> bool:
-        """THE helper of "a stage closed by code after its post-role loop" (t-698 §18.5; S7's two closes and the close after its
-        repairs, and the three S6 closes, which pass `finalize=False` after their own `finalize_task` call and its own refusal text;
-        C2-8 marks every one with its `site`): `finalize_task` when `finalize` (BEFORE the receipt, so the receipt hashes what finalize
-        wrote), the `code_only` receipt (`close_receipt`), then the `stage_done` record (`record_close`). A stage the controller holds
-        `completed` already is NOT closed again (state is read first, never a refusal's words): no finalize, no second receipt. A
-        `stage_done` refused after a successful `code_only` is a Refusal whose retry repeats `record_close` - the write AND its tail.
-        `fresh`: a precondition checked after finalize, before the receipt; False records nothing and returns False."""
-        held = ((self.controller_state().get("stages") or {}).get(stage) or {}).get("status")
-        if held == "completed":
-            print(f"{stage}: the controller holds it completed already; no second receipt is written")
-            return True
-        if finalize:
-            code, out = self.py("finalize_task.py", str(self.task_root))
-            if code:
-                raise Refusal(f"{stage} close: finalize_task.py exit {code}: " + (out.splitlines()[-1] if out else ""))
-        if fresh is not None and not fresh():
-            return False
-        receipt = self.close_receipt(site, stage, reason, evidence)
-        self.file_passed_over(stage, receipt)
-        self.record_close(site, stage, "--status", "done", *(["--role", role] if role else []),
-                          "--digest", digest or reason, *([] if journal else ["--no-journal"]), tail=tail, receipt=receipt)
-        return True
+        """FV3-22: `stage_close.close_by_code` over this driver, the one body of "a stage closed by code" for both roads. Its docstring holds the
+        rule (finalize BEFORE the receipt, a completed stage is never closed again, a refused record's retry repeats the write AND its tail);
+        its `Refused` is this driver's Refusal."""
+        try:
+            return stage_close.close_by_code(self, stage, reason, evidence, finalize=finalize, site=site, digest=digest, role=role,
+                                             journal=journal, tail=tail, fresh=fresh)
+        except stage_close.Refused as exc:
+            raise Refusal(str(exc), title=exc.title) from None
 
     def s7_repair_test(self, row: dict, ident: str, tests: list, bound: bool, life: str) -> None:
         """The repair rounds of ONE failing test, until it is green, the count stops growing, or the repair limit is answered `debt`.

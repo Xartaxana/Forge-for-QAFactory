@@ -719,6 +719,66 @@ def test_sha_pin_is_checked_before_any_push_P4_Q2(env, pin, ok):
         assert ("!= accepted" in text and "re-accept the new tip" in text) if pin == "other" else "expected 7 to 40 hex" in text
 
 
+def vol_branch(e, name, t, p):
+    branch(e, name, {"tools/tests/t.py": "t\n" * t, "tools/p.py": "p\n" * p})
+
+
+@pytest.mark.parametrize("t,p,door,merged,where", [
+    (5, 2, None, False, "origin"), (5, 2, "why", True, "origin"), (3, 3, None, True, "origin"),
+    (0, 2, None, True, "origin"), (2, 0, None, False, "origin"), (0, 2, "why", True, "origin"),
+    (5, 2, None, False, "local"), (9, 2, None, False, "ahead"), (3, 9, None, True, "pe")],
+    ids="over no-door,over door,equal,zero tests,zero product,door within budget,over local-only,"
+        "origin ahead of local,non-ascii product path".split(","))
+def test_test_volume_budget_and_door(env, t, p, door, merged, where):
+    files = {"tools/tests/t.py": "t\n" * t, "tools/p.py": "p\n" * p}
+    if where == "local":                    # committed in the root, never pushed: a refusal leaves origin untouched
+        g(env.root, "checkout", "-q", "-B", "v1", "origin/main")
+        put(env.root, files)
+        g(env.root, "checkout", "-q", "main")
+    elif where == "ahead":                  # origin's tip is past the local one and is the over-budget one
+        vol_branch(env, "v1", 0, p)
+        g(env.root, "fetch", "-q", "origin")
+        g(env.root, "branch", "v1", "origin/v1")
+        branch(env, "v1", {"tools/tests/t2.py": "t\n" * t}, base="origin/v1")
+    else:
+        branch(env, "v1", {"tools/tests/t.py": "t\n" * t, ("tools/pé.py" if where == "pe" else "tools/p.py"): "p\n" * p})
+    main0, refs0 = origin_main(env), g(env.origin, "for-each-ref", "refs/heads")
+    out = []
+    w = wave.Wave(env.root, "v1", "t-868", None, ci=lambda r, s: "x", out=out.append, tests_over=door)
+    rc, text = w.run(), "\n".join(out)
+    assert (rc == 0) == merged and (origin_main(env) != main0) == merged
+    if not merged:
+        assert rc == 2 and "TEST VOLUME: the branch adds +%d test lines vs +%d product lines" % (t, p) in text
+        assert g(env.origin, "for-each-ref", "refs/heads") == refs0 and "pushed:" not in text
+    elif door:
+        assert g(env.origin, "log", "-1", "--format=%B", "main").splitlines()[-1] == "tests-over: why" and "tests-over: why" in text
+        assert len(g(env.origin, "rev-list", "--merges", "main").split()) == 1
+
+
+@pytest.mark.parametrize("reason", ["", "  ", "a\nb", "x" * 301])
+def test_tests_over_refused_input_needs_no_git_world(tmp_path, reason, capsys):
+    rc = wave.main(["merge", "v2", "--task", "t-868", "--tests-over", reason, "--repo", str(tmp_path)])
+    assert rc == 2 and "refused: --tests-over" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("reason", ["x", "x" * 300, " " + "x" * 300])
+def test_tests_over_accepted_input_merges(env, reason):
+    vol_branch(env, "v2", 5, 2)
+    rc = wave.main(["merge", "v2", "--task", "t-868", "--tests-over", reason, "--repo", str(env.root)])
+    assert rc == 0 and g(env.origin, "log", "-1", "--format=%B", "main").splitlines()[-1] == "tests-over: " + reason.strip()
+
+
+def test_a_numstat_that_cannot_be_computed_is_one_line_and_the_merge_goes_on(env, monkeypatch):
+    vol_branch(env, "v3", 5, 2)
+    real = wave.git
+    monkeypatch.setattr(wave, "git", lambda cwd, *a: (1, "", "boom") if "--numstat" in a else real(cwd, *a))
+    out = []
+    rc = wave.Wave(env.root, "v3", "t-868", None, ci=lambda r, s: "x", out=out.append, tests_over="why").run()
+    text = "\n".join(out)
+    assert rc == 0 and text.count("test volume: not checked (") == 1 and blob(env, "tools/p.py") is not None
+    assert g(env.origin, "log", "-1", "--format=%B", "main").splitlines()[-1] == "tests-over: why"
+
+
 def test_a_local_tip_that_is_not_the_pin_is_not_pushed_P4_Q2(env):
     branch(env, "p2", {"f.txt": "x\n"})
     g(env.root, "fetch", "-q", "origin")

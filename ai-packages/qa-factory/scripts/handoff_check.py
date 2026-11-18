@@ -1395,6 +1395,9 @@ def _no_failure_shown(art) -> str:
     nameless = sorted(targets["unnamed"] - targets["unnamed_manual"])     # t-319 F4: a failed row with no name is a failure
     if targets["results"] or nameless:
         return ("work/run-report.json shows failed result row(s): " + _shown(sorted(targets["results"]) + nameless))
+    if targets["unread"]:       # U7 7b-A: a test whose results the run could not read wants the analyst's reading of the log
+        return ("work/run-report.json shows test(s) whose results the run could not read, which want your reading: "
+                + _shown(sorted(targets["unread"])))
     if targets["observations"]:       # P26: a runner's doubt, whatever its check's result, is a target that wants a row
         return ("work/run-report.json shows observation(s) of a manual check that want a verdict: "
                 + _shown(sorted(targets["observations"])))

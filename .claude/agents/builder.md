@@ -97,10 +97,16 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    no matter how much was actually done.
 8. Tests are written by `docs/TESTING.md` — read it before your first
    test; its section «Как писать эффективный тест на нашем проекте» is
-   the how-to. The test volume rule is TESTING.md «Бюджет / Объём»;
-   when your diff goes over it, name the reason in one line of your
-   report AND in a line `tests-over: <reason>` of the commit message
-   (the commit-msg hook WARNs without it, it never refuses). A new case
+   the how-to. The test volume rule is TESTING.md «Бюджет / Объём»:
+   your branch never carries more test lines than code and product-text
+   lines, and you keep that budget BEFORE you write a test, not after.
+   Write the dispatch's test rows top-down (they are listed strongest
+   first) until your test lines reach your code lines; a row that does
+   not fit is NOT written - it is a report line
+   `tests not written: <row> -- over budget`. You have no door:
+   `tests-over:` is the Lead's word (`wave.py merge --tests-over`), you
+   never write it. A dispatch that names more rows than the budget can
+   hold is returned as a question before work starts. A new case
    is a row of an existing scenario, table or junction, not a new file
    (the one exception: «Бюджет / Файлы»).
 9. Runs, cheaply. While working, run at most the changed module's test file, and not after every edit; the
