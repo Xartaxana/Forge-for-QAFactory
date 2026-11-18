@@ -36,7 +36,7 @@
     },
     {
       "id": "provenance_acceptance", "inventory": "G2", "vocabulary": "target",
-      "decides": "the probe's record is good enough for this use (one predicate at the run, rehearsal, capture and record sites, profile_contract.acceptable_provenance; residue: the local_source and fingerprint bare not_applicable, the baseline, gate A - T2, B-255)",
+      "decides": "the probe's record is good enough for this use (one predicate at the run, rehearsal, capture and record sites, profile_contract.acceptable_provenance; residue: the local_source and fingerprint bare not_applicable, gate A - T2, B-255)",
       "sites": [
         {"file": "execution_request.py", "function": "validate_request", "role": "accept",
          "allow": [{"compare": "seed.get(\"result\") not in {\"matched\", \"mismatched\", \"unknown\"}", "why": "the data-seed record's shape check, not an acceptance of provenance"},

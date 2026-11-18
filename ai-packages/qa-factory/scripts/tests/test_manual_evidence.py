@@ -862,7 +862,7 @@ def n2_k9_the_persons_word_in_validate_and_the_baseline_that_refuses_it():
             check(f"RD1-14 k3 2b: {field} as {kind}: the value is never echoed", "ZZZZ" not in got and "deep" not in got and "baseline missing" not in got)
         check_in("RD1-14 k3 2b: None keeps today's sentence", "baseline missing runtime_before", errors(dict(baseline, runtime_before=None)))
         wrong = dict(old, expected_source_revision="other")
-        got = errors(dict(baseline, runtime_before=wrong, runtime_after=dict(wrong)))
+        got = errors(dict(baseline, runtime_after=wrong))
         check_in("RD1-14 k3 2b: a mismatching revision names both revisions", "'other', the approved baseline_revision is 'old'", got)
         check_in("RD1-14 k3 2b: ... and the door", "Capture again on a stand that runs that revision", got)
         # S12: the sentences code writes into limitations[]

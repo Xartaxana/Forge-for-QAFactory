@@ -688,7 +688,7 @@ def validate_baseline_record(record, task_root):
     if not set(contract.get("capture_steps") or []).issubset(set(record.get("steps_actual") or [])):
         errors.append("manual baseline actual steps must include approved capture steps")
     from gate_template import acceptable
-    for probe in (blocks["runtime_before"], blocks["runtime_after"]):
+    for which, probe in (("runtime_before", blocks["runtime_before"]), ("runtime_after", blocks["runtime_after"])):
         # ONE predicate with the capture (`baseline_identity.capture`, AR-19): `matched` or a probe that compared nothing.
         if not acceptable(provenance_word(probe), "baseline_identity.capture"):
             checked = validate_runtime_provenance(probe)
@@ -698,7 +698,8 @@ def validate_baseline_record(record, task_root):
                 errors.append(say_refusal("baseline_person"))
             else:
                 errors.append("manual baseline runtime provenance is unverified")
-        if probe.get("expected_source_revision") != contract.get("baseline_revision"):
+        # runtime_before is refused with its own sentence and door by baseline_contract.validate_baseline_request (t-1463 K1)
+        if which == "runtime_after" and probe.get("expected_source_revision") != contract.get("baseline_revision"):
             errors.append("manual baseline runtime must match baseline revision: the probe's expected_source_revision is "
                           f"{probe.get('expected_source_revision')!r}, the approved baseline_revision is "
                           f"{contract.get('baseline_revision')!r}. Capture again on a stand that runs that revision, or "
