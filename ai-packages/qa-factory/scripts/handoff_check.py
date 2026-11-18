@@ -1600,9 +1600,17 @@ def filled_share(doc, contract: str) -> tuple:
         if path in by_code:
             continue
         total += 1
-        if not handoff.is_placeholder(node.value):
+        if not _blank(path, node.value, tmpl.nodes):       # t-1338 K-A8: an untouched author token row is not the role's word
             filled += 1
     return filled, total
+
+
+def _blank(path: str, value, leaves: dict) -> bool:
+    """THE blank reading of a form value (the field loop and `filled_share`): a placeholder, or - in a list row - a value equal to
+    its template leaf when that leaf carries a `<...>` token (`work/handoffs/<the author's dispatch>.yaml`, the S4/S5 critic's
+    author row in the unknown-author world: it names no file; t-1325 F4, `only_template`'s rule). Literal template text with no
+    `<...>` stays a value."""
+    return handoff.is_placeholder(value) or ("[" in path and handoff.only_template(value, getattr(leaves.get(path), "value", None)))
 
 
 def _investigation_dispatch(art) -> bool:
@@ -1733,10 +1741,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
         if not field:
             continue                                  # a value the role added: never refused
         value = doc.get(path)
-        # t-1325 F4: a list-row value equal to its template leaf when that leaf carries a `<...>` token (`work/handoffs/<the author's
-        # dispatch>.yaml`, the S4/S5 critic's author row in the unknown-author world) names no file: unfilled (`only_template`'s rule);
-        # literal template text with no `<...>` stays a value
-        blank = handoff.is_placeholder(value) or ("[" in path and handoff.only_template(value, getattr(leaves.get(path), "value", None)))
+        blank = _blank(path, value, leaves)
         underived = ""
         if blank and fix and path.startswith("claims.") and path[len("claims."):] in CLAIMS:
             continue            # a claim with a verifier is filled (or left open with a reason) by `_fill_claims`, after this loop

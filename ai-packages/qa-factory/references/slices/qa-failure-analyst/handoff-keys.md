@@ -19,8 +19,7 @@ Your witness artifact (stages.json `witness`): `work/triage.json`.
 
 Contract `s7-analyst-to-automator` (fill `work/handoffs/<dispatch>.yaml`; `handoff_check.py` reads it):
 
-- `inputs_read[].path` (required) - the runtime_provenance record
-- `inputs_read[].version` (required) - the build the failures happened on
+- `inputs_read[].version` (required) - its window id
 - `inputs_read[].failures` (required) - how many rows were triaged
 - `header.window` (required) - the instance ids handed for repair
 - `header.verdict` (required) - one of vocabulary.header_verdicts
@@ -94,3 +93,4 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 - [exit_gate:witness_errors.failure-analyst] Every triage row's `evidence` is non-empty whatever the verdict. Door: edit the row the refusal names in work/triage.json.
 - [handoff_check:binding] Each failure of the run report has at most one triage row and each triage row answers one failure: a row that names several failures is a verdict for none of them, and several rows for one failure keep one - on both paths of the S7 form (its repair list empty or not). Door: triage every failure in `work/triage.json` with ONE row under that failure's own `instance_id`, then run this check again.
 - [handoff_check:investigation] In an S7 investigation dispatch the form hands nothing for repair and relists no triage row: `scope` and `not_for_repair` are each an empty list (or absent). Door: write `scope: []` and `not_for_repair: []`.
+- [validate_artifacts:check_phase_json.triage.json] `triage.json` carries the keys `triage`. Door: edit the file and the field the refusal line names.

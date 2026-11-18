@@ -663,23 +663,31 @@ def set_list(doc: Doc, section: str, values: list) -> bool:
 def field_nodes(doc: Doc) -> dict:
     """{generic path: node} - the ONE pick of the row that speaks for a list field (the schema and the slice both read it).
     Rows may differ: the S5 critic's row 0 is the prefilled author form, row 1 the role's `<path exactly as ...>` (t-1325 F2/F3,
-    where row 0 alone gave every row the author row's hint). So the first row of a list whose leaves are ALL placeholders speaks
-    for that list; with no such row, the first node whose value is a whole placeholder; else row 0."""
-    groups, untouched = {}, {}
+    where row 0 alone gave every row the author row's hint). So in a list whose rows share ONE key set (a repeated row) the first
+    row whose leaves are ALL placeholders speaks for that list. A list of fixed rows of different shapes (S6/S7: the author's
+    file, the run report, the runtime_provenance record) is not one row repeated: no row speaks for another, row 0 speaks
+    (t-1338 V1: the provenance row's tool wording must not become the author row's hint). Else the first whole placeholder; row 0."""
+    groups, untouched, shapes = {}, {}, {}
     for path, node in doc.nodes.items():
         groups.setdefault(re.sub(r"\[\d+\]", "[]", path), []).append((path, node))
         row = ROW_OF.match(path)
         if row and not isinstance(node.value, (dict, list)):
             key = (row.group(1), row.group(2))
             untouched[key] = untouched.get(key, True) and is_placeholder(node.value)
+            shapes.setdefault(row.group(1), {}).setdefault(row.group(2), set()).add(path[row.end():])
+    fixed = {lst for lst, rows in shapes.items() if len({frozenset(keys) for keys in rows.values()}) > 1}
     speaker = {}
     for (lst, index), clean in untouched.items():
-        if clean:
+        if clean and lst not in fixed:
             speaker.setdefault(lst, index)
     out = {}
     for generic, items in groups.items():
         row = ROW_OF.match(items[0][0])
-        pool = [n for p, n in items if row and ROW_OF.match(p).group(2) == speaker.get(row.group(1))] or [n for _p, n in items]
+        lst = row.group(1) if row else None
+        if lst in fixed:
+            out[generic] = items[0][1]
+            continue
+        pool = [n for p, n in items if lst in speaker and ROW_OF.match(p).group(2) == speaker[lst]] or [n for _p, n in items]
         out[generic] = next((n for n in pool if is_placeholder(n.value)), pool[0])
     return out
 
