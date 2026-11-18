@@ -13,7 +13,7 @@ import handoff  # noqa: E402
 import handoff_check  # noqa: E402
 import handoff_init  # noqa: E402
 
-CRITIC_CONTRACTS = ("s2-stage-critic-to-tester", "s3-stage-critic-to-strategist", "s4-case-critic-to-designer")
+CRITIC_CONTRACTS = ("s4-case-critic-to-designer",)  # the S2/S3 stage-critic contracts were removed (t-680)
 S5_CONTRACTS = ("s5-critic-to-automator", "s5-critic-plan-to-automator")
 TOKEN = "<the author's dispatch>"
 AUTHOR = "S2-qa-requirements-tester-3"
@@ -40,7 +40,7 @@ def test_author_token_filled_s2_s3_s4(name):
 
 
 def test_author_comment_line_written_when_filled():
-    text = head("s2-stage-critic-to-tester", author_dispatch=AUTHOR)
+    text = head("s4-case-critic-to-designer", author_dispatch=AUTHOR)
     lines = text.splitlines()
     at = lines.index("inputs_read:")
     assert lines[at - 1] == handoff_init.AUTHOR_NOTE
@@ -82,11 +82,11 @@ def test_author_arg_given_when_token_and_known(monkeypatch, tmp_path):
             return {}
     monkeypatch.setattr(controller, "Controller", Stub)
     monkeypatch.setattr("acceptance.stage_author_dispatch", lambda state, stage_def: AUTHOR)
-    assert story_step._author_argv("S2", "qa-case-critic", "s2-stage-critic-to-tester", tmp_path) == ["--author-dispatch", AUTHOR]
+    assert story_step._author_argv("S4", "qa-case-critic", "s4-case-critic-to-designer", tmp_path) == ["--author-dispatch", AUTHOR]
     monkeypatch.setattr("acceptance.stage_author_dispatch", lambda state, stage_def: "")
-    assert story_step._author_argv("S2", "qa-case-critic", "s2-stage-critic-to-tester", tmp_path) == []
+    assert story_step._author_argv("S4", "qa-case-critic", "s4-case-critic-to-designer", tmp_path) == []
     monkeypatch.setattr(controller, "Controller", lambda root: (_ for _ in ()).throw(OSError("no state")))
-    assert story_step._author_argv("S2", "qa-case-critic", "s2-stage-critic-to-tester", tmp_path) == [], "an unreadable state is an unknown author"
+    assert story_step._author_argv("S4", "qa-case-critic", "s4-case-critic-to-designer", tmp_path) == [], "an unreadable state is an unknown author"
 
 
 def skeleton(name: str, **over) -> str:
@@ -104,11 +104,11 @@ def test_empty_optional_lists_questions_findings(name):
 
 
 def test_empty_findings_s5():
-    """`s5-critic-to-automator` has `findings`; the plan contract has `remarks` instead and is left as it is."""
+    """`s5-critic-to-automator` has `findings`; the plan contract has `remarks` instead, emptied by the same uniform rule."""
     doc = handoff.parse(skeleton("s5-critic-to-automator", role="qa-code-critic", stage="S5"))
     assert doc.data.get("findings") == []
     plan = skeleton("s5-critic-plan-to-automator", role="qa-code-critic", stage="S5")
-    assert handoff.parse(plan).data.get("remarks") == handoff.parse(head("s5-critic-plan-to-automator")).data.get("remarks")
+    assert handoff.parse(plan).data.get("remarks") == []
 
 
 def test_scope_never_emptied():
@@ -119,21 +119,59 @@ def test_scope_never_emptied():
 
 
 def test_carry_survives_emptying():
-    text = head("s2-stage-critic-to-tester")
+    text = head("s4-case-critic-to-designer")
     doc = handoff.parse(text)
     handoff.set_value(doc, "findings[0].problem", "the limit is missing")
-    out = handoff_init.empty_optional_lists(doc.text(), "s2-stage-critic-to-tester")
+    out = handoff_init.empty_optional_lists(doc.text(), "s4-case-critic-to-designer")
     parsed = handoff.parse(out)
     assert parsed.get("findings[0].problem") == "the limit is missing", "a row with a real value is never emptied"
     assert parsed.data.get("questions") == [], "the other untouched section is still emptied"
 
 
-def test_unknown_contract_text_unchanged():
-    text = head("s2-stage-critic-to-tester")
-    assert handoff_init.empty_optional_lists(text, "s6-runner-to-analyst") == text
+ALL_CONTRACTS = tuple(sorted(p.stem for p in handoff.CONTRACTS.glob("*.yaml") if p.stem not in ("index", "vocabulary")))
 
 
-EMPTIED_PATHS = ("questions", "findings")
+def emptied_sections(name: str, text: str) -> tuple:
+    """The top-level lists whose template rows the uniform rule turned into `[]` (read off the text, not off the rule)."""
+    out = handoff_init.empty_optional_lists(text, name)
+    before, after = handoff.parse(text).data, handoff.parse(out).data
+    return tuple(k for k, v in before.items() if isinstance(v, list) and v and after.get(k) == [])
+
+
+@pytest.mark.parametrize("name", ALL_CONTRACTS)
+def test_uniform_rule_every_contract(name):
+    """E1-E3: only a top-level, non-required, non-null-outcome list is emptied; nested and required lists stay as written."""
+    text = contract_text(name)
+    out = handoff_init.empty_optional_lists(text, name)
+    nulled = handoff.null_outcomes(name)
+    before, after = handoff.parse(text).data, handoff.parse(out).data
+    for path in handoff.list_paths(name):
+        if "." in path or path in handoff.REQUIRED_LISTS or path in nulled:
+            top = path.split(".")[0]
+            assert after.get(top) == before.get(top), f"{path}: never rewritten"
+        elif handoff.only_template(before.get(path)) and before.get(path):
+            assert after.get(path) == [], f"{path}: untouched optional list is emptied"
+    assert handoff_init.empty_optional_lists(out, name) == out, "idempotent"
+
+
+def test_runner_contract_follows_the_rule():
+    """A contract outside the old table (was: text returned unchanged) is emptied by the same rule. The optional lists are
+    read off the contract, not off the output (critic t-1324 F2: both sides of the old assert came from the same call)."""
+    name = "s6-runner-to-analyst"
+    text = contract_text(name)
+    out = handoff_init.empty_optional_lists(text, name)
+    before, after = handoff.parse(text).data, handoff.parse(out).data
+    optional = [k for k, v in before.items() if isinstance(v, list) and v and handoff.only_template(v)
+                and k not in handoff.REQUIRED_LISTS and k not in handoff.null_outcomes(name)]
+    assert optional, "the runner contract carries no optional template list: this row checks nothing"
+    assert out != text and [k for k in optional if after.get(k) != []] == []
+
+
+def test_unreadable_contract_text_unchanged():
+    assert handoff_init.empty_optional_lists("a: 1\n", "no-such-contract") == "a: 1\n"
+
+
+OWES_FINDINGS = ("s4-case-critic-to-designer", "s5-critic-to-automator")  # `rows_owed_when: concerns: [findings]` (FU1)
 
 
 def verdicts(name: str, text: str, root: Path, verdict: str = "") -> list:
@@ -146,24 +184,20 @@ def verdicts(name: str, text: str, root: Path, verdict: str = "") -> list:
 
 
 @pytest.mark.parametrize("verdict", ["", "ok", "concerns"])
-@pytest.mark.parametrize("name", CRITIC_CONTRACTS + S5_CONTRACTS)
+@pytest.mark.parametrize("name", ALL_CONTRACTS)
 def test_check_verdict_unchanged_by_emptying(name, verdict, tmp_path):
-    """Every problem outside the emptied sections is byte-identical before and after (the required `scope` is still refused as
-    'no rows'); inside them the only difference is that the untouched SAMPLE rows no longer read as 'not filled' (they are not rows)."""
+    """E6 as written (critic t-1324 F1): emptying adds and removes no problem, so the whole problem list is the same before
+    and after. Under `concerns` a critic's emptied `findings` is still refused: a send-back owes rows (`rows_owed_when`)."""
     before = head(name)
     after = handoff_init.empty_optional_lists(before, name)
     old, new = verdicts(name, before, tmp_path, verdict), verdicts(name, after, tmp_path, verdict)
-    outside = lambda rows: [r for r in rows if not r[0].startswith(EMPTIED_PATHS)]
-    assert outside(old) == outside(new)
-    # `rows_owed_when` (FU1: S2-S4 and the S5 critic; the plan critic does not carry it): a send-back owes findings rows,
-    # so its emptied `findings` is refused as 'no rows'.
-    owed = ["findings"] if verdict == "concerns" and name != "s5-critic-plan-to-automator" else []
-    assert [r[0] for r in new if r[0].startswith(EMPTIED_PATHS)] == owed, "an emptied section raises no problem of its own"
-    assert any(r[0] == "scope" for r in new) or not any(r[0] == "scope" for r in old), "the required list is still refused"
+    assert new == old
+    if verdict == "concerns" and name in OWES_FINDINGS:
+        assert "findings" in emptied_sections(name, before) and any(r[0] == "findings" for r in new), "owed findings refused"
 
 
 def test_values_row_opens_in_emptied_section():
-    name = "s2-stage-critic-to-tester"
+    name = "s4-case-critic-to-designer"
     doc = handoff.parse(skeleton(name))
     out, applied, problems, _notes = handoff_check.apply_values(doc, name, [("questions[0].question", "Is it 100?", 0, "")])
     assert not problems and applied == 1
@@ -171,7 +205,7 @@ def test_values_row_opens_in_emptied_section():
 
 
 def test_second_row_without_first_refused_in_emptied_section():
-    name = "s2-stage-critic-to-tester"
+    name = "s4-case-critic-to-designer"
     doc = handoff.parse(skeleton(name))
     out, applied, problems, _notes = handoff_check.apply_values(doc, name, [("questions[1].question", "Is it 100?", 0, "")])
     assert applied == 0 and problems

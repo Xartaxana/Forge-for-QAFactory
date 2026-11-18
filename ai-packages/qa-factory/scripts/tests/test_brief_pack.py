@@ -3336,6 +3336,71 @@ def ss1_11_stand_lessons() -> None:
         harness.cleanup(root)
 
 
+def c3_j1_stand_page_load() -> None:
+    """C3-j1 (AR-10, AR-11, AR-23, FR-38): ONE line of the stand's measured page load in the S5 automator, S5 code critic and S7 failure
+    analyst heads; NO line for the S3 strategist, for the S5 plan dispatch, for `none`, for a stand that is not one; one line that says
+    so for an unreadable record. The address is cut at 120 characters (AT 120 whole, 121 cut). The expectations are the card's."""
+    import datetime
+    import project_knowledge as PK
+    import stand_identity
+    root = harness.temp_project("qa-brief-c3j1-")
+    try:
+        harness.use_project(root)
+        pc8_story(root, pipeline_extra={"environment": "localhost"})
+        stand = {"name": "localhost", "base_url": "http://stand.invalid:8080", "frontend_url": "http://localhost:5173/start"}
+        cfg = {"environments": [stand]}
+        config_path = root / "qa-factory/config.json"
+        config_path.write_text(json.dumps(cfg), encoding="utf-8")
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+        def keep(load_s, address="http://localhost:5173/start", at_least=False):
+            value = {"load_s": load_s, "at_least": at_least, "address": address, "definition_sha": stand_identity.definition_sha(stand), "at": now}
+            row, problem, _ = PK.record(root, key=PK.PAGE_LOAD_KEY, environment="localhost", element=PK.PAGE_LOAD_ELEMENT, state=PK.KNOWN,
+                                        scope="stand", value=value, words=PK.HOW_PAGE_LOAD, source="measured", story="S-1", by="gate")
+            check_eq("the page-load fixture is recorded", problem, "")
+
+        check_eq("none: no registry, no line (the brief claims nothing)", brief_pack.stand_page_load_lines(root, cfg, "localhost"), [])
+        keep(12.5)
+        line = f"- Stand page load: the start page http://localhost:5173/start loaded in 12.5 s ({now[:10]}, the factory's browser, signed out); " \
+               "pages behind the sign-in or heavier routes can be slower. Fit your waits to the slowest load your own runs show, never below this."
+        check_eq("measured: ONE line, signed out, a floor", brief_pack.stand_page_load_lines(root, cfg, "localhost"), [line])
+        print(f"STAND_LOAD_LINE_BYTES {len(line.encode('utf-8'))}")
+        for role, stage, dispatch in (("qa-automator", "S5", PC8_AUTHOR), ("qa-code-critic", "S5", PC8_CRITIC),
+                                      ("qa-failure-analyst", "S7", "S7-qa-failure-analyst-1")):
+            head = pc8_head(brief_pack.build("QA-9", stage, role, dispatch, write=False)["markdown"])
+            check_eq(f"{role} ({stage}): the head carries the line once", head.count(line), 1)
+        strategist = brief_pack.build("QA-9", "S3", "qa-test-strategist", "S3-qa-test-strategist-1", write=False)["markdown"]
+        check_not_in("S3 qa-test-strategist: no page-load line", "Stand page load", strategist)
+        real_kind = brief_pack._s5_kind
+        brief_pack._s5_kind = lambda task_root, state, dispatch: ("plan", "", state)
+        try:
+            plan = brief_pack.build("QA-9", "S5", "qa-automator", PC8_AUTHOR, write=False)["markdown"]
+        finally:
+            brief_pack._s5_kind = real_kind
+        check_not_in("the S5 plan dispatch writes no waits: no page-load line", "Stand page load", plan)
+        check_eq("a stand that is not one (two rows of one name): no line",
+                 brief_pack.stand_page_load_lines(root, {"environments": [stand, dict(stand)]}, "localhost"), [])
+        check_eq("no stand named and two stands: no line", brief_pack.stand_page_load_lines(root, {"environments": [stand, dict(stand, name="b")]}, ""), [])
+        keep(180.0, at_least=True)
+        check_eq("at least: the load did not finish within 180 s and the floor is 180 s",
+                 brief_pack.stand_page_load_lines(root, cfg, "localhost"),
+                 [f"- Stand page load: the start page http://localhost:5173/start did not finish loading within 180 s ({now[:10]}, the factory's browser, "
+                  "signed out), so it takes at least that long. Fit your waits to the slowest load your own runs show, never below 180 s."])
+        for size, whole in ((120, True), (121, False)):
+            address = "http://localhost:5173/" + "p" * (size - len("http://localhost:5173/"))
+            stand["frontend_url"] = address
+            config_path.write_text(json.dumps(cfg), encoding="utf-8")
+            keep(5.0, address=address)
+            got = brief_pack.stand_page_load_lines(root, cfg, "localhost")[0]
+            check_eq(f"address of {size} characters: {'whole' if whole else 'cut at 120 with an ellipsis'}",
+                     (address in got, "\u2026" in got), (whole, not whole))
+        (root / PK.RECORD_REL).write_text("{not json", encoding="utf-8")
+        bad = brief_pack.stand_page_load_lines(root, cfg, "localhost")
+        check_eq("unreadable: ONE line that says so", (len(bad), bad[0].startswith("- Stand page load: could not be read (")), (1, True))
+    finally:
+        harness.cleanup(root)
+
+
 def of3_1c_home_strategy() -> None:
     """OF3-1 item 6: the strategy names of the brief come from `<home>/strategy`, the home folder `runtime_paths` names."""
     import runtime_paths as RP
@@ -4001,6 +4066,7 @@ def main() -> None:
     pc8_scenarios()
     n2_summaries_name_their_whole()
     ss1_11_stand_lessons()
+    c3_j1_stand_page_load()
 
     base =Path(tempfile.mkdtemp(prefix="qa-factory-brief-p4-"))
     try:

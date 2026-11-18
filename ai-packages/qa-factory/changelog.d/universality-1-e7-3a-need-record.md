@@ -1,0 +1,1 @@
+- manual runs: the run record and the delivery words know a check that needs another instance of the stand or device (no role is told of it yet; nobody is asked)

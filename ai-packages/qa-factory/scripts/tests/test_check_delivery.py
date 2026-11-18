@@ -2315,8 +2315,62 @@ def a_run_whose_results_code_could_not_read_reaches_delivery_by_the_analysts_wor
             cleanup(top)
 
 
+def an_unprepared_manual_walk_reaches_delivery_as_a_check_left_with_the_person() -> None:
+    """U7 7c (N9): a manual case the factory could not prepare and the runner walked (S6 completed) is ONE `unprepared_walk` item and
+    `after_checks`, with no `chain_broken` and no coverage reason; a stale record, a not-walked one and an open oracle stay `no`."""
+    from test_third_verdict import edit, read, story, write
+    ob = {"obligation_id": "O-TC2", "behavior": "b", "observation_boundary": "api", "completion_condition": "done",
+          "requirement_refs": [{"ref": "R-2", "revision": "r"}], "applicable_scenarios": ["positive"], "oracle_status": "resolved",
+          "oracle_source_ref": "spec", "decision": "manual-agent", "execution_scope": "current_task", "planned_check_refs": ["x"]}
+    for label, mark, extra, open_oracle, want, kept in (
+            ("walked", {"walked": True}, {}, False, "after_checks", [False, False]),
+            ("stale", {"walked": True}, {"current_reason": "stale"}, False, "no", [True, True]),
+            ("not walked", {"walked": False, "not_walked": "never opened"}, {}, False, "no", [True, True]),
+            ("oracle open (N9)", {"walked": True}, {}, True, "no", [False, True])):
+        task = story()
+        try:
+            row = dict({"case": "TC-002", "attempt_id": "a1", "unprepared": dict(mark, reason="no rule"), "current_obligation_ids": ["O-TC2"]}, **extra)
+            edit(task, "work/run-report.json", lambda r: r.update(manual_checks=[row], current_manual_checks=[row]))
+            plan = [dict(p, schema_version=2, coverage_obligations=[]) for p in read(task, "work/test-plan.json")]
+            write(task, "work/test-plan.json", plan + [{"id": "TS-2", "schema_version": 2, "coverage_refs": ["TC-002"],
+                                                         "coverage_obligations": [dict(ob, oracle_status="open" if open_oracle else "resolved")]}])
+            sib = task / "work/test-cases/checkout"      # a passed sibling in the SAME plan row (F2): never an item
+            (sib / "TC-003.md").write_text((sib / "TC-002.md").read_text(encoding="utf-8").replace("TC-002", "TC-003").replace("manual-agent", "auto").replace("Approved", "Automated"), encoding="utf-8")
+            edit(task, "work/automation-manifest.json", lambda m: m["tests"].append({"case": "TC-003", "file": "tests/test_x.py", "marker": "TC-003", "status": "green", "critic_verdict": "approved"}))
+            edit(task, "work/run-report.json", lambda r: r["results"].append({"test": "tests/test_x.py::TC-003", "case": "TC-003", "result": "passed"}))
+            doc = D.assess(task)
+            check_eq(f"7c {label}: verdict", doc["delivery_verdict"], want)
+            check_eq(f"7c {label}: a traceability / coverage reason", [any(r.startswith(k) for r in doc["reasons"]) for k in ("traceability", "coverage")], kept)
+            check_eq(f"7c {label}: TC-002 is listed once", [i["kinds"] for i in doc["left_items"] if i.get("ref") == "TC-002"], [["unprepared_walk"]])
+            check_eq(f"7c {label}: only the walked case is an unprepared_walk item (F2)",
+                     [i.get("ref") for i in doc["left_items"] if "unprepared_walk" in i.get("kinds", [])], ["TC-002"])
+        finally:
+            cleanup(task.parent)
+    UP = D.UNPREPARED_GAP
+    gap = {"obligation_id": "O1", "execution_state": "not_run", "oracle_open": False, "gap": UP + " - r"}
+    mark = {"reason": "r", "walked": True}
+    walked = {"case": "A", "unprepared": mark, "current_obligation_ids": ["O1"]}
+    for label, rows, want in (("a walked case alone", [walked], {"O1"}),
+                              ("F4: a case-less current row of the obligation", [walked, {"unprepared": mark, "current_obligation_ids": ["O1"]}], set())):
+        check_eq(f"7c unprepared_obligations: {label}", set(D.unprepared_obligations({"coverage": {"obligations": [gap]}}, {"current_manual_checks": rows})), want)
+    # U7 E7 Q-B: a need row has its own words; no sentence says the factory could not prepare a check it prepared; no need = today's words
+    need = {"case": "A", "reason": "r", "walked": False, "not_walked": "nw", "need": "another_instance", "need_why": "a second node"}
+    start = " needs another instance of the stand or device, which was not started; no answer about starting one was recorded; what the runner would start and why: a second node"
+    for label, walk, want in (("prepared", dict(need, prepared=True, walked=True), "the factory prepared this check, but it" + start),
+                              ("not prepared, not walked", dict(need, prepared=False),
+                               "the factory could not prepare this check (r) and it" + start + "; it was not walked either - not walked: nw"),
+                              ("B2 prepared, the need does not count",  # a refused or out-of-date record: no `need`, `prepared` stays
+                               {"case": "A", "reason": "r", "walked": True, "prepared": True},
+                               "the factory prepared this check; the runner's record that it needs another instance of the stand or device "
+                               "does not count (it was refused or is out of date), so the check has no result"),
+                              ("no need", {"case": "A", "reason": "r", "walked": True},
+                               "the factory could not prepare this check and the agent walked it without a result: r")):
+        check_eq(f"E7 Q-B unprepared_records: {label}", [r["to_check"] for r in D.unprepared_records({"unprepared_walks": [walk]})], [want])
+
+
 if __name__ == "__main__":
     a_run_whose_results_code_could_not_read_reaches_delivery_by_the_analysts_word()
+    an_unprepared_manual_walk_reaches_delivery_as_a_check_left_with_the_person()
     f5_unprepared_walk_is_a_left_item()
     fv1_30b_n2_no_run_row_names_the_word()
     main()

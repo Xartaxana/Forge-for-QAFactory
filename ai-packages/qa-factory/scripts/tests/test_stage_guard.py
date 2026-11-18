@@ -279,9 +279,14 @@ def part_cx20_walker(event: dict) -> None:
         started = time.perf_counter()
         message = SG.rule_typed_runner(text, event, "X", dispatch)
         return time.perf_counter() - started, bool(message)
-    (t_small, hit_small), (t_big, hit_big) = took("$(" * 20000 + L), took("$(" * 200000 + L)
-    check_eq("CX1-20 33: 200 000 openers then a launch: refused, no exception", (hit_small, hit_big), (True, True))
-    check("CX1-20 33: ... and 10x the input costs under 25x the time", t_big / max(t_small, 1e-6) < 25, f"{t_big:.2f}s / {t_small:.2f}s")
+    # PC4-21: one timing per size failed under CI load (24.99 s / 0.99 s, canon 44193633984); three timings per size, minima compared
+    # (critic t-1324 P2: ratio on 2 000 / 20 000 openers, ONE 200 000 run for the refusal claim, so the cost does not triple)
+    runs_small = [took("$(" * (2000 + r) + L) for r in range(3)]
+    runs_big = [took("$(" * (20000 + r) + L) for r in range(3)]
+    t_small, t_big = min(r[0] for r in runs_small), min(r[0] for r in runs_big)
+    check_eq("CX1-20 33: 200 000 openers then a launch: refused on every repetition, no exception",
+             sorted({r[1] for r in runs_small + runs_big + [took("$(" * 200000 + L)]}), [True])
+    check("CX1-20 33: ... and 10x the input costs under 25x the time (minima of three)", t_big / max(t_small, 1e-6) < 25, f"{t_big:.2f}s / {t_small:.2f}s")
     check_eq("CX1-20 33: bare openers, no launch: no exception", [took("<(" * 200000)[1], took("$(" * 200000)[1]], [False, False])
     check_eq("CX1-20 39: ~1 MB of commands then a launch is refused", took("rg x f; " * 125000 + L)[1], True)
     # R2 and R3: the answer per reader
@@ -1443,9 +1448,14 @@ def part_cx2_27_matcher() -> None:
     def took(count: int) -> tuple:
         began = time.perf_counter()
         return hit("$a " * count + "$(f)"), time.perf_counter() - began
-    (small_hit, small), (big_hit, big) = took(20000), took(200000)
-    check_eq("CX2-27 magnitude: 200 000 `$a ` then `$(f)` is no delivery", (small_hit, big_hit), (None, None))
-    check("CX2-27 magnitude: ... and 10x the input costs under 25x the time", big / max(small, 1e-6) < 25, f"{big:.2f}s / {small:.2f}s")
+    # PC4-21 (critic t-1324 P1): minima of three timings per size on 2 000 / 20 000 (a one-timing ratio failed under CI load);
+    # the sizes differ by a few starts per repetition so no cache answers a repeat; ONE 200 000 run carries the verdict claim
+    runs_small = [took(2000 + r) for r in range(3)]
+    runs_big = [took(20000 + r) for r in range(3)]
+    small, big = min(r[1] for r in runs_small), min(r[1] for r in runs_big)
+    check_eq("CX2-27 magnitude: 200 000 `$a ` then `$(f)` is no delivery",
+             sorted({str(r[0]) for r in runs_small + runs_big} | {str(took(200000)[0])}), ["None"])
+    check("CX2-27 magnitude: ... and 10x the input costs under 25x the time (minima of three)", big / max(small, 1e-6) < 25, f"{big:.2f}s / {small:.2f}s")
     check_eq("CX2-27 magnitude: ... with a written form at the end it is refused", hit("$a " * 200000 + "$gh pr create") is not None, True)
     # the table is data (AR-1): a damaged one releases nothing - the loop head keeps today's reading, never a pass
     saved = AF.TABLE_PATH
@@ -1773,13 +1783,14 @@ def part_oh3_22_bodies() -> None:
         check("r0107 payload key: " + repr(command), SG._delivery_match(command, None) is not None, command)
     # magnitude: closed heredocs are linear (10x the input under 25x the time) and a 64 KB command is read, not skipped
     import time
-    def cost(count: int) -> float:
+    def cost(count: int, rep: int = 0) -> float:
         text = "cat > f <<'E'\nx\nE\n" * count + "echo done"
         start = time.perf_counter()
-        SG._executable_text(text + " " * count, "bash")   # the blanks defeat the cache of an earlier count
+        SG._executable_text(text + " " * (count + rep), "bash")   # the blanks defeat the cache of an earlier count or repetition
         return time.perf_counter() - start
-    small, large = max(cost(100), 1e-3), cost(1000)
-    check("OH3-22 magnitude: 10x the heredocs under 25x the time", large < 25 * small, f"{small:.4f}s -> {large:.4f}s")
+    # PC4-21 (critic t-1324 P1): minima of three timings per size, the floor kept (a one-timing ratio failed under CI load)
+    small, large = max(min(cost(100, r) for r in range(3)), 1e-3), min(cost(1000, r) for r in range(3))
+    check("OH3-22 magnitude: 10x the heredocs under 25x the time (minima of three)", large < 25 * small, f"{small:.4f}s -> {large:.4f}s")
     wide = "cat > f <<'E'\n" + ("x" * 60000) + "\ngh pr create\nE"
     check_eq("OH3-22 a 64 KB body is read and comes out", SG._delivery_match(wide, None), None)
     check_in("OH3-22 a 64 KB body that a shell runs is still refused", "gh pr create",
