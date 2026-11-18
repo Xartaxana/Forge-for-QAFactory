@@ -1499,19 +1499,21 @@ def decide_with_warnings(staged_text: str | None, head_text: str | None,
     if ok:
         warnings = warnings + matrix_warnings(new_lines, head_lines, seed_lines=split_lines(seed_text),
                                               config_text=config_text)
-        warnings = warnings + report.get("warnings", [])
-        warnings = warnings + order_known_count_warnings(report)
+        warnings = warnings + order_known_warnings(report)
     return code, violations, warnings
 
 
-def order_known_count_warnings(report: dict) -> list[str]:
-    """FG7-34: the ONE producer of the WARN line `order-known: N declared` (commit, merge and --all paths all call it;
-    before, only the commit path printed it and the weekly check 13(m) saw no count from the others). [] at 0."""
-    n = (report or {}).get("declared")
-    if not n:
-        return []
-    return [f"order-known: {n} declared (summary: the number of distinct defective lines of this journal declared by "
-            "an `order-known:<ts>` token of a later line; calibration check 13(m))"]
+def order_known_warnings(report: dict) -> list[str]:
+    """FG7-34: the ONE producer of the door's WARNs -- the token WARNs of `report["warnings"]` and the line
+    `order-known: N declared` (commit, merge and --all paths all call it; before, only the commit path printed
+    them and the weekly check 13(m) saw no count from the others). [] for no warnings and count 0."""
+    report = report or {}
+    out = list(report.get("warnings", []))
+    n = report.get("declared")
+    if n:
+        out.append(f"order-known: {n} declared (summary: the number of distinct defective lines of this journal "
+                   "declared by an `order-known:<ts>` token of a later line; calibration check 13(m))")
+    return out
 
 
 # --- MERGE MODE (t-430) ---------------------------------------------------------------------
@@ -1966,7 +1968,7 @@ def decide_merge(staged_text: str | None, head_text: str | None, other_text: str
                                     order_report=order_report)
     warnings = (feature_warnings(tail_lines, kept_lines, known) + node_warnings(tail_lines, kept_lines)
                 + matrix_warnings(tail_lines, kept_lines, seed_lines=seed_lines)
-                + order_known_count_warnings(order_report))
+                + order_known_warnings(order_report))
     all_violations = form_violations + placement + violations
     return (1 if all_violations else 0), all_violations, ack_warnings + warnings
 
@@ -2393,7 +2395,7 @@ def _developer_file_result(rel, staged_text, head_text, seed_text, now, *, merge
             rep: dict = {}
             _code, vv = decide(staged_text, head_text, now, seed_text=seed_text, drift=False, order_report=rep)
             ww = (matrix_warnings(lines[len(head_lines):], head_lines, seed_lines=split_lines(seed_text))
-                  + order_known_count_warnings(rep))
+                  + order_known_warnings(rep))
         ow = _one_writer_violation(rel, slug, slug_why, max(0, len(lines) - len(head_lines))) if one_writer else None
         if ow:
             violations.append(ow)
@@ -2550,7 +2552,7 @@ def _run_all(base: str) -> int:
                                            door=f"your own {_jk.JOURNAL_DIR_REL}/<slug>.jsonl")
             if fz:
                 v = v + [fz]
-            results.append((p, 1 if v else 0, v, order_known_count_warnings(rep)))
+            results.append((p, 1 if v else 0, v, order_known_warnings(rep)))
             continue
         if p not in {f.path for f in files}:
             continue                                      # an illegal name: reported above

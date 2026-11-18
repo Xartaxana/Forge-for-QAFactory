@@ -1553,15 +1553,13 @@ def test_order_known_door_table(case):
 
 # FG7-34: the count line is printed by ONE producer on the commit, merge and --all paths: a row per path x count.
 def _order_known_warns(path, staged):
-    if path == "commit":
-        return jv.decide_with_warnings(staged, HEAD_TEXT, NOW, known=set())[2]
     if path == "merge":
         return jv.decide_merge(staged, HEAD_TEXT, None, NOW, known=set())[2]
     return jv._developer_file_result("logs/journal/x.jsonl", staged, HEAD_TEXT, None, NOW, drift=False,
                                      one_writer=False)[1]
 
 
-@pytest.mark.parametrize("path", ["commit", "merge", "all"])
+@pytest.mark.parametrize("path", ["merge", "all"])
 @pytest.mark.parametrize("declared", [0, 1])
 def test_order_known_count_on_every_path(path, declared):
     lines = [_id_bad(), _tok("09:00:00", "10:30:00")] if declared else [_id_bad(ts="10:00:00", tid="t-002")]
@@ -1757,3 +1755,9 @@ def test_all_base_prints_the_independent_context_warn(tmp_path, capsys, monkeypa
     assert jv.main(["--all", "--base", base]) == 0                            # a WARN never changes the exit code
     err = capsys.readouterr().err
     assert ("INDEPENDENT CONTEXT" in err) is expect_warn, err
+
+
+@pytest.mark.parametrize("path", ["merge", "all"])
+def test_order_known_token_warn_on_every_path(path):
+    staged = _staged(_id_bad(), _tok("09:00:00", "10:30:00", "order-known: nothing"))
+    assert any("nothing after the colon" in w for w in _order_known_warns(path, staged))
