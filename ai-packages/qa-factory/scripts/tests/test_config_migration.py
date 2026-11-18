@@ -530,7 +530,12 @@ def knowledge_reads(scripts: Path, carriers=()) -> set:
         nodes = list(_own_nodes(scope))
         mine = {c.split(":", 1)[1] for c in carriers if c.split(":", 1)[0] == f"{stem}.{chain[-1] if chain else ''}"}
         cfg_targets = [t for n in nodes if isinstance(n, ast.Assign) and _is_config_read(n.value) for t in n.targets if isinstance(t, ast.Name)]
-        other = {n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and not any(n is t for t in cfg_targets)}
+        # `config = {}` (an empty literal: the `try: config = load_config() or {} except: config = {}` idiom) keeps the binding, it
+        # cannot invent a key; any other non-config store drops it
+        neutral = [t for n in nodes if isinstance(n, ast.Assign) and isinstance(n.value, ast.Dict) and not n.value.keys
+                   for t in n.targets if isinstance(t, ast.Name)]
+        other = {n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
+                 and not any(n is t for t in cfg_targets + neutral)}
         bound = ((set(inherited) - _params(scope)) | mine | {t.id for t in cfg_targets}) - other
         for node in nodes:
             path = _read_path(node, bound) if isinstance(node, (ast.Subscript, ast.Call)) else None
@@ -544,6 +549,12 @@ def knowledge_reads(scripts: Path, carriers=()) -> set:
         if got:
             visit(got[0], (), set(), path.stem)    # an unreadable script is a miss, not a red
     return reads
+
+
+def reader_exempt(path: Path):
+    """R3's read of the baseline as a function of the path: (the `no_script_reader` list, None), or ([], a named red) (t-1488 G8, R4)."""
+    data, err = _baseline(path)
+    return (data["no_script_reader"], None) if data else ([], err)
 
 
 def _baseline(path: Path):
@@ -671,17 +682,24 @@ def knowledge_reads_have_rows() -> None:
         got = read_gaps(probe, {"zz_direct": {}}, probe / "baseline.json")
         check("R2 control (G4): a baseline line whose key now has a row is red as stale; a line still a gap stays green",
               len(got) == 1 and got[0].startswith("mod_a.py:outer:zz_direct") and "stale" in got[0], str(got))
+        # R4: the empty-literal fallback keeps the binding; a non-empty fallback literal still breaks it
+        idiom = ("def idiom(root):", "    try:", "        config = load_config(root) or {}", "    except Exception:", "        config = {}",
+                 "    return config.get('zz_idiom')", "def filled(root):", "    try:", "        config = load_config(root) or {}",
+                 "    except Exception:", "        config = {'zz_x': 1}", "    return config.get('zz_filled')")
+        (probe / "mod_a.py").write_text("\n".join(idiom) + "\n", encoding="utf-8")
+        check_eq("R2 control (R4): an empty-literal fallback keeps the binding, a non-empty one drops it",
+                 sorted(k for _, _, k in knowledge_reads(probe)), ["zz_idiom"])
     finally:
         cleanup(probe)
 
 
 def knowledge_rows_have_readers() -> None:
     """R3: every `needed_by` entry of the catalogue names a function that exists and names its key; no row has an empty list."""
-    data, err = _baseline(BASELINE_PATH)
+    exempt, err = reader_exempt(BASELINE_PATH)
     check("R3: the baseline is readable", err is None, str(err))
-    exempt = (data or {}).get("no_script_reader", [])
     check_eq("R3: every row's readers exist and name the key", reader_gaps(KEYS["knowledge"], SCRIPTS_DIR, exempt), [])
-    check_in("R3 control (R4): a missing baseline is red naming its path", "gone.json", _baseline(BASELINE_PATH.with_name("gone.json"))[1] or "")
+    gone = BASELINE_PATH.with_name("gone.json")
+    check_in("R3 control (G8): R3's own read of a missing baseline is a named red, not a traceback", str(gone), reader_exempt(gone)[1] or "")
     probe = {"product.roles": {"needed_by": ["project_knowledge.py:roster", "project_knowledge.py:no_such", "gone.py:f", "contract.py:cases_root"]},
              "empty_key": {"needed_by": []}, "zz_listed_key": {"needed_by": []}, "cases_root": {"needed_by": []}, "noreason": {"needed_by": []}}
     got = reader_gaps(probe, SCRIPTS_DIR, ["zz_listed_key -- a role", "cases_root -- a role", "nowhere -- a role", "noreason"])
