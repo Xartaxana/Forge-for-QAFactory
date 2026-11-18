@@ -923,6 +923,46 @@ def acceptable_provenance(record, accepts, *, rehearsal: bool = False, task=None
     return False
 
 
+def provenance_word(record, *, rehearsal: bool = False, task=None, local_source: bool = False) -> str:
+    """THE word of a probe answer for row `provenance_acceptance` (RD1-14, AR-13): the ONE producer every provenance
+    consumer's `gate_template.acceptable(word, "provenance.<use>")` reads, so no site spells the rule again. The seven words:
+    `matched`, `person_confirmed`, `no_changed_file`, `local_source`, `not_applicable`, `mismatched`, `unknown`.
+    ERROR DIRECTION: only toward a word no consumer takes (`unknown` / `mismatched`), never a raise. Validity is decided
+    FIRST: an invalid record, an effective result other than the declared one, a non-exact word (`MATCHED`) or a non-dict
+    is `unknown`; a proven mismatch is `mismatched` whatever was declared. `person_confirmed` and `no_changed_file` read the
+    raw record, as `acceptable_provenance` does; `rehearsal` excuses the one evidence rule (`rehearsal_view`); `task` binds a
+    person's word to its story; `local_source` (the REQUEST's `local_source_request`) names a reasonless `not_applicable`,
+    and `no_changed_file` wins over it (no consumer takes `local_source` without also taking that reason)."""
+    if not isinstance(record, dict):
+        return "unknown"
+    try:
+        checked = validate_runtime_provenance(rehearsal_view(record) if rehearsal else record)
+        declared = record.get("result")
+        if checked["result"] == "mismatched":
+            return "mismatched"
+        if not checked["valid"] or checked["result"] != declared:
+            return "unknown"
+        if declared == "matched":
+            return "matched"
+        if declared == "person_confirmed":
+            return "person_confirmed" if person_confirmed(record, task) else "unknown"
+        if declared == "not_applicable":
+            if no_changed_file(record):
+                return "no_changed_file"
+            return "local_source" if local_source else "not_applicable"
+        return "unknown"
+    except Exception:  # noqa: BLE001 - a field of the wrong type (`provenance: "x"`) makes the validator raise: a doubt, not an error
+        return "unknown"
+
+
+def local_source_request(record) -> bool:
+    """Whether the REQUEST (or record) that carries a probe says it needs no runtime because its target is the local
+    source: `runtime_required` is False and `target_kind` is `local_source`. A property of the request, never of the
+    probe; the one copy of the test the local-source sites spelled each for itself (AR-15)."""
+    return (isinstance(record, dict) and record.get("runtime_required") is False
+            and record.get("target_kind") == "local_source")
+
+
 # --- the words of a refusal (t-300 N2, X10) -------------------------------------------------------------------------
 # A reader that refuses a probe answer says WHAT the probe said, what was expected and the door (FR-1), in words that
 # are DATA: the `refusals` block of references/build-identity-methods.json (FR-13). TEMPORAL: before that block exists
@@ -1068,10 +1108,11 @@ def refusal_text(record, *, task=None) -> str:
     (a redeploy; `test deployed` when the build is a commit); a content mismatch names the files; `unknown` quotes the
     probe's own `error` and `remedy`; a person's word that no longer holds says what moved (`voided`) - a moved
     `test_deployed` word comes back `mismatched` + `voided`, an unconfirmed one plain `mismatched`. A record that gave
-    no reason says so - never the bare "unverified provenance"."""
+    no reason says so - never the bare "unverified provenance". An unreadable gate registry judged nothing, so the
+    sentence says so first (RD1-14, AR-16) and quotes what the probe said."""
     words = refusal_words()
     if not isinstance(record, dict):
-        return say_refusal("not_a_record", words)
+        return _unjudged_or(say_refusal("not_a_record", words))
     checked = validate_runtime_provenance(record)
     declared = record.get("result")
     provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
@@ -1090,22 +1131,33 @@ def refusal_text(record, *, task=None) -> str:
                                build=_short(deployed) or say_refusal("build_unknown", words),
                                expected=_short(record.get("expected_source_revision"))
                                or say_refusal("commit_unknown", words))
-        return text + (" " + clause + "." if clause else "")
+        return _unjudged_or(text + (" " + clause + "." if clause else ""))
     if declared == "not_applicable" and checked["valid"]:
-        return say_refusal("not_applicable", words)
+        return _unjudged_or(say_refusal("not_applicable", words))
     if declared in PROVENANCE_RESULTS and declared != "unknown":
         problems = list(checked["errors"])
         if declared == "person_confirmed":
             problems += [p for p in person_confirmed_problems(record, task) if p not in problems]
         if problems:
-            return say_refusal("invalid", words, problems="; ".join(problems))
+            return _unjudged_or(say_refusal("invalid", words, problems="; ".join(problems)))
     parts = [str(record.get(key)).strip() for key in ("error", "remedy") if _nonempty(record.get(key))]
     if _nonempty(declared) and declared not in PROVENANCE_RESULTS:
         parts.append("its result is not one of " + ", ".join(sorted(PROVENANCE_RESULTS)))
     if clause:
         parts.append(clause)
-    return say_refusal("other", words, word=declared if _nonempty(declared) else "no result",
-                       reason=". ".join(parts) or say_refusal("no_reason", words))
+    return _unjudged_or(say_refusal("other", words, word=declared if _nonempty(declared) else "no result",
+                                    reason=". ".join(parts) or say_refusal("no_reason", words)))
+
+
+def _unjudged_or(text: str) -> str:
+    """`text`, or - when the gate registry cannot be read - the one registry sentence (`registry_why`) quoting it: a site
+    that refuses because `acceptable` read no registry must not say the probe's answer was the reason (RD1-14 P-7, FR-41).
+    A readable registry keeps today's text, so every caller of `refusal_text` is unchanged."""
+    import gate_template   # at the point of use: the predicate's module, read only when a refusal is said
+    problem = gate_template.registry_problem()
+    if problem:
+        return gate_template.registry_why(problem, f"the probe's answer was not judged (it said: {text})")
+    return text
 
 
 def main() -> None:
