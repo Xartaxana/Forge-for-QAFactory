@@ -661,6 +661,14 @@ def junit_runner_that_is_not_pytest_is_incomplete() -> None:
         PL._reset()
         record = json.loads(PL.probe_record_path(task_root, "XTests.One", "product").read_text(encoding="utf-8"))
         check_eq("the product record says incomplete, never survived", record["verdict"], "incomplete")
+        facts = record.get("judgment_facts") or {}   # RD1-37 (J1): an unread failure is owed to the code critic, with the runner's own text
+        check_eq("the record says a judgment is owed, for this story and case", (record.get("cause"), record.get("task"), bool(record.get("case"))),
+                 ("judgment", task_root.name, True))
+        check_eq("the facts hold the runner's message", facts.get("message"), mutated.get("reason"))
+        check("and a failure text or message the critic can quote, with a receipt body pending", bool(facts.get("failure_text") or facts.get("message"))
+              and isinstance(record.get("pending_receipt"), dict), json.dumps(record)[:300])
+        check_in("the answer names the code critic's flags", "`--judge` and `--product`", " ".join(result.get("notes") or []))
+        check_not_in("...and never spells the door's own text", "--judge \"", " ".join(result.get("notes") or []))
         check_eq("an incomplete record does not block a repeat",
                  PL.already_probed(entry_of(root, "XTests.One"), manifest_of(root), task_root, project=root)["probed"],
                  False)
@@ -1158,6 +1166,18 @@ def request_status_of_proofs() -> None:
     check_eq("every invalid proof a defect: probe_defect", judged(defect, skipped_run)[0], "probe_defect")
     check_eq("all valid: accepted", judged((failed("A"), passed("A"), False), (failed("B"), passed("B"), False))[0],
              "accepted")
+
+    def owed(result, base, row="boom") -> bool:
+        """`judgment_owed` of one target given as (result, baseline, failure row text); RD1-37 J1-J4."""
+        receipt = {"repo": "unused", "original_hashes": {}, "targets": [target(result["instance_id"])]}
+        proof = RS.verify(receipt, [result], [base])["proofs"][0]
+        return RS.judgment_owed(proof, result, base, {"problems": [{"kind": "failure", "message": row, "text": row}]})
+    check_eq("J1 an unread failed site over a passed baseline is owed", owed(unread[0], passed("B")), True)
+    check_eq("J2 a skipped baseline beside an unread site is not (a red baseline is no mutation's doing)",
+             owed(unread[0], {"instance_id": "B", "status": "skipped"}), False)
+    check_eq("J3 an unread failure with no message and no text is not owed", owed(unread[0], passed("B"), row=""), False)
+    check_eq("J4 a survivor and an accepted proof are not owed", (owed(survivor[0], passed("A")), owed(failed("B"), passed("B"))),
+             (False, False))
 
 
 def two_targets_one_survivor_beside_a_baseline_that_proves_nothing() -> None:

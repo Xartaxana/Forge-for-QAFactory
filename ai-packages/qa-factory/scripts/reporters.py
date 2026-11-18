@@ -432,6 +432,22 @@ def pinned_frames(test_file, line) -> "list | None":
     return [f"(?:^|(?<=[{edge}]))(?P<path>(?:[^{edge}]*{sep})?{body}):(?P<line>{line})(?!\\w)"]
 
 
+FAILURE_TEXT_MAX = 16384    # characters of ONE failure text a judgment record stores (a longer one keeps its head and its tail around one `…`, which counts)
+
+
+def cut_failure_text(text) -> str:
+    """The ONE cutter of a failure text a judgment record stores (RD1-37; was `probe_by_code.cut_text`, which aliases it; red_sandbox
+    may not import probe_by_code): whole up to `FAILURE_TEXT_MAX` characters; a longer one keeps its HEAD and its TAIL around ONE `…`
+    (half each; the mark counts, so the result is exactly `FAILURE_TEXT_MAX` long). INV: the tail survives - a runner's last
+    line is the raising line (pytest's `E   ...` / `path:line: Exc`), and the head is the message; a middle of repeated frames is
+    what is dropped. Pure; `""` for an empty text."""
+    text = str(text or "")
+    if len(text) <= FAILURE_TEXT_MAX:
+        return text
+    tail = (FAILURE_TEXT_MAX - 1) // 2
+    return text[:FAILURE_TEXT_MAX - 1 - tail] + "…" + text[len(text) - tail:]
+
+
 def reason_agrees(actual, expected) -> bool:
     """Do two assertion messages agree (`assertion_reason`: whole texts, else headlines), the expected one non-empty."""
     wanted, seen = assertion_reason(expected, actual)
