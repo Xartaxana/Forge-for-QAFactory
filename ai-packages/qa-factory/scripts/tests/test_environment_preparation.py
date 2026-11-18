@@ -206,6 +206,23 @@ class ExecutionTests(unittest.TestCase):
             self.assertEqual(job["status"], "failed")
             self.assertFalse(job["steps"][-1]["provenance_validation"]["valid"])
 
+    def test_deploy_proof_is_matched_only_a_persons_word_never_replaces_it(self):
+        # RD1-14 k3 E-k3.4: `environment_preparation.deploy_proof` takes `matched` with both equalities, never a person's word
+        def run_with(receipt):
+            with tempfile.TemporaryDirectory() as td:
+                req = request(Path(td))
+                req["probes"][-1]["argv"] = [sys.executable, "-c", f"print({json.dumps(receipt)!r})"]
+                return execute_environment(req, Path(td), poll_seconds=.01)
+        matched = {"profile_id": "web", "timestamp": "2026-09-19T10:01:00Z", "environment_id": "qa", "expected_source_revision": "new",
+                   "observed_runtime_identity": "build-new", "evidence_refs": ["probe/runtime.json"], "result": "matched",
+                   "provenance": {"technical_verification": True, "source_linkage": "exact", "deployed_source_revision": "new"}}
+        word = dict(matched, result="person_confirmed", evidence_refs=["probe/pc"],
+                    provenance={"technical_verification": False, "identity_kind": "person_confirmed"},
+                    person_confirmation={"words": "yes", "at": "2026-09-19T10:00:00+00:00", "task": "T-1", "kind": "deployed", "revision": "new"})
+        self.assertTrue(run_with(matched)["steps"][-1]["provenance_validation"]["valid"])
+        job = run_with(word)
+        self.assertEqual((job["status"], job["steps"][-1]["provenance_validation"]["result"]), ("failed", "person_confirmed"))
+
     def test_timed_out_mutation_requires_bounded_reconciliation(self):
         with tempfile.TemporaryDirectory() as td:
             req = request(Path(td)); req["actions"]["reload"] = [{"name": "slow",

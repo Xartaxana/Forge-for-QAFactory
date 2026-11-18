@@ -661,8 +661,9 @@ def validate_baseline_record(record, task_root):
     errors = []
     for field in ("case", "case_version", "dispatch_id", "source_revision", "steps_actual",
                   "runtime_before", "runtime_after", "baseline_contract", "capture_status"):
-        if not record.get(field):
-            errors.append(f"baseline missing {field}")
+        if not record.get(field) and (record.get(field) is None or isinstance(record.get(field), dict)
+                                      or field not in ("baseline_contract", "runtime_before", "runtime_after")):
+            errors.append(f"baseline missing {field}")   # a falsy non-object block is named by its type below, once
     if record.get("result") in {"pass", "fail"}:
         errors.append("baseline capture cannot carry a product pass/fail result")
     if record.get("capture_status") not in {"captured", "inconclusive"}:

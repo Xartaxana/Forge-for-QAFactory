@@ -855,7 +855,8 @@ def n2_k9_the_persons_word_in_validate_and_the_baseline_that_refuses_it():
         check_in("RD1-14 k3 E-S7: an unreadable registry refuses a valid baseline", "manual baseline runtime provenance is unverified", blind)
         # 2b (E-k3.5, FR-1): a hand-written block that is no object is named by its type, never echoed, never a crash
         for field, junk, kind in (("baseline_contract", "x", "str"), ("runtime_before", "x", "str"), ("runtime_after", 5, "int"),
-                                  ("runtime_before", "Z" * 1000000, "str"), ("runtime_after", [[[["deep"]]]], "list")):
+                                  ("runtime_before", "Z" * 1000000, "str"), ("runtime_after", [[[["deep"]]]], "list"),
+                                  ("runtime_before", 0, "int"), ("baseline_contract", [], "list")):
             got = errors(dict(baseline, **{field: junk}))
             check_in(f"RD1-14 k3 2b: {field} as {kind} is named by its type", f"{field} must be a JSON object, got {kind}", got)
             check(f"RD1-14 k3 2b: {field} as {kind}: the value is never echoed", "ZZZZ" not in got and "deep" not in got and "baseline missing" not in got)
