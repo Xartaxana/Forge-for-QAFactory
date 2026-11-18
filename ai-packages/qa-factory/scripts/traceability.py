@@ -102,8 +102,8 @@ def _numeric_key(value: str) -> tuple:
     return (0 if m else 1, int(m.group(1)) if m else 0, text)
 
 
-def _one_line(text, limit: int = 110) -> str:
-    """One short line. A basis a person has to scroll is a basis they do not read."""
+def _one_line_at_word(text, limit: int = 110) -> str:
+    """One short line. A basis a person has to scroll is a basis they do not read. Not `contract.one_line`: cuts at a word, marks ` ...` (FG7-1)."""
     flat = " ".join(str(text or "").split())
     if len(flat) <= limit:
         return flat
@@ -118,7 +118,7 @@ def _first_sentence(text, limit: int = 110) -> str:
         if sep and len(head) >= 20:
             flat = head
             break
-    return _one_line(flat, limit)
+    return _one_line_at_word(flat, limit)
 
 
 # --- inputs ----------------------------------------------------------------------------------
@@ -206,9 +206,9 @@ def _draft_cause_facts(artifacts: Path, data, shows: list, cause: dict, linked: 
     shows = shows or BR.manifestation_summary(data)
     view = BR.cause_view(artifacts, data)
     if not cause and view:
-        cause = {"status": view["status"], "statement": _one_line(view["statement"], 400), "why": _one_line(view["why"], 400),
+        cause = {"status": view["status"], "statement": _one_line_at_word(view["statement"], 400), "why": _one_line_at_word(view["why"], 400),
                  "by_code": view["by_code"], "runs": view["runs"], "by_person": view["by_person"],
-                 "unverified": [_one_line(says, 300) for says in view["unverified"]]}
+                 "unverified": [_one_line_at_word(says, 300) for says in view["unverified"]]}
     if not linked:
         linked = [Path(link["draft"]).stem for link in BR.cause_links(data)]
     return shows, cause, linked
@@ -280,7 +280,7 @@ def story_bug_records(root: Path, artifacts: Path) -> dict:
         # the stems of the draft files this bug came from: how a "possibly the same cause" link finds the row of the draft it names
         names = [Path(str(ref)).stem for ref in record.get("source_drafts") or []] or (
             [paths[0].stem] if paths and filed_file is None else [])
-        records.append(dict(record, title=_one_line(record.get("title")), cases=cases,
+        records.append(dict(record, title=_one_line_at_word(record.get("title")), cases=cases,
                             requirements=requirements, manifestations=shows, mechanism=cause,
                             possibly_same_cause=linked, draft_names=names))
     return {"records": records, "outside_home": list(found.get("outside_home") or []),
@@ -431,7 +431,7 @@ def unconfirmed_basis(question, qid: str) -> str:
     def side(name: str) -> str:
         shown = (question or {}).get(name)
         value = " ".join(str(shown.get("value") if isinstance(shown, dict) else "").split())
-        return f"{name} {_one_line(value, 30)}" if value else f"{name}: not recorded"
+        return f"{name} {_one_line_at_word(value, 30)}" if value else f"{name}: not recorded"
     where = f"{qid}: {side('before')}, {side('now')}" if qid else "no question is named for it"
     return f"expectation unconfirmed, check not executed — {where}"
 
@@ -521,17 +521,17 @@ class Story:
         if entry.get("state") != "checked":
             if self._manual_problem and not entry:
                 return {"tests": [], "level": "manual-agent", "shape": "", "bug": "", "result": "not run",
-                        "basis": _one_line("the manual results could not be read: " + self._manual_problem, 120)}
+                        "basis": _one_line_at_word("the manual results could not be read: " + self._manual_problem, 120)}
             return {}
         base = {"tests": [], "level": "manual-agent", "shape": "", "bug": ""}
         if entry.get("result") == RF.RESULT_WORDS["pass"]:
             # a person is shown words, never a path or a link of any capture (HF8-20, I5; the owner's word 31.10.2026)
-            return dict(base, result="pass", basis="checked by hand: " + _one_line(entry.get("actual"), 120))
+            return dict(base, result="pass", basis="checked by hand: " + _one_line_at_word(entry.get("actual"), 120))
         if entry.get("result") == RF.RESULT_WORDS["inconclusive"]:
-            return dict(base, result="wait", basis=_one_line("checked by hand, inconclusive: "
+            return dict(base, result="wait", basis=_one_line_at_word("checked by hand, inconclusive: "
                                                              + (entry.get("actual") or "no words were recorded"), 120))
         if entry.get("result") == RF.RESULT_WORDS["fail"]:
-            return dict(base, result="blocked", basis=_one_line("checked by hand, failed: "
+            return dict(base, result="blocked", basis=_one_line_at_word("checked by hand, failed: "
                                                                 + (entry.get("actual") or "no words were recorded"), 120))
         return {}
 
@@ -657,10 +657,10 @@ class Story:
         what the person told us to stop printing."""
         for gap, answer in self.gap_decisions.items():
             if C.names_whole(case_key, gap) or C.names_whole(case_key, str(answer.get("words") or "")):
-                return _one_line(answer.get("words"))
+                return _one_line_at_word(answer.get("words"))
         for entry in C.live_stage_overrides(self.pipeline):          # a revoked word is no word; a case key reads whole (GW1-1)
             if C.names_whole(case_key, str(entry.get("decision") or "")):
-                return _one_line(entry.get("decision"))
+                return _one_line_at_word(entry.get("decision"))
         return ""
 
     # -- outcomes -------------------------------------------------------------------------
@@ -716,7 +716,7 @@ class Story:
                 # HF2-18 (t-1338 Q1): this word is "no bug" by definition, and the same report lists the red under "Left with
                 # you" - "bug not filed" beside it would be one packet contradicting itself (FR-10)
                 return dict(base, result="blocked",
-                            basis=_one_line(f"red run, triaged {verdict}: {reason}; no bug, left with you"))
+                            basis=_one_line_at_word(f"red run, triaged {verdict}: {reason}; no bug, left with you"))
             behind = self._behind_another_red(triage_row, verdict, requirement)
             if behind:
                 return dict(base, result="blocked", basis=behind)
@@ -724,11 +724,11 @@ class Story:
             if unlinked:
                 # HF8-22 (L-A): a filed bug that names no case and no draft cannot be joined to this row; "bug not filed"
                 # would be a false fact (FR-41) - what is known is that one is filed and says no case.
-                return dict(base, result="blocked", basis=_one_line(
+                return dict(base, result="blocked", basis=_one_line_at_word(
                     f"red run, triaged {verdict}: {reason}; bug {', '.join(unlinked)} is filed but names no case"))
-            return dict(base, result="blocked", basis=_one_line(f"red run, triaged {verdict}: {reason}; bug not filed"))
+            return dict(base, result="blocked", basis=_one_line_at_word(f"red run, triaged {verdict}: {reason}; bug not filed"))
         return dict(base, result="blocked",
-                    basis=_one_line(f"red run, triage not recorded: {row.get('reason') or 'no reason recorded'}"))
+                    basis=_one_line_at_word(f"red run, triage not recorded: {row.get('reason') or 'no reason recorded'}"))
 
     def _behind_another_red(self, triage_row: dict, verdict: str, requirement: str) -> str:
         """HF8-16 (K6): the basis of a red that is ANOTHER case's defect, '' when the row says no such thing. The analyst wrote
@@ -870,7 +870,7 @@ class Story:
         for prefix in ("AssertionError:", "assert "):
             if reason.startswith(prefix):
                 reason = reason[len(prefix):].strip()
-        return _one_line(reason or bug.get("title"), 80)
+        return _one_line_at_word(reason or bug.get("title"), 80)
 
     def _review_basis(self, entry: dict) -> str:
         """Green is not proof on its own. On 15045 eight green tests carried no critic verdict
@@ -900,7 +900,7 @@ class Story:
         failed, total = self.attempts(instance_id)
         head = f"fails {failed} of {total} on the stand" if total and failed == total else "blocked on the stand"
         words = self.decision_words(case_key)
-        return _one_line(f"{head}; {'decision: ' + words if words else 'no decision recorded'}")
+        return _one_line_at_word(f"{head}; {'decision: ' + words if words else 'no decision recorded'}")
 
     def unresolved_outcome(self, entry: dict, case_key: str, requirement: str,
                            partition: str = "") -> dict:
@@ -932,7 +932,7 @@ class Story:
         if reason == C.CONTRADICTS_REQUIREMENT:
             bug = self.bug_for(case_key, requirement) or self.bug_by_requirement(requirement)
             if bug:
-                return dict(base, result="bug", bug=bug["id"], basis=_one_line(bug["title"]))
+                return dict(base, result="bug", bug=bug["id"], basis=_one_line_at_word(bug["title"]))
             return dict(base, result="wait", basis=_first_sentence(detail))
         if reason == C.HANDED_TO_PERSON:
             return dict(base, result="wait",
@@ -954,7 +954,7 @@ class Story:
                                                   or handed[0].get("detail")))
             words = self.decision_words(case_key)
             return dict(base, result="blocked",
-                        basis=_one_line("the stand stops it; "
+                        basis=_one_line_at_word("the stand stops it; "
                                         + ("decision: " + words if words else "no decision recorded")))
         return dict(base, result="not run", basis=_first_sentence(detail or reason or "no reason recorded"))
 
@@ -1229,7 +1229,7 @@ class Story:
             # "Not proven" and the verdict counted "0 with a product bug" (t-202, R-213.1): a requirement is
             # never both. The count and the appendix read these same rows (FR-10).
             return {"tests": [], "level": level, "shape": "", "bug": bug["id"], "result": "bug",
-                    "basis": _one_line(bug["title"])}
+                    "basis": _one_line_at_word(bug["title"])}
         if level == "manual-agent":
             # D5 (t-263): a case an agent checked by hand reads what its VALID record says - a passed one
             # `pass`, an inconclusive one `wait`, a failed one `blocked` - instead of `not run` beside a "Checked by hand"
@@ -1332,7 +1332,7 @@ def case_rows(story: Story, requirement: str, case_key: str) -> list:
     automator left unresolved gets one row of its own."""
     meta = story.cases.get(case_key) or {}
     thens = case_thens(Path(meta["path"])) if meta.get("path") else {}
-    what = _one_line(C.case_title(Path(meta["path"])) if meta.get("path") else "", 80)
+    what = _one_line_at_word(C.case_title(Path(meta["path"])) if meta.get("path") else "", 80)
     rows, group = [], None
     for then in sorted(thens):
         outcome = story.then_outcome(case_key, then, requirement)
@@ -1447,7 +1447,7 @@ def build(root: Path, artifacts: Path) -> dict:
         if not keys:
             plan_row = story.caseless_plan_row(requirement)
             result = CASELESS_PLAN_RESULTS.get(str(plan_row.get("disposition") or ""), "not planned")
-            basis = (_one_line(plan_row.get("reason") or f"plan row {plan_row.get('ts')} is marked "
+            basis = (_one_line_at_word(plan_row.get("reason") or f"plan row {plan_row.get('ts')} is marked "
                                f"{plan_row.get('disposition')} and records no reason")
                      if plan_row else not_planned_basis(story, requirement))
             if result == "not planned" and requirement in claims:
@@ -1467,8 +1467,8 @@ def build(root: Path, artifacts: Path) -> dict:
                     result, basis = "wait", unconfirmed_basis(story.question_by_id.get(open_qid), open_qid)
                 elif unknown:
                     # could not be read: said so, never "no question is named for it" (t-604 F-6, FR-41)
-                    result, basis = "wait", _one_line(f"the plan or its questions could not be read for {requirement}: {unknown}", 120)
-            row = {"requirement": requirement, "what": _one_line(record["text"], 80),
+                    result, basis = "wait", _one_line_at_word(f"the plan or its questions could not be read for {requirement}: {unknown}", 120)
+            row = {"requirement": requirement, "what": _one_line_at_word(record["text"], 80),
                    "case": "", "then": [], "tests": [], "level": "", "shape": "",
                    "result": result, "bug": "", "basis": basis}
             if plan_row:
@@ -1818,8 +1818,8 @@ def selftest() -> int:
     case("a STALE unresolved row never reaches the table",
          is_stale_unresolved({"detail": "STALE, kept as a labeled marker only"}), True)
     case("R-10 sorts after R-9", sorted(["R-10", "R-9"], key=_numeric_key), ["R-9", "R-10"])
-    case("a basis is one line", _one_line("a\nb   c"), "a b c")
-    case("a long basis is cut, not wrapped", _one_line("x" * 40 + " tail", 20).endswith("..."), True)
+    case("a basis is one line", _one_line_at_word("a\nb   c"), "a b c")
+    case("a long basis is cut, not wrapped", _one_line_at_word("x" * 40 + " tail", 20).endswith("..."), True)
     row = {"requirement": "R-1", "case": "TC-001", "then": [1, 2, 3], "result": "pass"}
     case("a consecutive Then run renders as a range", _then_cell(row), "TC-001<br>Then 1–3")
     case("a gap renders every number", _then_cell(dict(row, then=[1, 3])), "TC-001<br>Then 1, 3")

@@ -1536,7 +1536,8 @@ def _clip_whole_spans(text: str, limit: int) -> str:
     return cut.rstrip(" ,;:(") + "…"
 
 
-def _one_line(text, limit: int) -> str:
+def _one_line_at_word(text, limit: int) -> str:
+    """Not `contract.one_line`: this cuts at a word boundary and marks it `…` (FG7-1)."""
     text = " ".join(str(text or "").split())
     return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0].rstrip(",;:. ") + "…"
 
@@ -1593,7 +1594,7 @@ def _covered_block(covered: list, forms: dict) -> list:
     for gap in covered:
         row = gap.get("property") if isinstance(gap.get("property"), dict) else {}
         name = forms.get(str(gap.get("id")), stand_gaps._label(gap))
-        words = _one_line(stand_gaps.names_only(row.get("words")), COVERED_WORDS_LIMIT)
+        words = _one_line_at_word(stand_gaps.names_only(row.get("words")), COVERED_WORDS_LIMIT)
         if stand_gaps.pk_property_of(gap):       # PK0-9: a not-a-role answer says its own date inside the sentence
             lines.append(f"- {name}: {stand_gaps.covered_says(gap)} — you wrote: \"{words}\"")
         else:
@@ -1645,14 +1646,14 @@ def _short_line(gap: dict, answer: dict, asked_again: str, ctx: CardCtx) -> tupl
     it was answered (here, or at gate A) or asked again - open when it has no answer or the answer was given for a world that moved."""
     import stand_gaps
     if asked_again:
-        tail = f" (asked again: {_one_line(stand_gaps.names_only(asked_again), 120)})"
+        tail = f" (asked again: {_one_line_at_word(stand_gaps.names_only(asked_again), 120)})"
     elif answer:
         tail = (f" (answered at gate A: {ctx.word_of.get(answer.get('option'), 'in your own words')})"
                 if answer.get("gate") == "A" else
                 f" (answered: {ctx.word_of.get(answer.get('option'), 'in your own words')})")
     else:
         tail = ""
-    line = f"- {_gap_heading(gap, ctx.forms, ctx.files, card=False)}: " +_one_line(stand_gaps.names_only(gap.get("missing")), 160) + tail
+    line = f"- {_gap_heading(gap, ctx.forms, ctx.files, card=False)}: " +_one_line_at_word(stand_gaps.names_only(gap.get("missing")), 160) + tail
     return line, bool(not answer or asked_again)
 
 
@@ -4769,7 +4770,7 @@ def _linked_rows(data: dict, numbers: dict, own: int) -> list:
         name = link["draft"]
         n = numbers.get(Path(name).name) or numbers.get(Path(name).stem)
         if n and n != own and n not in [x["n"] for x in out]:
-            out.append({"n": n, "why": _one_line(link["why"], 200)})
+            out.append({"n": n, "why": _one_line_at_word(link["why"], 200)})
     return out
 
 

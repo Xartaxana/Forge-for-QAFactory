@@ -519,7 +519,7 @@ def _lifecycle_roles() -> set:
 
 def _one_line(value) -> str:
     """A record's or manifest's text on one line: only the line breaks go (the line is ONE paragraph), the
-    words stay as given - a branch is never shortened here (git bounds it)."""
+    words stay as given - a branch is never shortened here (git bounds it). Break-only fold, not `contract.one_line` (FG7-1)."""
     return re.sub(r"[\r\n]+", " ", "" if value is None else str(value)).strip()
 
 

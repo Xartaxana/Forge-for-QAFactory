@@ -234,7 +234,7 @@ def told_fields(source) -> dict:
 
 
 def one_line(text) -> str:
-    """A finding is ONE physical line: a producer prints its text through this."""
+    """A finding is ONE physical line: a producer prints its text through this. Break-only fold, not `contract.one_line` (FG7-1)."""
     return re.sub(r"\s*[\r\n]+\s*", " ", str(text)).strip()
 
 

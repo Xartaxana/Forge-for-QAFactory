@@ -16,6 +16,7 @@ import re
 import sys
 from pathlib import Path
 
+import contract as C
 import hooklib
 
 FILE_NAME = "person-owned.json"
@@ -33,11 +34,7 @@ class PersonOwnedUnreadable(Exception):
     """`person-owned.json` is absent, broken or malformed; the message says why (one sentence)."""
 
 
-def _one_line(value, limit: int) -> str:
-    """Whitespace folded, at most `limit` characters, the cut marked by `…` (which counts). A local 3-line helper:
-    the fold-and-cut one-liner class is queued for ONE survivor (see the handoff), `contract.py` is not this node's."""
-    one = " ".join(str(value or "").split())
-    return one if len(one) <= limit else one[:limit - 1] + "…"
+_one_line = C.one_line   # FG7-1: whitespace folded, at most `limit` characters, the cut marked by `…`
 
 
 def load(path=None) -> dict:
