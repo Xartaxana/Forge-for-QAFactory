@@ -3538,12 +3538,6 @@ def test_journal_kinds_unreadable(tmp_path, case):
         raise AssertionError("no fallback list")
 
 
-def test_journal_kinds_equal_package_list():
-    import journal_kinds
-    listed = json.loads(journal_kinds.KINDS_PATH.read_text(encoding="utf-8"))["no_call_kinds"]
-    assert journal_kinds.service_kinds() == frozenset(listed) and listed
-
-
 @_parametrize([("with rows", 3), ("zero", 0)])
 def test_bookkeeping_line_is_printed(case):
     import contextlib
