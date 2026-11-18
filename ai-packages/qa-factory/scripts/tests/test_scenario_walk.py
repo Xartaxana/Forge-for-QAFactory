@@ -50,12 +50,29 @@ def story_dir(base: Path, files: dict) -> Path:
 def package_tree() -> Path:
     base = temp_dir("qa-witness-")
     for name, text in {"scripts/a.py": "import b\n", "scripts/b.py": "from c import x\n", "scripts/c.py": "x = 1\n",
-                       "scripts/z.py": "", "scripts/tests/test_scenario_demo.py": "",
+                       "scripts/z.py": "", "references/r.json": "{}", "scripts/tests/test_scenario_demo.py": "",
                        "scripts/tests/fixtures/stories/demo/story.json":
                            json.dumps({"walk": [{"stage": "S1", "door": {"kind": "exit_gate"}, "facets": ["accepted"]}]})}.items():
         (base / name).parent.mkdir(parents=True, exist_ok=True)
         (base / name).write_text(text, encoding="utf-8")
     return base
+
+
+def forge_tree() -> Path:
+    """A repository root beside no package: tools/ with tests of every pairing the outside rule reads."""
+    base = temp_dir("qa-forge-")
+    files = {"tools/a.py": "", "tools/test_a.py": "", "tools/test_a_md.py": "", "tools/a_b.py": "", "tools/test_a_b.py": "",
+             "tools/lib.py": "", "tools/test_user.py": "import lib\n", "tools/lone.py": "", "tools/test_q.py": "",
+             "tools/test_test_q.py": "", "scripts/c.py": "", "scripts/test_c.py": ""}
+    for name, text in files.items():
+        (base / name).parent.mkdir(parents=True, exist_ok=True)
+        (base / name).write_text(text, encoding="utf-8")
+    return base
+
+
+def outside(paths, root: Path, layers=None, package=None) -> str:
+    cls = {"slow": [], "globs": [], "no_list": False, "why": []}
+    return "\n".join(W.witness_for(paths, package or package_tree(), layers, {"exit_gate": ["a"]}, cls, root=root))
 
 
 def witness(paths, absent=False, **canon) -> str:
@@ -464,7 +481,25 @@ def main() -> None:
     check_eq("real exit gate and joint check agree with the record",
              sorted(live.items()), [(f"{SYN}/S1/accepted (final state)", "pass"), (f"{SYN}/S1manifest/accepted", "pass")])
 
+    forge, no_keep = forge_tree(), {"absent": False, "keep": {}}
+    broken = package_tree()
+    (broken / "scripts" / "tests" / "test-layers.json").write_text("{", encoding="utf-8")
     witness_rows = [
+        ("witness_for: an outside path names the test beside it, counted, never the whole layer",
+         outside(["tools/a.py"], forge, no_keep), "tools/a.py: tools/test_a.py (test_a.py beside it)"),
+        ("witness_for: an outside path with no test and no importer is said to have no witness",
+         outside(["tools/lone.py"], forge, no_keep), "no witness for tools/lone.py: no test_lone*.py beside it and no test beside it imports it; the batch canon judges it\nrun locally: 0 file(s)"),
+        ("witness_for: a family goes to the longest owning stem", outside(["tools/a.py"], forge, no_keep),
+         "tools/test_a_md.py (family of a)"),
+        ("witness_for: a longer stem keeps its own test", outside(["tools/a_b.py"], forge, no_keep), "tools/test_a_b.py (test_a_b.py beside it)"),
+        ("witness_for: a module nothing is named for is judged by its importers", outside(["tools/lib.py"], forge, no_keep),
+         "tools/test_user.py (imports lib)"),
+        ("witness_for: a test_* tool goes to its partner", outside(["tools/test_q.py"], forge, no_keep), "tools/test_test_q.py"),
+        ("witness_for: a changed test is its own witness", outside(["tools/test_a.py"], forge, no_keep), "(the test itself)"),
+        ("witness_for: a relative path whose first segment is a package folder stays a package path",
+         outside(["scripts/c.py"], forge, no_keep), "test_scenario_demo.py"),
+        ("witness_for: an unreadable test-layers.json is said and the outside answer still comes",
+         outside(["tools/a.py"], forge, None, broken), "test-layers.json could not be read"),
         ("witness_for: a module in the import closure of a door names the scenario", witness(["scripts/c.py"]), "test_scenario_demo.py"),
         ("witness_for: a keep row that covers the path names the row", witness(["scripts/z.py"]), "keep test_gate.py"),
         ("witness_for: a data file is matched by covers", witness(["references/r.json"]), "keep test_gate.py"),
@@ -487,6 +522,9 @@ def main() -> None:
     ]
     for name, text, needle in witness_rows:
         check_in(name, needle, text)
+    check_not_in("witness_for: an outside path never gets the whole-layer line", outside(["tools/a.py"], forge, no_keep), "whole scenario layer")
+    check_not_in("witness_for: a family never names a test of another module", outside(["tools/a.py"], forge, no_keep), "test_a_b.py")
+    check_not_in("witness_for: a package path gets no outside line", outside(["scripts/c.py"], forge, no_keep), "no witness for")
     check_not_in("witness_for: a keep row that does not cover the path is not named", witness(["scripts/c.py"]), "keep test_gate.py")
     check_not_in("witness_for: a folder covers entry does not cover a sibling folder that shares its prefix", witness(["scripts/tests/fixtures/xy/a.json"]), "keep test_gate.py")
     finish("test_scenario_walk")
