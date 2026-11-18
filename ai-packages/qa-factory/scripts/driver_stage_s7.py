@@ -8,15 +8,18 @@ from driver_core import OpenWork, Person, Refusal, ReworkRefused, _now, _read_js
 
 
 class DriverStageS7:
-    def failures_to_triage(self) -> str:
+    def failures_to_triage(self, awaiting: str = "") -> str:
         report = _read_json(self.task_root / "work/run-report.json")
         status = report.get("execution_status")
         if status not in ("passed", "failed"):
             # t-305 N1 (Q19 a): `not_executed` is also what S6 leaves on purpose when it closes on a CODE-ONLY receipt
-            # (nothing to execute, or everything handed to a person); S7 reads that report. Without the receipt it is
-            # an S6 halt, and the refusal below stands word for word. The receipt is read only on this branch.
+            # (nothing to execute, or everything handed to a person); S7 reads that report. U7 7a: and what a FINISHED S6
+            # leaves over a manual-only story (an `inconclusive` or `unprepared` walk) - `triageable_not_executed`, the one
+            # predicate delivery's `run_reasons` reads too. Still refused: an S6 halt, and a `not_executed` with neither
+            # receipt nor a target a role can triage; the refusal below stands word for word. Read only on this branch.
             import s7_pretriage
-            if not (status == "not_executed" and s7_pretriage.s6_closed_by_code(self.task_root)):
+            if not (status == "not_executed" and (s7_pretriage.s6_closed_by_code(self.task_root)
+                                                  or s7_pretriage.triageable_not_executed(self.task_root, awaiting=awaiting))):
                 raise Refusal(f"S7 entry: run-report.json execution_status is `{status}` — nothing to triage yet; "
                               "the S6 halt that produced it stands")
         totals = report.get("current_totals") or report.get("totals") or {}
@@ -41,6 +44,10 @@ class DriverStageS7:
             reasons.append(f"{len(nameless)} failed result row(s) with no id")
         if targets["results"] and not int(totals.get("failed") or 0):
             reasons.append("failed results " + ",".join(sorted(targets["results"])))
+        # U7 7b-A: a coded `report_unread` row is a target the analyst reads from the log; reasons are never "" over one, so
+        # `stage_S7` cannot close by code over it (an `unread` target is no `s7.no_failures`)
+        if targets["unread"]:
+            reasons.append("results the run could not read " + ",".join(sorted(targets["unread"])))
         manifest = _read_json(self.task_root / "work/automation-manifest.json")
         if "contradicts_requirement" in json.dumps(manifest.get("unresolved") or []):
             reasons.append("contradicts_requirement rows")
@@ -72,7 +79,7 @@ class DriverStageS7:
         elif analyst_done and self.state.pop("s7_retriage", None):      # a fresh triage ends the chain
             self.save_state()
         if not analyst_done:
-            reasons = self.failures_to_triage()
+            reasons = self.failures_to_triage(awaiting=awaiting)
             if not reasons and not awaiting:
                 # P2 M3 (the investigation before a close by code). POSITION INVARIANT: after `failures_to_triage` (a halted run raises
                 # before any register write) and before the receipt (which hashes the register the pass wrote).
@@ -87,8 +94,9 @@ class DriverStageS7:
                 return
             # t-305 N1 (Q23): code decides what the run already recorded BEFORE the analyst is asked (`s7_pretriage`:
             # a manual `inconclusive` whose own record says what stopped it; a red test is never pre-judged). POSITION
-            # INVARIANT: after the entry refusal of `failures_to_triage` (a halted run is never triaged, so no row is
-            # written over one) and before the analyst's dispatch (an analyst row is never written over, and the analyst
+            # INVARIANT: after the entry refusal of `failures_to_triage` (a run that halted - `broken_run`, `timeout`,
+            # `env_blocked` - or a `not_executed` with neither an S6 code-only receipt nor a target a role can triage
+            # (`s7_pretriage.triageable_not_executed`: a manual target, an observation or an `unread` target) is never triaged, so no row is written over one) and before the analyst's dispatch (an analyst row is never written over, and the analyst
             # is never asked about a failure code answered). It runs on EVERY entry, so a row the analyst dropped is
             # restored; it does not run while an S7 dispatch is in flight (the analyst writes the same file). A pre-triage
             # that cannot run is one printed line and the analyst triages everything, as before (P1).
@@ -119,11 +127,12 @@ class DriverStageS7:
                 return
             left = pre.get("left") or {}
             told = [f"Failures to triage: {reasons}"]
-            if pre.get("kept") and (left.get("results") or left.get("manual") or left.get("unnamed")):
+            if pre.get("kept") and (left.get("results") or left.get("manual") or left.get("unread") or left.get("unnamed")):
                 # only the failures code left to the analyst are named, and the rows code wrote are named once, so the
                 # analyst keeps them (they are listed under `not_for_repair` like any other row) or replaces one (Q10, Q11)
                 told = ["Failures to triage: " + s7_pretriage.brief(
-                            [("result", n) for n in left["results"]] + [("manual", n) for n in left["manual"]],
+                            [("result", n) for n in left["results"]] + [("manual", n) for n in left["manual"]]
+                            + [("unread", n) for n in left.get("unread") or []],
                             left["unnamed"], bool(pre.get("contradicted"))),
                         "Rows already written by code (keep them; you may replace one with your own): "
                         + ", ".join(pre["kept"])]

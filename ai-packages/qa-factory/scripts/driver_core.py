@@ -389,6 +389,7 @@ def recorded_earlier(script: str, code: int) -> bool:
 # it to the person through `Driver.code_close` instead of calling the conductor. The S0 closes are not in the table (the record is made
 # before the refusal; B1 of the review).
 CODE_CLOSE_SITES = {
+    "s5.nothing": ("S5", "there was nothing to automate"),
     "s6.nothing": ("S6", "there was nothing to run"),
     "s6.results_stand": ("S6", "every automated result still stands, so nothing was run again"),
     "s6.reprobed": ("S6", "the tests ran on their current code, and the live checks of the tests that changed were proved again or left as they were"),

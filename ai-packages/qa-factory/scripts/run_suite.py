@@ -538,6 +538,16 @@ def build_run_block(request: dict, summary: dict, attempt_id: str) -> dict | Non
                 reason = ("report row missing" if not matches else
                           "report identity is ambiguous; multiple rows matched")
                 matched = False
+        # U7 7b-A (AR-22, AR-28): a row is coded `report_unread` only when the run itself reported nothing it could read and exited 0 -
+        # no report rows, reporter `none` (never a declared or inferred one), `not_executed` (a non-zero exit is `broken_run`, an
+        # inconclusive run has its own cause), nothing blocked. A row with any report row is never coded. Error direction: toward
+        # NOT coding (an uncoded `not_run` keeps today's refusal and `no`). For a `file` contract with zero report rows it replaces
+        # `_file_verdict`'s `id_not_in_report`. BEFORE the timeout below: the project's timeout wins and overwrites it.
+        if (status == "not_run" and "no_junitxml" in summary and summary.get("reporter") == "none"
+                and not summary.get("reporter_inferred_from") and summary.get("execution_status") == "not_executed"
+                and not summary.get("blocked") and not report_rows):
+            import contract as C
+            reason_code = C.REPORT_UNREAD_CODE
         if report_id in timed_out and summary.get("execution_status") != "inconclusive":
             # RH2-9: the project's timeout killed THIS test; the code replaces `_file_verdict`'s (m-4) and says whose limit it was
             reason_code = PROJECT_TIMEOUT_CODE

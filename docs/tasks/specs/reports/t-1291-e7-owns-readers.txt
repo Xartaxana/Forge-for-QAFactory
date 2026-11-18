@@ -1,0 +1,58 @@
+readers: 408 outside owns, 57 lines below -- base origin/main 766fad1a (literal mention; known misses: tools/owns_readers.py docstring)
+- names: ai-packages/qa-factory/scripts/tests/test_audit_rules.py (test, slow) names NO_MOVE_BASELINE_MAX
+- names: ai-packages/qa-factory/scripts/tests/test_brief_pack.py (test, slow) names manual_stand_lines
+- names: ai-packages/qa-factory/scripts/tests/test_conductor_doors.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_driver_stop_record.py (test) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_first_look_code_look.py (test) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_first_look_step.py (test) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_human_questions.py (test) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_infra_failure_texts.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_manual_evidence.py (test) names unprepared_rows
+- names: ai-packages/qa-factory/scripts/tests/test_no_move_seam_n2b_n15.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_person_words.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_s7_investigation_replay.py (test, slow) names stage_S7
+- names: ai-packages/qa-factory/scripts/tests/test_story_run_freshness_k15_k26.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_story_run_loop_b_threshold.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_story_run_refusals.py (test, slow) names stage_S7, take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_story_run_s0.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_story_run_s6.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_story_run_s7.py (test, slow) names stage_S7
+- names: ai-packages/qa-factory/scripts/tests/test_story_run_stand_identity.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_story_run_words.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_story_sides.py (test, slow) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_validator_class.py (test) names verdict_problems
+- names: ai-packages/qa-factory/scripts/tests/test_walk_account.py (test) names take_answer
+- names: ai-packages/qa-factory/scripts/tests/test_walk_lanes.py (test) names record_from_walk
+- names: ai-packages/qa-factory/scripts/tests/test_walk_record.py (test) names write_unprepared, record_from_walk, verdict_problems
+- names: ai-packages/qa-factory/scripts/tests/test_walk_supply.py (test) names take_answer
+- names: tools/test_dispatch_gate.py (test) names take_answer
+- names: tools/test_dispatch_manifest.py (test) names take_answer
+- names: tools/test_piles.py (test) names take_answer
+- names: ai-packages/qa-factory/references/artifact-writers.json (data) names record_from_walk
+- names: ai-packages/qa-factory/references/null-outcomes.json (data) names stage_S7
+- names: ai-packages/qa-factory/scripts/tests/fixtures/driver-layers.json (data) names stage_S7, take_answer
+- names: ai-packages/qa-factory/scripts/tests/fixtures/judgment-census.json (data) names write_unprepared, _validate_unprepared, verdict_problems
+- names: ai-packages/qa-factory/scripts/tests/fixtures/told-ratchet.json (data) names write_unprepared
+- more: ai-packages/qa-factory/scripts/project_knowledge.py -- 13 test, 11 code, 4 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/references/config-keys.json -- 7 test, 3 quarantined, 6 code, 2 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/references/conductor-actions.json -- 10 test, 4 quarantined, 7 code, 1 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/design/state-exits.md -- 12 test, 4 code, 1 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/scripts/manual_evidence.py -- 30 test, 22 quarantined, 25 code, 13 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/scripts/coverage_contract.py -- 22 test, 8 quarantined, 16 code, 5 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/scripts/walk_session.py -- 21 test, 7 quarantined, 8 code, 9 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/scripts/driver_stage_s7.py -- 1 test, 1 code, 3 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/scripts/driver_machine.py -- 4 test, 5 code, 5 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/references/question-prices.json -- 5 test, 2 quarantined, 8 code, 4 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/scripts/audit_factory.py -- 18 test, 10 quarantined, 14 code, 6 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/scripts/brief_pack.py -- 35 test, 39 quarantined, 25 code, 11 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/scripts/app_card.py -- 3 test, 1 quarantined, 2 code, 2 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/agents/qa-runner.md -- 71 test, 63 quarantined, 23 code, 13 data readers not listed (--readers / --all lists them)
+- more: ai-packages/qa-factory/references/walk-charter.md -- 4 test, 1 quarantined, 1 code, 2 data readers not listed (--readers / --all lists them)
+- more: name write_unprepared -- 1 quarantined readers not listed (--readers / --all lists them)
+- more: name unprepared_rows -- 2 quarantined, 2 code readers not listed (--readers / --all lists them)
+- more: name record_from_walk -- 2 quarantined, 1 code readers not listed (--readers / --all lists them)
+- more: name verdict_problems -- 1 quarantined readers not listed (--readers / --all lists them)
+- more: name walk_record_of -- 1 quarantined readers not listed (--readers / --all lists them)
+- more: name stage_S7 -- 3 quarantined, 1 code readers not listed (--readers / --all lists them)
+- more: name take_answer -- 11 quarantined, 16 code readers not listed (--readers / --all lists them)
+- more: name NO_MOVE_BASELINE_MAX -- 1 code readers not listed (--readers / --all lists them)
