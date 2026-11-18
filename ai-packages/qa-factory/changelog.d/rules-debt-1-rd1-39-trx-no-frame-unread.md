@@ -1,1 +1,3 @@
 - reporters (`reporters.py`): a failed or errored TRX row with no stack frame found by the built-in reader is now the typed `site_unread` answer (`trx/<runtime>`), as for a non-pytest JUnit row, instead of `{}`; with a green baseline the probe is incomplete, no longer `survived`
+- reporters (`reporters.py`): a failed or errored pytest or junit-xml-of-pytest row with no traceback tail is the same typed `site_unread` answer instead of `{}`; so a green baseline is incomplete, no longer `survived`
+- a no-frame TRX failure whose text names the pinned location inside the clone with the pinned message is accepted through the same pinned read as JUnit (one road, the full-proof bar); a location outside the clone or another message stays unread

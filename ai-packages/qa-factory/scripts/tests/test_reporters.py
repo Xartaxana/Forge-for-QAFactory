@@ -448,9 +448,9 @@ def sites() -> None:
     check_eq("failed, first located frame in product code: exception", site(product)["failure_kind"], "exception")
     check_eq("an error row with a frame in the test file: error", site(FRAME_CLONE, status="error")["failure_kind"], "error")
     check_eq("an error row with a product frame first: error", site(product, status="error")["failure_kind"], "error")
-    unread = {"site_unread": "trx/unknown runtime", "reason": "the assertion site of a trx/unknown runtime report was not read: "
-              "the trx reporter found no stack frame (B-337)"}  # RD1-39: a tooling gap is typed, never {} (FR-59)
-    check_eq("an error row with no located frame is the typed unread answer", site("   at X.Y()", status="error"), unread)
+    def unread(got, stack):  # RD1-39: a tooling gap is typed, never {} (FR-59); the stack text is never echoed
+        return (got.get("site_unread"), bool(got.get("reason")), stack.strip() not in got.get("reason", "")),                ("trx/unknown runtime", True, True)
+    check_eq("an error row with no located frame is the typed unread answer", *unread(site("   at X.Y()", status="error"), "at X.Y()"))
     skipped_row = {"status": "skipped", "problems": [{"kind": "skipped", "message": "m", "text": FRAME_CLONE}]}
     check_eq("a skipped row is never a failure site", R.assertion_site(skipped_row, "trx", CLONE_WIN, TEST_FILE), {})
     check_eq("a skipped JUnit row is never a failure site",
@@ -459,11 +459,10 @@ def sites() -> None:
                  "pytest", "/c", "tests/t.py"), {})
     check_eq("a different test file is not an assertion",
              site(FRAME_CLONE, test_file="backend/Tests/OtherTests.cs")["failure_kind"], "exception")
-    check_eq("a failed row with no stack: the typed unread answer", site(""), unread)
-    check_eq("a failed row with no problem text at all: the typed unread answer", site(None), unread)
+    check_eq("a failed row with no stack: the typed unread answer", *unread(site(""), "<stack>"))
     check_eq("no problems (a passed row): {}", site(None, status="passed"), {})
     check_eq("a failed row, a stack with no located frame: the typed unread answer, the text not echoed",
-             site("   at Xunit.Assert.Equal[T](T expected, T actual)"), unread)
+             *unread(site("   at Xunit.Assert.Equal[T](T expected, T actual)"), "Xunit.Assert.Equal"))
     check_eq("no clone root: nothing is stripped", site(FRAME_CLONE, root="")["location"],
              "C:\\clone\\backend\\Tests\\FeedbackTests.cs:42")
     try:
@@ -741,8 +740,8 @@ OLD_SITE = {  # `_failure_detail(_junit_rows(...)[0])`, by (label, tag)
     ("qualified", "error"): {"location": "tests/test_cart.py:12", "failure_kind": "error"},
     ("value", "failure"): {"location": "tests/test_cart.py:3", "failure_kind": "exception"},
     ("value", "error"): {"location": "tests/test_cart.py:3", "failure_kind": "error"},
-    ("no-tail", "failure"): {}, ("no-tail", "error"): {},
-    ("empty", "failure"): {}, ("empty", "error"): {},
+    ("no-tail", "failure"): None, ("no-tail", "error"): None,  # None: the typed `site_unread` answer (RD1-39 R2), once `{}`
+    ("empty", "failure"): None, ("empty", "error"): None,
     ("trailing-blank", "failure"): _ASSERT_12, ("trailing-blank", "error"): _ASSERT_12,
 }
 OLD_FOLD = {  # `red_sandbox._reason_text(s)` == `window_record._reason_text(s)` for each sample
@@ -750,7 +749,15 @@ OLD_FOLD = {  # `red_sandbox._reason_text(s)` == `window_record._reason_text(s)`
 }
 
 
+def plain_site(site: dict):
+    return None if "site_unread" in site else site
+
+
 def pytest_parity(root: Path) -> None:
+    failed_empty = {"status": "failed", "problems": [{"kind": "failure", "message": "m", "text": ""}]}
+    check_eq("RD1-39 R2: a failed pytest row with no trace, by reporter and pytest argv: typed unread, never {}",
+             [R.assertion_site(failed_empty, rep, "/c", "t.py", pytest_command=True, runtime="python").get("site_unread")
+              for rep in ("pytest", "junit-xml")], ["pytest/python", "junit-xml/python"])
     for label, text in PYTEST_TEXTS.items():
         for tag in ("failure", "error"):
             body = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -762,10 +769,10 @@ def pytest_parity(root: Path) -> None:
                      (new_row["test_id"], new_row["status"], new_row["problems"][0]["message"],
                       new_row["problems"][0]["text"]),
                      ("tests.test_cart::t", "failed" if tag == "failure" else "error", "m", OLD_ROW_TEXT[label]))
-            check_eq(f"pytest parity ({label}, {tag}): the old reader's site, frozen",
-                     R.assertion_site(new_row, "pytest", "/ignored", "tests/test_cart.py"), OLD_SITE[label, tag])
+            check_eq(f"pytest parity ({label}, {tag}): the old reader's site, frozen (a typed unread answer is None)",
+                     plain_site(R.assertion_site(new_row, "pytest", "/ignored", "tests/test_cart.py")), OLD_SITE[label, tag])
             check_eq(f"junit-xml parity ({label}, {tag}): the same rule for a pytest command",
-                     R.assertion_site(new_row, "junit-xml", "/ignored", "tests/test_cart.py"), OLD_SITE[label, tag])
+                     plain_site(R.assertion_site(new_row, "junit-xml", "/ignored", "tests/test_cart.py")), OLD_SITE[label, tag])
     check_eq("the pytest rule's own answer", R.assertion_site(
         {"status": "failed", "problems": [{"kind": "failure", "message": "m", "text": PYTEST_TEXTS["assertion"]}]},
         "pytest", "/c", "tests/test_cart.py"), {"location": "tests/test_cart.py:12", "failure_kind": "assertion"})

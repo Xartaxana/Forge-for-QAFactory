@@ -479,7 +479,7 @@ def non_pytest_nodes_are_never_node_ids() -> None:
         finish_project(root)
 
 
-def trx_wrong_assertion_line_is_incomplete() -> None:
+def trx_wrong_assertion_line_is_survived() -> None:
     root, task_root, result, _seeded = trx_run(location="backend/Tests/XTests.cs:4")
     try:
         check("an expected line the assertion is not on is not proof", result.get("status") == "survived",
@@ -1411,8 +1411,18 @@ def frames_from_the_table() -> None:
                           [{"instance_id": fs["instance_id"], "status": "passed"}])
         check_eq("RD1-39: a `.fs` TRX failed row with no frame: unread site, never survived",
                  (got.get("site_unread"), proof["status"]), ("trx/unknown runtime", "incomplete"))
-        check_in("...the reason names the trx reporter and the missing frame", "trx reporter found no stack frame",
-                 got.get("site_unread_reason", ""))
+        # RD1-39 R1: the one road with JUnit (RD1-24's full-proof bar): the text names the pinned location inside the clone and the
+        # pinned message -> accepted; a location outside the clone, or a message that disagrees, stays unread -> incomplete
+        pinned = f"{(clone / 'backend' / 'Tests' / 'ChecksTests.fs').as_posix()}:42"
+        outcomes = []
+        for text, message in ((f"Assert failed at {pinned} boom", "boom"), ("Assert failed at /elsewhere/ChecksTests.fs:42 boom", "boom"),
+                              (f"Assert failed at {pinned} other", "other")):
+            rows = rows_of(root, "fs-pin.trx", trx_failed("Suite.Checks.critical_check", text, message=message))
+            row, _ = RS.bind_row(fs, contracts_for(fs, "Suite.Checks.critical_check"), rows, "trx")
+            got = RS.target_result(dict(fs, expected_reason="boom"), row, "trx", clone)
+            outcomes.append((got.get("semantic_verdict"), "site_unread" in got))
+        check_eq("RD1-39 R1: a no-frame TRX text naming the pinned place and message is read; elsewhere or another message is unread",
+                 outcomes, [("intended_failure", False), (None, True), (None, True)])
         # a table that cannot be read: today's behaviour for every suffix, not a crash and not an unread site
         broken = root / "broken.json"
         broken.write_text("{nope", encoding="utf-8")
@@ -1447,7 +1457,7 @@ def main() -> None:
     no_reporter_no_rows()
     the_door_is_a_command_the_cli_takes()
     trx_end_to_end()
-    trx_wrong_assertion_line_is_incomplete()
+    trx_wrong_assertion_line_is_survived()
     trx_without_report_test_id()
     junit_unmatched_report_id_is_the_probes_defect()
     a_baseline_target_with_no_row_is_not_executed()
