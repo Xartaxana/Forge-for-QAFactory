@@ -188,9 +188,15 @@ def test_lister_flags_and_failures(monkeypatch):
 
 # --------------------------------------------------------------------------------------------------------- the walk
 
+SESS_IMG = "C:\\Users\\u\\AppData\\Local\\Claude-Data\\x\\claude-code\\2.1.321\\h\\claude.exe"
+APP_IMG = "C:\\Program Files\\WindowsApps\\Claude_5\\app\\Claude.exe"
+
+
 class FakeOs:
-    def __init__(self, procs, created, fail=None):
-        self.procs, self.c, self.fail = procs, created, fail
+    """`images` maps pid -> image path; a pid not in it has a session image. fail == ("image", pid) breaks only the image read."""
+
+    def __init__(self, procs, created, fail=None, images=None):
+        self.procs, self.c, self.fail, self.images = procs, created, fail, images or {}
 
     def snapshot(self):
         if self.fail == "snapshot":
@@ -204,6 +210,13 @@ class FakeOs:
             raise e
         return self.c[pid]
 
+    def identity(self, pid):
+        if self.fail == ("image", pid):
+            e = OSError(5, "denied")
+            e.winerror = 5
+            raise e
+        return self.created(pid), self.images.get(pid, SESS_IMG)
+
 
 def chain(n_hops, session_name="claude.exe"):
     procs, created = {}, {}
@@ -214,9 +227,9 @@ def chain(n_hops, session_name="claude.exe"):
     return procs, created
 
 
-def app_over_session():
+def app_over_session(img2=SESS_IMG, img3=APP_IMG):
     return ({1: (2, "bash.exe"), 2: (3, "claude.exe"), 3: (4, "claude.exe"), 4: (0, "explorer.exe")},
-            {1: 300.0, 2: 200.0, 3: 100.0, 4: 50.0})
+            {1: 300.0, 2: 200.0, 3: 100.0, 4: 50.0}, {2: img2, 3: img3})
 
 
 def orphan_hop():
@@ -231,18 +244,30 @@ WALKS = [
     ("no-ancestor", lambda: chain(3, "explorer.exe"), None, 1000, None, "no claude.exe ancestor"),
     ("api-error-snapshot", app_over_session, "snapshot", 1, None, "api error 5"),
     ("api-error-times", app_over_session, 2, 1, None, "api error 5"),
+    ("utility-not-session", lambda: app_over_session(APP_IMG), None, 1, None, sp.NOT_SESSION_IMAGE % 2),
+    ("image-unreadable", app_over_session, ("image", 2), 1, None, "api error 5"),
+    ("nested-other-install", lambda: app_over_session(APP_IMG, SESS_IMG), None, 1, None, sp.NOT_SESSION_IMAGE % 2),
+    ("marker-substring", lambda: app_over_session("C:\\Users\\claude-code-fan\\x\\claude.exe"), None, 1, None, sp.NOT_SESSION_IMAGE % 2),
+    ("marker-case-slash", lambda: app_over_session("C:/X/CLAUDE-CODE/2/claude.exe"), None, 1, {"pid": 2, "created": 200.0}, ""),
+    ("marker-as-file-name", lambda: app_over_session("C:\\bin\\claude-code"), None, 1, None, sp.NOT_SESSION_IMAGE % 2),
+    ("image-empty", lambda: app_over_session(""), None, 1, None, sp.NOT_SESSION_IMAGE % 2),
 ]
 
 
 @pytest.mark.parametrize("name,make,fail,start,want,reason", WALKS, ids=[w[0] for w in WALKS])
 def test_walk(name, make, fail, start, want, reason):
-    procs, created = make()
-    got = sp.session_process(ROWS, FakeOs(procs, created, fail), start_pid=start, platform="nt")
+    procs, created, *images = make()
+    got = sp.session_process(ROWS, FakeOs(procs, created, fail, *images), start_pid=start, platform="nt")
     assert got == (want, reason)
 
 
+def test_walk_image_row_empty_is_not_measured():
+    rows = dict(ROWS, session_image_dirs={"nt": [], "posix": []})
+    assert sp.session_process(rows, FakeOs(*app_over_session()), start_pid=1, platform="nt") == (None, sp.IMAGE_NOT_MEASURED)
+
+
 def test_walk_posix_empty_row_is_no_session():
-    assert sp.session_process(ROWS, FakeOs(*app_over_session()), start_pid=1, platform="posix") == (None, sp.POSIX_NOT_MEASURED)
+    assert sp.session_process(ROWS, FakeOs(*app_over_session()[:2]), start_pid=1, platform="posix") == (None, sp.POSIX_NOT_MEASURED)
 
 
 def test_broken_rows_file_is_named_never_a_default(tmp_path, monkeypatch):
@@ -252,6 +277,9 @@ def test_broken_rows_file_is_named_never_a_default(tmp_path, monkeypatch):
         sp.load_rows(bad)
     bad.write_text(json.dumps({"limit_seconds": 1}), encoding="utf-8")
     with pytest.raises(sp.RowsError, match="lacks a required row"):
+        sp.load_rows(bad)
+    bad.write_text(json.dumps({k: v for k, v in ROWS.items() if k != "session_image_dirs"}), encoding="utf-8")
+    with pytest.raises(sp.RowsError, match="session_image_dirs"):
         sp.load_rows(bad)
     monkeypatch.setattr(sp, "ROWS_PATH", bad)
     out = []
