@@ -1206,9 +1206,15 @@ def R(tid, ts=TS, **kw):
     return ev_line(ts, tid, "rejected", **kw)
 
 
-def nc_world(tmp_path, journal, workers=None, files=None):
+def nc_world(tmp_path, journal, workers=None, files=None, mains=None):
     """-> (root, projects, prices). journal: lines of the history file; files: {slug: lines}; workers: {agent id:
-    [(model, input, output), ...]}."""
+    [(model, input, output), ...]}; mains: {session: [records]} written as projects/proj/<session>.jsonl -- the
+    session "sess" of the workers always has a main transcript (empty unless given), so it is scanned."""
+    mains = {} if mains == "no_root" else dict(mains or {})
+    if workers:
+        mains.setdefault("sess", [])
+    for sess, recs in mains.items():
+        put(tmp_path / "projects", "proj/%s.jsonl" % sess, "".join(json.dumps(r) + "\n" for r in recs))
     import usage_report
     root, projects = tmp_path / "w", tmp_path / "projects"
     put(root, fm.JOURNAL_REL, "".join(l + "\n" for l in journal))
@@ -1226,14 +1232,21 @@ def nc_world(tmp_path, journal, workers=None, files=None):
     return root, projects, usage_report.load_prices(tmp_path / "prices.json")
 
 
-def nc_run(tmp_path, journal, workers=None, files=None, window=NC_WINDOW):
-    root, projects, prices = nc_world(tmp_path, journal, workers, files)
-    d = fm.node_costs(root, window, projects=projects, prices=prices)
+def nc_run(tmp_path, journal, workers=None, files=None, window=NC_WINDOW, mains=None):
+    """mains == "no_root": the projects folder the node cost walks does not exist (EA5)."""
+    root, projects, prices = nc_world(tmp_path, journal, workers, files, mains)
+    d = fm.node_costs(root, window, projects=tmp_path / "missing" if mains == "no_root" else projects, prices=prices)
     return d, {r["row"]: r for r in d["rows"]}
 
 
 W1 = [("m-a", 1000, 500)]       # priced: 1000*1e-6 + 500*2e-6 = 0.002, tokens 1500
 ALL5 = {a: W1 for a in ("a1", "a2", "a3", "a4", "a5")}
+
+
+def _send(to, uuid, tool_id, sidechain=False):
+    """A Lead main-transcript record: one SendMessage tool_use to `to`."""
+    return {"type": "assistant", "uuid": uuid, "isSidechain": sidechain, "timestamp": "2026-11-10T10:00:00Z",
+            "message": {"content": [{"type": "tool_use", "id": tool_id, "name": "SendMessage", "input": {"to": to}}]}}
 
 
 def _critic_attach(d, r):
@@ -1333,12 +1346,30 @@ NC_CASES = [
     ("task_with_no_dispatch_has_no_cost",
      [A("t-001")], ALL5, None, 0,
      lambda d, r: r["t-001"]["dispatches"] == 0 and r["t-001"]["cost"] is None and d["top"] == []),
+    # the 7th column is `mains` (nc_world); EA2 EA6 EA7 EA8: a send joins only through a delegated agent ref, once
+    ("resumes_from_parent_session",
+     [D("t-001", "a1"), D("t-002", "a2"), A("t-001"), A("t-002")], ALL5, None, 2,
+     lambda d, r: (r["t-001"]["resumes"], r["t-001"]["moves"], r["t-002"]["moves"], d["totals"]["no_node"]["sends"])
+     == (2, 2, 0, 1),
+     {"sess": [_send("a1", "u1", "x1"), _send("a1", "u1", "x1"), {"type": "api-request-blob", "message": _send(
+         "a1", "u1", "x1")["message"]}, _send("a1", "u2", "x2"), _send("uds:\\\\.\\pipe\\LOCAL\\cc-msg-1", "u3", "x3"),
+         _send("a1", "u4", "x4", sidechain=True), _send("a9", "u5", "x5")]}),
+    ("root_absent_all_unscanned",
+     [D("t-001", "a1"), D("t-001", "a2"), A("t-001")], ALL5, None, 2,
+     lambda d, r: (d["totals"]["sessions"] == {"scanned": 0, "unreadable": 0} and r["t-001"]["resumes_unscanned"] == 2
+                   and r["t-001"]["moves"] == 1), "no_root"),
+    ("role_rows_sum_to_total",
+     [D("t-001", "a1"), D("t-001", "a2", agent="critic"), D("t-001", "a3", agent=None), A("t-001")],
+     {"a1": W1, "a2": [("m-a", 2000, 0)], "a3": [("m-a", 10, 0)]}, None, 3,
+     lambda d, r: ([x["role"] for x in d["totals"]["roles"]] == ["critic", "builder", "unknown"]
+                   and sum(x["tokens"] for x in d["totals"]["roles"]) == d["totals"]["tokens"] == 3510)),
 ]
 
 
-@pytest.mark.parametrize("journal,workers,files,n_disp,check", [c[1:] for c in NC_CASES], ids=[c[0] for c in NC_CASES])
-def test_node_cost_grouping_and_price(tmp_path, journal, workers, files, n_disp, check):
-    d, rows = nc_run(tmp_path, journal, workers, files)
+@pytest.mark.parametrize("journal,workers,files,n_disp,check,mains", [(c[1:] + (None,))[:5] + (c[6] if len(c) > 6 else None,)
+                                                                      for c in NC_CASES], ids=[c[0] for c in NC_CASES])
+def test_node_cost_grouping_and_price(tmp_path, journal, workers, files, n_disp, check, mains):
+    d, rows = nc_run(tmp_path, journal, workers, files, mains=mains)
     assert check(d, rows), json.dumps(d, indent=1, default=str)
     t = d["totals"]
     # I-3: every dispatch counted once, in a row or in the shared bucket; the money adds up to the total
@@ -1376,8 +1407,8 @@ NC_RENDERS = [
                    and "Top 5 accepted nodes by cost: none in the window" in t and "| row |" not in t)),
     ("six_accepted_top_is_five_with_reasons", None, None,
      lambda d, t: (len(_top_lines(t)) == 5 and "6. " not in t
-                   and _top_lines(t)[0] == "1. t-006 $0.60 (2 dispatches, 0 unmeasured) -- rejects 1 (spec 1), critic "
-                                           "passes 0, redelegations 1 (replaced 0), escalations 0, defects after "
+                   and _top_lines(t)[0] == "1. t-006 $0.60 (2 dispatches, 0 unmeasured) -- moves 1 (resumes 0), "
+                                           "rejects 1 (spec 1), critic passes 0, redelegations 1 (replaced 0), escalations 0, defects after "
                                            "acceptance 0"
                    and _top_lines(t)[4].startswith("5. t-002 $0.20") and "| t-001 | accepted | 1 | 0 | 100000 | $0.10 |" in t)),
     ("open_row_not_in_top",
@@ -1393,6 +1424,14 @@ NC_RENDERS = [
      lambda d, t: ("priced elsewhere (the agent's transcript is counted once, on its first line): "
                    "t-001 line 2 (same_worker, priced on line 1)" in t
                    and "prices: given as_of T --" in t and "model_prices.json" not in t)),
+    ("moves_column_and_no_node_line",
+     [D("t-001", "a1"), D("t-001", "a9"), A("t-001"), json.dumps({"ts": TS, "event": "delegated", "agent": "builder",
+                                                               "notes": "n", "worker_ref": "cli:" + TS})], ALL5,
+     lambda d, t: ("| >= $0.00 | >= 1 (resumes 0, unscanned 1) |" in t and "delegated lines with no task_id 1" in t
+                   and [r["dispatches"] for r in d["rows"]] == [2])),
+    ("no_task_id_delegated_without_ts_counts_high",
+     [D("t-001", "a1"), A("t-001"), json.dumps({"event": "delegated", "agent": "builder", "notes": "n"})], ALL5,
+     lambda d, t: "delegated lines with no task_id 1" in t),
     ("ties_by_name",
      [D("t-002", "a2"), A("t-002"), D("t-001", "a1"), A("t-001")], ALL5,
      lambda d, t: t.index("| t-001 |") < t.index("| t-002 |") and t.index("1. t-001 ") < t.index("2. t-002 ")),

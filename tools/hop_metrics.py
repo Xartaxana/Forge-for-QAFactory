@@ -405,25 +405,12 @@ def _take_attachment(idx, obj):
 def _seen_before(idx, obj):
     """True when a record with this `uuid` was already taken in the pass (the harness re-writes records under the
     same uuid, E32): the first copy wins. A record with no (str) uuid is never a repeat."""
-    uid = obj.get("uuid")
-    if not isinstance(uid, str) or not uid:
-        return False
-    if uid in idx["uuids"]:
-        return True
-    idx["uuids"].add(uid)
-    return False
+    return not transcripts.first_copy(idx["uuids"], obj)
 
 
 def _take_calls(idx, n, obj):
     """The tool_use blocks of an assistant line, each tool_use id once (the second guard behind the uuid)."""
-    for block in transcripts.content_blocks(obj):
-        if not isinstance(block, dict) or block.get("type") != "tool_use":
-            continue
-        tid = block.get("id")
-        if isinstance(tid, str):
-            if tid in idx["call_ids"]:
-                continue
-            idx["call_ids"].add(tid)
+    for block in transcripts.new_tool_uses(obj, idx["call_ids"]):
         idx["calls"].append(_call_record(n, block))
 
 
