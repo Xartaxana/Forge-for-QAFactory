@@ -187,7 +187,9 @@ def empty_optional_lists(text: str, contract: str) -> str:
     prefilled row). Runs LAST, after the carry and the prefill. A text that cannot be read is returned as it was."""
     try:                                                    # one uniform rule (critic t-1257 Q12), no contract named here
         nulled = handoff.null_outcomes(contract)
-        wanted = [p for p in handoff.list_paths(contract) if "." not in p and p not in handoff.REQUIRED_LISTS and p not in nulled]
+        # `rounds` joined REQUIRED_LISTS with FV3-30 only to be judged by its sibling; its skeleton stays what it was (`rounds: []`)
+        held = [p for p in handoff.REQUIRED_LISTS if p != "rounds"]
+        wanted = [p for p in handoff.list_paths(contract) if "." not in p and p not in held and p not in set(nulled) - {"rounds"}]
         if not wanted:
             return text
         doc = handoff.parse(text)

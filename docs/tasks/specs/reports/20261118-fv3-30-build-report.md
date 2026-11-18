@@ -96,3 +96,34 @@ print("tokens in rounds rows:", [t for t in tokens if any(t in l for l in text.s
     python -B ai-packages/qa-factory/scripts/tests/test_null_outcomes.py
     === test_null_outcomes: 360/360 ok ===
     registry preflight: lint ok / read-json ok / driver-layers ok (census not judged)
+
+# Round 3 (handoff_init skeleton restored)
+handoff_init.py `empty_optional_lists`: `held` = REQUIRED_LISTS minus `rounds`, and `nulled` minus `rounds`, so the wanted set equals the old one for every contract.
+Skeleton proof (script below; it loads origin/main's handoff_init.py as a module and emulates the old handoff state):
+    contracts compared: 22 | differing: []
+    s7-automator-to-analyst diff lines: 0
+    rounds: [] present: True
+Known shift (kept, as instructed): `form_filler._excused(.., "rounds")` True -> False; no world-list token occurs in rounds rows, so no verdict changes today.
+Witness: driver `=== nodes: 43/43 ok ===`; `=== test_null_outcomes: 360/360 ok ===`.
+Row not placed (test_handoff_init_author.py is not in owns): `test_uniform_rule_every_contract[s7-automator-to-analyst]` FAILS now (new red). It mirrors the old rule with `path in handoff.REQUIRED_LISTS or path in nulled` (line ~148) and so expects `rounds` untouched, while the skeleton (as on origin/main) writes `rounds: []`. Fix for the Lead to place: in that test (and the `optional` list of test_runner_contract_follows_the_rule, harmless) read the held set as `[p for p in handoff.REQUIRED_LISTS if p != "rounds"]` and `set(nulled) - {"rounds"}`. The row to add: assert that the s7-automator-to-analyst skeleton holds `rounds: []`.
+Same file, 2 reds `test_s5_contracts_get_no_author_arg[s5-critic-to-automator|s5-critic-plan-to-automator]` fail identically on the main checkout (5c9bd80b): pre-existing, not mine.
+
+skeleton_diff.py (scratch):
+```python
+import sys, importlib.util
+A = r"C:/QAFactory/forge-repo/.claude/worktrees/agent-ada34995f535ddf75/ai-packages/qa-factory/scripts"
+S = r"C:/Users/i_mas/AppData/Local/Temp/claude/b3e3188b390a00d9/501cb4e0-b55f-46d8-9262-11b1caefad61/scratchpad/old/handoff_init_old.py"
+sys.path.insert(0, A)
+import handoff, handoff_init
+spec = importlib.util.spec_from_file_location("handoff_init_old", S); old = importlib.util.module_from_spec(spec); spec.loader.exec_module(old)
+names = [p.stem for p in sorted(handoff.CONTRACTS.glob("*.yaml")) if p.stem not in ("index", "vocabulary")]
+new_out = {c: handoff_init.empty_optional_lists(handoff.template(c).text(), c) for c in names}
+real = (handoff.REQUIRED_LISTS, handoff.null_outcomes)
+handoff.REQUIRED_LISTS = ("scope", "inputs_read")
+handoff.null_outcomes = lambda c: {k: v for k, v in real[1](c).items() if k != "rounds"}
+old_out = {c: old.empty_optional_lists(handoff.template(c).text(), c) for c in names}
+diff = [c for c in names if old_out[c] != new_out[c]]
+print("contracts compared:", len(names), "| differing:", diff)
+print("s7-automator-to-analyst diff lines:", sum(1 for _ in __import__("difflib").unified_diff(old_out["s7-automator-to-analyst"].split("\n"), new_out["s7-automator-to-analyst"].split("\n"), lineterm="")))
+print("rounds: [] present:", "\nrounds: []" in new_out["s7-automator-to-analyst"])
+```
