@@ -3738,3 +3738,96 @@ def test_the_coordinator_line_is_never_cut_by_max_lines_and_precedes_the_compact
     assert len(at) == 1 and out[:sc.MAX_LINES] == full and snap and at[0] < min(snap)
     after = [i for i, l in enumerate(out) if l.startswith("AFTER COMPACT")]
     assert not after or after[-1] > at[0]                       # AFTER COMPACT stays after the rules line (e6)
+
+
+# ---- FG7-94: the MAIN CI line (ci_read.main_red_line through sc.main_red_lines) ------------------------------------
+
+@pytest.fixture
+def no_launch(monkeypatch):
+    """The detached refresh is never started by a test (it would read the network)."""
+    import ci_read
+    monkeypatch.setattr(ci_read, "main_red_launch", lambda r, t: None)
+
+def _main_root(tmp_path, two=False):
+    """A real repo whose origin/main is its last commit; returns (root, first sha, last sha)."""
+    root = tmp_path / "mainrepo"
+    root.mkdir()
+    shas = []
+    for argv in ([["init", "-q"]] + [["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"]] * (2 if two else 1)):
+        subprocess.run(["git", "-C", str(root), *argv], check=True)
+        if argv[0] != "init":
+            shas.append(subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, check=True).stdout.decode().strip())
+    subprocess.run(["git", "-C", str(root), "update-ref", "refs/remotes/origin/main", shas[-1]], check=True)
+    return root, shas[0], shas[-1]
+
+
+def _main_state(root, head, state="green", red=None, fixer=None, flaky=0, age=0, runs=None, head_as=None):
+    import ci_read
+    red = {job: {"first_red": head, "last_green": None, "opened_at": "x",
+                 "range": [{"sha": head, "task": t, "label": "b"} for t in tasks]} for job, tasks in (red or {}).items()}
+
+    def mutate(st):
+        st.update(head=head_as or head, red=red, fixer={"task": fixer, "since": "x"} if fixer else None, error=None,
+                  flaky=[{"id": "f%d" % i, "why": "w", "added": "x"} for i in range(flaky)], order=[head],
+                  tips={head_as or head: {"state": state, "pushed_at": ci_read._iso(time.time() - age), "runs": {"forge-check.yml": 1} if runs is None else runs}})
+    ci_read.main_red_write(root, mutate)
+
+
+UNK = "; refresh: python -B tools/ci_read.py main-red refresh"
+LINES = [      # (name, state kwargs, expected with {h} = the head sha8, or None)
+    ("green-silent", dict(), None),
+    ("red", dict(state="red", red={"build": ["t-1", "t-2", "t-3"], "lint": ["t-4"]}, flaky=1),
+     "MAIN RED since {h}: build [t-1, t-2 +1], lint [t-4]; head {h} red; fixer none; flaky 1"),
+    ("red-with-fixer", dict(state="red", red={"build": ["t-1"]}, fixer="t-9"), "MAIN RED since {h}: build [t-1]; head {h} red; fixer t-9"),
+    ("fixer-on-flaky", dict(fixer="t-5", flaky=2), "MAIN GREEN at {h}; fixer t-5 on the flaky queue: 2 left"),
+    ("fixer-nothing-left", dict(fixer="t-5"), "MAIN GREEN at {h}; fixer t-5 on the flaky queue; nothing left, close: python -B tools/ci_read.py main-red fixer --done t-5"),
+    ("flaky-no-fixer", dict(flaky=3), "MAIN GREEN, flaky queue 3: no fixer"),
+    ("pending", dict(state="pending", age=330, runs={}), "MAIN CI pending at {h} (5 min); last green none"),
+    ("pending-no-run", dict(state="pending", age=901, runs={}), "MAIN CI unknown at {h}: no run after 15 min" + UNK),
+    ("pending-stale", dict(state="pending", age=5401), "MAIN CI unknown at {h}: no verdict after 90 min" + UNK),
+    ("one-wave-one-task", dict(state="red", red={"J": ["t-100", "t-100", "t-200"]}), "MAIN RED since {h}: J [t-100, t-200]; head {h} red; fixer none"),
+    ("origin-ahead", dict(head_as="b" * 40), "MAIN CI unknown at {h}: not read yet" + UNK)]
+
+
+@pytest.mark.parametrize("name,kw,expected", LINES, ids=[x[0] for x in LINES])
+def test_main_red_line(name, kw, expected, tmp_path, no_launch):
+    root, first, head = _main_root(tmp_path)
+    _main_state(root, head, **kw)
+    got = sc.main_red_lines(root)
+    assert got == ([] if expected is None else [expected.format(h=head[:8])])
+
+
+def test_main_red_line_absent_corrupt_hostile_and_no_origin(tmp_path, no_launch):
+    import ci_read
+    root, _first, head = _main_root(tmp_path)
+    assert sc.main_red_lines(root) == ["MAIN CI unknown at %s: never read%s" % (head[:8], UNK)]               # E14
+    path = ci_read._state_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not json", encoding="utf-8")
+    assert sc.main_red_lines(root) == ["MAIN CI unknown at %s: state unreadable (JSONDecodeError)%s" % (head[:8], UNK)]     # E11
+    names = {"x" * 200 + "\n\x1b[31mé": ["t-1"], **{"zjob%d" % i + "y" * 60: ["t-%d" % i] for i in range(6)}}
+    _main_state(root, head, state="red", red=names)
+    (line,) = sc.main_red_lines(root)
+    assert len(line) <= ci_read.LINE_MAX and line.isascii() and "\n" not in line and "x" * 60 in line and "x" * 61 not in line and "more" in line
+    (path.parent / "state.json").unlink()
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    subprocess.run(["git", "-C", str(bare), "init", "-q"], check=True)
+    assert sc.main_red_lines(bare) == []                                                                         # E23
+
+
+def test_main_red_line_survives_the_max_lines_cut_fails_open_and_launches_after_the_read(tmp_path, monkeypatch):
+    import ci_read
+    root = _seed_repo(tmp_path, events=[_event("delegated", ts="2026-07-10T08:00:00", task_id="t-001")])
+    orig = sc.main_red_lines
+    monkeypatch.setattr(sc, "main_red_lines", lambda r: ["MAIN RED test line"])
+    monkeypatch.setattr(sc, "boot_budget_lines", lambda r: ["FILLER"] * 40)
+    lines = sc.build_context_lines(root)
+    assert len(lines) == sc.MAX_LINES and "MAIN RED test line" in lines and "FILLER" in lines and not any(l.startswith("WIRING:") for l in lines)
+    monkeypatch.setattr(sc, "main_red_lines", orig)
+    order = []
+    monkeypatch.setattr(ci_read, "main_red_line", lambda r, now: order.append("read") or "L")
+    monkeypatch.setattr(ci_read, "main_red_launch", lambda r, t: order.append("launch " + t))
+    assert sc.main_red_lines(root) == ["L"] and order == ["read", "launch session-start"]
+    monkeypatch.setattr(ci_read, "main_red_line", lambda r, now: 1 / 0)
+    assert sc.main_red_lines(root) == ["MAIN CI: unavailable (ZeroDivisionError: division by zero)"]
