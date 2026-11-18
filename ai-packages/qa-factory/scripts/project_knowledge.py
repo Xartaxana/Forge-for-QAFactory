@@ -23,6 +23,7 @@ Before the first `record` the file does not exist; every reader treats an absent
                           [--settles-by-file F] | --reference) --words-file F
   project_knowledge.py lesson --task T --subject S [--stand N] [--wait-s SECONDS] --words-file F
   project_knowledge.py lessons [--stand N] [--task T]
+  project_knowledge.py instance --task T --allowed yes|no [--stand N] [--need another_instance] --words-file F
 
 A LESSON is what a person taught about how a stand behaves (what takes long, how to narrow it): the subject is free words compared
 exactly, the person's words are stored whole and are the payload, `wait_s` is an optional number kept for display. Code never
@@ -513,12 +514,28 @@ def instance_answer(root, stand, need) -> dict:
         if problem:
             out["problem"] = problem
             return out
-        row = _latest(rows, EXTRA_INSTANCE_KEY, stand, need) if need in INSTANCE_NEEDS else None
+        row = _newest_answer(rows, stand, need) if need in INSTANCE_NEEDS else None
         if row is not None and _instance_value_ok(row.get("value")):
             out["authorized"], out["row"] = row["value"]["authorized"], copy.deepcopy(row)
     except Exception as exc:    # a reader never stops a gate: what it could not read is a problem, not a "no"
         out.update(authorized=None, row=None, problem=f"the record of project knowledge could not be read ({type(exc).__name__})")
     return out
+
+
+def _newest_answer(rows, stand, need):
+    """The row that decides the answer: the NEWEST row of the subject, revoked rows counted (the `_latest` order), and only a live
+    `known` row is an answer. A revoked or not-`known` newest row is no answer - never a fall back to an older row: after `revoke`
+    the next need asks the person again (review t-1311 F1, F4)."""
+    form = _form(EXTRA_INSTANCE_KEY, need)
+    best, best_order = None, None
+    for index, row in enumerate(rows or []):
+        if (not isinstance(row, dict) or not form or not _usable(dict(row, revoked_at=None)) or row["key"] != EXTRA_INSTANCE_KEY
+                or row["environment"] != stand or _form(EXTRA_INSTANCE_KEY, row["element"]) != form):
+            continue
+        order = (ER._moment(row.get("at")), index)
+        if best_order is None or order >= best_order:
+            best, best_order = row, order
+    return best if best is not None and not best.get("revoked_at") and best.get("state") == KNOWN else None
 
 
 def _instance_value_ok(value) -> bool:
@@ -1079,10 +1096,10 @@ def _story_stand(ns, task_root, cfg) -> tuple:
     if not stand:
         import stand_gaps
         stand = stand_gaps.stand_name(task_root)
-        if stand == PLACEHOLDER_STAND:
-            names = ", ".join(f"`{e.get('name')}`" for e in _stands(cfg))
-            return "", ("no stand is named and the story has none chosen; pass --stand <name>"
-                        + (f" (the stands: {names})" if names else "") + "; nothing was recorded")
+    if stand == PLACEHOLDER_STAND:      # also when passed explicitly (review t-1311 F3): a stand no config has
+        names = ", ".join(f"`{e.get('name')}`" for e in _stands(cfg))
+        return "", ("no stand is named and the story has none chosen; pass --stand <name>"
+                    + (f" (the stands: {names})" if names else "") + "; nothing was recorded")
     return stand, ""
 
 

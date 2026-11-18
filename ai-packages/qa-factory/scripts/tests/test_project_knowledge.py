@@ -1342,8 +1342,13 @@ def test_instance_answer_round_trip_the_none_family_and_value_shapes(proj, tmp_p
     assert ask()["authorized"] is False and len(proj.rows()) == 2                                   # the other answer is a new row and wins
     assert ask("dev ") ["authorized"] is None and ask("other")["authorized"] is None and ask(need="x")["authorized"] is None
     assert run(["revoke", "--task", "T-1", "--id", "PK-2", "--words-file", str(proj.words)]) == 0
-    assert "asked again where it is needed" in capsys.readouterr().out and ask()["authorized"] is True   # the older live row reads again
+    assert "asked again where it is needed" in capsys.readouterr().out and ask()["authorized"] is None   # F1 t-1311: revoked newest "no" asks again, never the older "yes"
     assert run(["revoke", "--task", "T-1", "--id", "PK-1", "--words-file", str(proj.words)]) == 0 and ask()["authorized"] is None
+    for allowed in ("yes", "no"):
+        assert run(["instance", "--task", "T-1", "--allowed", allowed, "--stand", "dev", "--words-file", str(proj.words)]) == 0
+    assert run(["revoke", "--task", "T-1", "--id", "PK-3", "--words-file", str(proj.words)]) == 0 and ask()["authorized"] is False  # older revoked: newer stays
+    proj.facts([fact("PK-8", PK.EXTRA_INSTANCE_KEY, "dev", "another_instance", "noticed_unconfirmed", "2026-11-01T10:00:00", scope="stand", value={"authorized": True})])
+    assert ask()["authorized"] is None                                                                  # F4 t-1311: only `known` answers
     for value in ({"authorized": "yes"}, {"authorized": True, "x": 1}, None, {}, [True]):              # a typed yes/no only
         assert PK.record_problems(PK.EXTRA_INSTANCE_KEY, "dev", "another_instance", "known", "stand", "w", "person", "conductor", value=value)
         proj.facts([fact("PK-9", PK.EXTRA_INSTANCE_KEY, "dev", "another_instance", "known", "2026-11-01T10:00:00", scope="stand", value=value)])
@@ -1358,7 +1363,8 @@ INSTANCE_CLI = [   # (option overrides, None drops one; words bytes, pipeline, e
     ({}, BOM + b"ok", None, 0, ""),                          # a BOM is stripped
     ({}, b"", None, 2, "words"), ({}, BOM, None, 2, "words"), ({}, b" \n\t", None, 2, "words"),
     ({}, "yes".encode("utf-16"), None, 2, "UTF-8"), ({}, bytes([0xC3, 0x28]), None, 2, "UTF-8"),
-    ({"--stand": " "}, b"ok", None, 2, "stand"), ({"--stand": None}, b"ok", None, 2, "pass --stand"),
+    ({"--stand": " "}, b"ok", None, 2, "stand"), ({"--stand": PK.PLACEHOLDER_STAND}, b"ok", None, 2, "pass --stand"),   # F3 t-1311
+({"--stand": None}, b"ok", None, 2, "pass --stand"),
     ({"--need": "bogus"}, b"ok", None, "exit", ""), ({"--allowed": "YES"}, b"ok", None, "exit", ""), ({"--allowed": ""}, b"ok", None, "exit", ""),
     ({}, b"ok", {"ticket": "T-1", "no_trace": True}, 2, "leaves no trace"),
 ]
