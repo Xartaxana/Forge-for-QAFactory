@@ -45,28 +45,29 @@ def cut_at(name: str, ticket: str) -> datetime:
 def scan_until(path: Path, rate: dict, cut: datetime) -> tuple:
     """(role, requests, cost, unpriced requests) of one transcript, counting only what happened at or
     before `cut`. A request the catalogue cannot price is counted, not turned into $0 (FR-41)."""
-    seen, role = {}, None
-    for line in path.open(encoding="utf-8"):
+    def in_time(row) -> bool:  # before the dedupe: a copy of an id past the cut must not displace the earlier one
+        stamp = row.get("timestamp")
+        try:
+            return bool(stamp) and datetime.fromisoformat(stamp.replace("Z", "+00:00")) <= cut
+        except (ValueError, TypeError, AttributeError):
+            return False
+
+    seen = {key: (model, usage) for key, (model, usage, _stamp) in compare.requests_of(path, keep=in_time).items()}
+    role = None
+    for line in path.open(encoding="utf-8"):  # the role is the first user line, whatever its stamp
         try:
             row = json.loads(line)
         except ValueError:
             continue
-        message = row.get("message") or {}
-        if row.get("type") == "user" and role is None:
-            content = message.get("content")
-            text = content if isinstance(content, str) else " ".join(
-                part.get("text", "") for part in content if isinstance(part, dict))
-            found = re.search(r"qa-[a-z\-]+", text or "")
-            role = found.group(0) if found else "?"
-        stamp = row.get("timestamp")
-        if not stamp:
+        if not isinstance(row, dict) or row.get("type") != "user":
             continue
-        when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-        if when > cut:
-            continue
-        if (row.get("type") == "assistant" and message.get("usage")
-                and not compare.is_empty_marker(message.get("model"), message["usage"])):
-            seen[message.get("id") or row.get("uuid")] = (message.get("model"), message["usage"])
+        message = row.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        text = content if isinstance(content, str) else " ".join(
+            part.get("text", "") for part in content or () if isinstance(part, dict))
+        found = re.search(r"qa-[a-z\-]+", text or "")
+        role = found.group(0) if found else "?"
+        break
     cost, unpriced = compare.price_seen(rate, seen)
     return role, len(seen), cost, unpriced
 

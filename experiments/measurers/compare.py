@@ -139,10 +139,12 @@ def case_files(tree: Path) -> list:
     return found
 
 
-def requests_of(path: Path) -> dict:
+def requests_of(path: Path, keep=None) -> dict:
     """{message id (else uuid): (model, usage, timestamp)} of one transcript: the unique requests that carry a non-empty `usage` dict
     (a duplicate id counts once, the last line wins; an empty marker is skipped). The one collection body (FG7-37: scan and
-    scoreboard_bar each had a copy). Non-JSON and non-object lines are skipped; raises OSError / UnicodeDecodeError."""
+    scoreboard_bar each had a copy). `keep(item)`, when given, is asked of each object line BEFORE the assistant rule, so a line it
+    refuses never reaches the dedupe (a later copy of an id past a time cut leaves the earlier copy); None keeps every line.
+    Non-JSON and non-object lines are skipped; raises OSError / UnicodeDecodeError."""
     seen = {}
     with path.open(encoding="utf-8") as handle:
         for line in handle:
@@ -150,7 +152,7 @@ def requests_of(path: Path) -> dict:
                 item = json.loads(line)
             except ValueError:
                 continue
-            if not isinstance(item, dict):
+            if not isinstance(item, dict) or (keep is not None and not keep(item)):
                 continue
             message = item.get("message")
             message = message if isinstance(message, dict) else {}

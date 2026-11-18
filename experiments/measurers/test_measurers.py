@@ -2284,6 +2284,11 @@ def sb_bar_case(tmp: Path, case) -> None:
         assert compare.requests_of(tmp / "o.jsonl") == got
         assert sorted(got) == ["d", "u5"] and compare.scan(tmp / "r.jsonl", {})["requests"] == len(got) == 2, got
         assert compare.requests_of(tmp / "empty.jsonl") == {}
+        late = [dict(r, timestamp=t) for r, t in ((rows[0], "2026-01-01T00:00:00Z"), (rows[1], "2026-01-02T00:00:00Z"))]
+        (tmp / "k.jsonl").write_text("\n".join(json.dumps(r) for r in late) + "\n", encoding="utf-8")
+        cut = compare.requests_of(tmp / "k.jsonl", keep=lambda o: o["timestamp"] < "2026-01-02")
+        assert cut["d"][2] == "2026-01-01T00:00:00Z", cut  # the later copy past the cut leaves the earlier one
+        assert compare.requests_of(tmp / "k.jsonl")["d"][2] == "2026-01-02T00:00:00Z"  # keep=None: the last copy wins, as before
     elif name == "a transcript with no usage block: unknown":
         (tmp / "n.jsonl").write_text(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\nnot json at all\n", encoding="utf-8")
         got = bar.bar_price([tmp / "n.jsonl"], None)
