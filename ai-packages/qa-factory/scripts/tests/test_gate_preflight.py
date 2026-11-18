@@ -4250,18 +4250,41 @@ def test_w5_the_info_lines_carry_the_portable_argv_and_the_stored_one_is_read_wi
         import execution_request
         held = execution_request.rehearsal_probe
         seen = []
-        execution_request.rehearsal_probe = lambda spec, accepts=None: seen.append(spec) or {"observed_runtime_identity": "build-1"}
+        # (RD1-14 k2: gate A judges what the reader returns, so the stub returns a rehearsal `matched` the registry takes)
+        built = "image:sha256:" + "b" * 64
+        execution_request.rehearsal_probe = lambda spec: seen.append(spec) or {
+            "profile_id": "api", "timestamp": "2026-10-02T12:00:00+00:00", "environment_id": "localhost", "expected_source_revision": "a" * 40,
+            "observed_runtime_identity": built, "evidence_refs": [], "result": "matched", "provenance": MATCHED_PROV,
+            "observed_without_evidence": True}
+        import gate_registry
+        import gate_template as GT
+        saved_read = list(GT._READ)
         try:
             cfg = dict(json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8")))
             cfg["execution"] = {"runtime_probes": {"api": {
                 "argv": ["{python}", "{plugin_root}/scripts/runtime_probe.py", "--profile", "api"], "cwd": "."}}}
-            rehearsal = gate_preflight.Rehearsal(root / "qa-factory" / "artifacts" / CMP2_TICKET, "A")
+            task_root = root / "qa-factory" / "artifacts" / CMP2_TICKET
+            rehearsal = gate_preflight.Rehearsal(task_root, "A")
             rehearsal.config = cfg
             identity = rehearsal._observed_identity("api", root)
+            # RD1-14 k2 (E-k2.2, FR-41): an unreadable registry judges nothing -> identity "" and a note naming the registry
+            GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+            blind = gate_preflight.Rehearsal(task_root, "A")
+            blind.config = cfg
+            blind._probe_reporter = lambda *a, **k: {"timed_out": True}
+            ctx = gate_preflight.ReporterCtx("s5_reporter", "api", root, root, ("python", "x"), "junit-xml", "junit-xml", 30, ("python", "x"))
+            gate_preflight._REPORTER_PROBES.clear()
+            blind._reporter_outcome(ctx, "tests/a", ["python", "x"], root / "report.xml", {"at": ""})
+            blank = blind._observed_identity("api", root)
         finally:
+            GT._READ[:] = saved_read
+            gate_preflight._REPORTER_PROBES.clear()
             execution_request.rehearsal_probe = held
         check_eq("W5: the identity reader got this machine's interpreter and plugin path",
-                 (identity, seen[0]["argv"][0], Path(seen[0]["argv"][1]).is_file()), ("build-1", sys.executable, True))
+                 (identity, seen[0]["argv"][0], Path(seen[0]["argv"][1]).is_file()), (built, sys.executable, True))
+        check_eq("W5 RD1-14 k2: an unreadable registry gives identity ''", blank, "")
+        check("W5 RD1-14 k2: ...and the rehearsal says why, naming the registry",
+              any("the gate registry cannot be read (" in str(i.get("message")) for i in blind.info), str(blind.info))
     finally:
         cleanup(root)
 
@@ -4284,6 +4307,8 @@ record = {"profile_id": "api", "timestamp": "2026-10-02T12:00:00+00:00", "enviro
           "provenance": mode["provenance"], "argv_seen": argv}
 if mode.get("confirmation"):
     record["person_confirmation"] = mode["confirmation"]
+if mode.get("reason_code"):
+    record["reason_code"] = mode["reason_code"]
 if rehearsal and mode.get("marker", True):
     record["observed_without_evidence"] = True
 print(json.dumps(record))
@@ -4330,6 +4355,11 @@ def test_t300_k30_the_identity_reader_of_gate_a_is_a_rehearsal_and_takes_the_fif
                  identity(result="person_confirmed", provenance=CONFIRMED_PROV, confirmation=CONFIRMATION,
                           identity="person-confirmed:2026-10-02T11:00:00+00:00"), "person-confirmed:2026-10-02T11:00:00+00:00")
         check_eq("K30: `unknown` is no identity", identity(result="unknown", provenance={"technical_verification": False}), "")
+        # RD1-14 k2 (tokens of provenance.identity): a probe that compared nothing is taken by the rehearsal reader but names no build
+        no_file = {"result": "not_applicable", "provenance": {}, "identity": "", "reason_code": "no_changed_file"}
+        check_eq("K30 RD1-14 k2: a `no_changed_file` probe is no identity of gate A (the reader took it, the identity consumer does not)",
+                 (identity(**no_file), execution_request.rehearsal_probe({**spec, "cwd": str(root), "task_root": str(task.resolve())})["result"]),
+                 ("", "not_applicable"))
         check_eq("K30: `mismatched` is no identity",
                  identity(result="mismatched", provenance=dict(MATCHED_PROV, deployed_source_revision="d" * 40)), "")
         check_eq("K30 CONTROL: the same matched record WITHOUT the marker (nothing says it was a rehearsal) is no identity",

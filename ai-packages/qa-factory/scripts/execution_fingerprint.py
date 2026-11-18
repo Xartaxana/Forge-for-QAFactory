@@ -27,7 +27,7 @@ from detector_verdict import compound
 from env_probe import STAND_ADDRESS_KEYS
 from event_store import content_hash
 from role_cli import RefusingParser, command_from_argv, epilog, run_guarded
-from profile_contract import ACCEPTS, acceptable_provenance, refusal_text, validate_runtime_provenance
+from profile_contract import provenance_word, refusal_text
 
 
 RECORD_EXAMPLE = '{"path": "tests/test_x.py", "sha256": "<64 hex>"}'
@@ -112,14 +112,14 @@ def build(spec):
         provenance_problems.append("runtime_provenance must be an object")
     elif "runtime_provenance" in spec:
         try:
-            checked = validate_runtime_provenance(spec["runtime_provenance"])
             # ONE predicate (t-300 N2 S7, FR-17): `matched`, a person's word (the run it fingerprints stands on it, and says so:
             # `runtime_sha` differs from a `matched` over the same image because the deployed revision does, so a green under the
             # word is never reused as a `matched` result, FR-18) and a probe that compared nothing. ANY valid `not_applicable`
             # stays fingerprinted too (X3: the local_source request has no probe word; its own gate is validate_request). An
-            # `unknown`, a `mismatched` or a record that does not validate is refused, as before.
-            if not (acceptable_provenance(spec["runtime_provenance"], ACCEPTS)
-                    or (checked["valid"] and checked["result"] == "not_applicable")):
+            # `unknown`, a `mismatched` or a record that does not validate is refused, as before. The word is made by
+            # `provenance_word` and judged by the registry consumer `provenance.fingerprint` (row `provenance_acceptance`).
+            from gate_template import acceptable
+            if not acceptable(provenance_word(spec["runtime_provenance"]), "provenance.fingerprint"):
                 provenance_problems.append("runtime provenance is unverified/mismatched: "
                                            + refusal_text(spec["runtime_provenance"]))
         except ValueError as exc:

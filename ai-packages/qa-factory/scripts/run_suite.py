@@ -121,7 +121,8 @@ from execution_request import (JobStore, ProvenanceRefused, RequestError, is_pyt
                                pytest_timeout_setting, validate_request)
 from detector_verdict import refusal, spoken, told_fields
 from execution_fingerprint import verify_files
-from profile_contract import ACCEPTS, acceptable_provenance
+from profile_contract import provenance_word
+from gate_template import acceptable  # the ONE predicate the run path takes a probe's word through (consumer `provenance.run`)
 from role_cli import REPAIR_MARKER
 import reporters
 import report_cures
@@ -926,7 +927,7 @@ def refresh_dashboard() -> None:
 def probe_runtime(spec: dict) -> dict:
     """Run the profile's probe and return its provenance record - the ONE strict reader of the run path, the
     post-run probe, `--mine`, the red probe (`probe_by_code`) and the manual capture (t-300 N2, FR-17). It takes what
-    `profile_contract.acceptable_provenance(record, ACCEPTS)` takes: `matched`; a build the PERSON confirmed
+    the registry consumer `provenance.run` takes (`profile_contract.provenance_word`): `matched`; a build the PERSON confirmed
     (`person_confirmed`, bound to what it was given for - never read as `matched`, so equivalence stays unverified and
     the fingerprint differs); and `not_applicable` with `reason_code: no_changed_file` (the story changes no file of
     this profile's checkout, so there is no stand to identify - on ANY stand kind, t-279 K-NA). Anything else raises a
@@ -935,7 +936,7 @@ def probe_runtime(spec: dict) -> dict:
     code: the person's word at the build question is what lets such a stand through)."""
     result = _node_ids.run_captured(spec["argv"], spec["cwd"], None, spec["timeout_s"])
     value = probe_record(result)
-    if acceptable_provenance(value, ACCEPTS):
+    if acceptable(provenance_word(value), "provenance.run"):
         return value
     raise ProvenanceRefused(value)
 

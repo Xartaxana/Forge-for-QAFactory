@@ -147,11 +147,11 @@ def a_findings(result: dict) -> list:
 
 
 def called_names(path: Path, function: str) -> set:
-    """The names called anywhere inside the module-level def `function` of a source file (an AST read: `f(...)` is `f`,
-    `m.f(...)` is `f`)."""
+    """The names called anywhere inside the def `function` of a source file, module-level or a method (RD1-14 k2: gate A's
+    `_observed_identity` is one) (an AST read: `f(...)` is `f`, `m.f(...)` is `f`)."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     out: set = set()
-    for node in tree.body:
+    for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == function:
             for call in ast.walk(node):
                 if isinstance(call, ast.Call):
@@ -283,11 +283,12 @@ def part_live_registry() -> None:
         check(f"K-T1.2 --sites lists the G7 comparison in {key[0]}:{key[1]}, attributed to a row",
               bool(item) and bool(item["rows"]) and item["allowed"], str(item))
     # K-N2.12: each site that no longer compares CALLS the one predicate (an AST read of the live file, not a literal search)
-    for (fname, function), callee in ((("run_suite.py", "probe_runtime"), "acceptable_provenance"),
+    for (fname, function), callee in ((("run_suite.py", "probe_runtime"), "acceptable"),   # RD1-14 k2: the four execution sites + gate A
                                       (("manual_capture.py", "stand_probe"), "acceptable_provenance"),
-                                      (("execution_request.py", "rehearsal_probe"), "acceptable_provenance"),
-                                      (("execution_request.py", "validate_request"), "acceptable_provenance"),
-                                      (("execution_fingerprint.py", "build"), "acceptable_provenance"),
+                                      (("execution_request.py", "rehearsal_probe"), "acceptable"),
+                                      (("execution_request.py", "validate_request"), "acceptable"),
+                                      (("execution_fingerprint.py", "build"), "acceptable"),
+                                      (("gate_preflight.py", "_observed_identity"), "acceptable"),
                                       (("manual_evidence.py", "_provenance_errors"), "acceptable_provenance"),
                                       # the wiring pin of the split (HF8-19 F1): `validate` reaches the predicate only through it
                                       (("manual_evidence.py", "validate"), "_provenance_errors"),
@@ -313,8 +314,11 @@ def part_live_registry() -> None:
     # S1 keeps its non-acceptance comparison as an `allow`, and the allow matches (K-T1.3 on the live data)
     allow = [e for r in registry["rows"] for s in r["sites"] for e in s.get("allow", [])]
     # C3-b2 (t-1080): the two display comparisons of `test_identity`'s accept sites join (a flag that picks the words shown, not an acceptance)
-    check_eq("the allow entries today are S1's data-seed shape check and two display flags of test_identity, each the WHOLE comparison (F3)",
+    check_eq("the allow entries today are S1's data-seed shape check, three provenance picks (RD1-14 k2) and the display flags of test_identity, each the WHOLE comparison (F3)",
              [e["compare"] for e in allow], ['seed.get("result") not in {"matched", "mismatched", "unknown"}',
+                                              "checked['result'] == 'not_applicable'",              # RD1-14 k2: picks the refusal sentence
+                                              "provenance.get('result') == 'person_confirmed'",     # RD1-14 k2: a word on a request that skips the probe
+                                              "runtime.get('result') == 'person_confirmed'",        # RD1-14 k2: execution_fingerprint.build keys the word
                                               "hit['holds'] in ('instance_code', 'file_code')",
                                               "('unknown', WHY_RUN_NO_IDENTITY)",
                                               "('unknown', why or WHY_RUN_NOT_COMPARED)",
@@ -332,7 +336,7 @@ def part_live_registry() -> None:
     # validate_request, the baseline's person_confirmed branch, the deploy step, gate A's identity read): the ones that moved
     # to the predicate hold no anchor literal now, so nothing of theirs is left for the scan to flag
     for fname, function in (("execution_request.py", "validate_request"), ("manual_evidence.py", "validate_baseline_record"),
-                            ("environment_preparation.py", "_run_step"), ("gate_preflight.py", "_observed_identity")):
+                            ("environment_preparation.py", "_run_step")):   # RD1-14 k2: gate A's identity holds no literal now
         check(f"K-T1.2 NEG: without provenance_acceptance, {fname}:{function} is F-a",
               any(f.startswith(fname + ":") and f"({function})" in f for f in got), f"{len(got)} F-a findings")
     # and the empty registry: valid as data, and every live site is F-a
@@ -712,10 +716,10 @@ def part_fix_pass() -> None:
     check_eq("F1 baseline_identity.readiness lives under baseline_identity", home["baseline_identity.readiness"], "baseline_identity")
     check_eq("F1 provenance.environment_preparation lives under environment_preparation",
              home["provenance.environment_preparation"], "environment_preparation")
-    check_eq("F1 the other five consumers stay under provenance_acceptance",
+    check_eq("F1 the other seven consumers stay under provenance_acceptance (RD1-14 k2: identity, run)",
              sorted(c for c, r in home.items() if r == "provenance_acceptance"),
-             ["provenance.automation", "provenance.fingerprint", "provenance.manual", "provenance.manual_capture",
-              "provenance.rehearsal"])
+             ["provenance.automation", "provenance.fingerprint", "provenance.identity", "provenance.manual",
+              "provenance.manual_capture", "provenance.rehearsal", "provenance.run"])
     check_eq("F1 both guarding rows are promotable false",
              (by_id["baseline_identity"]["promotable"], by_id["environment_preparation"]["promotable"]), (False, False))
     for consumer, rid in (("baseline_identity.readiness", "baseline_identity"),
@@ -1052,7 +1056,6 @@ D13_TRIPLES = [
     ("gate_preflight.py", "_case_question", "case_preconditions"),
     ("gate_preflight.py", "_check_one_precondition", "case_preconditions"),
     ("gate_preflight.py", "_derive_probe", "stand_identity"),
-    ("gate_preflight.py", "_observed_identity", "provenance_acceptance"),
     ("gate_preflight.py", "_record_unreadable", "reporter_rehearsal_identity"),   # t-1032 (A1): `earlier.get('state') != 'unreadable'`, a produce site
     ("gate_preflight.py", "_rehearse_reporter", "reporter_rehearsal_identity"),   # C3-R (t-1009): `countable['state'] == 'none'`, a code word of the row at its registered site
     ("gate_preflight.py", "_sort_items", "case_preconditions"),
@@ -1177,7 +1180,12 @@ D13_TRIPLES = [
 # `state == 'incomplete'`, `state == 'not_executed'` and `state in ('not_executed', 'incomplete')`). The rows `probe_verdict` and `test_identity`
 # gain sites; no allow entry. Items: probe_judged 1, tooling_gap_key 1, probe_record_state 5, held_words 2, compare_identity 4 (returned
 # tuples), same_instance_bytes 1. Missing: none.
-D13_ITEM_COUNT = 184
+# 184 -> 180 (RD1-14 k2, t-1406, AR-20; measured with GR.analyse before (184 / 69 triples, on the base 6947b055 tree) and after (180 / 68)): the
+# execution side asks `acceptable(provenance_word(..), consumer)`, so four counted comparisons leave: the tuple `accepts=("matched",
+# "person_confirmed")` of `_observed_identity` (its triple leaves with it: 69 -> 68), `target_kind == 'local_source'` of `validate_request`,
+# and the two `checked["result"] == "not_applicable"` copies of the local-source and fingerprint residue (`validate_request`, `build`).
+# The allow pin gains +3 (`validate_request` two, `build` one); `rehearsal_probe` and `run_suite.probe_runtime` held no counted item.
+D13_ITEM_COUNT = 180
 
 
 def part_site_attribution() -> None:

@@ -14,8 +14,8 @@ from typing import Any
 import node_ids as _node_ids  # bound at import: the one predicate, the bounded launcher
 from event_store import replace_file  # the one retrying replace (B-333): a brief Windows reader-handle race is ridden out
 from hooklib import read_json as _read_json  # the package's one JSON reader: a file that cannot be read is None here
-from profile_contract import (ACCEPTS, acceptable_provenance, command_env, no_changed_file, one_test_argv, probe_failed_text,
-                              probe_not_json_text, profile_command, refusal_text, rehearsal_view, say_refusal,
+from profile_contract import (command_env, local_source_request, no_changed_file, one_test_argv, probe_failed_text,
+                              probe_not_json_text, profile_command, provenance_word, refusal_text, rehearsal_view, say_refusal,
                               selected_profiles, stand_runs_other_build, validate_runtime_provenance)
 from detector_verdict import refusal  # the one constructor of a refusal that tells its row (T2, AR-15); the id is a literal at each site
 from record_schema import validate_record
@@ -162,7 +162,7 @@ def validate_request(data: dict, project_root: Path, allow_exhausted_reuse: bool
         # Every other `not_applicable` - including one with no reason_code, as an older probe wrote it - keeps
         # the rule below: it must come from a verified local_source profile. Invariant of the order: this
         # exemption is read from `provenance`, never from the request's own `target_kind`.
-        local_source = data.get("runtime_required") is False and data.get("target_kind") == "local_source"
+        local_source = local_source_request(data)
         said_local = False
         if checked["result"] == "not_applicable" and not no_changed_file(provenance) and not local_source:
             errors.append(refusal("execution_request:runtime", say_refusal("not_applicable")))
@@ -172,9 +172,10 @@ def validate_request(data: dict, project_root: Path, allow_exhausted_reuse: bool
             # post-run compare) - a request that skips the probe would run on a word nothing ever checks again
             errors.append(refusal("execution_request:runtime", say_refusal("person_runtime_off")))
         # ONE predicate (t-300 N2, FR-17): `matched`, a person's word bound to THIS story (X5), and the probe that
-        # compared nothing (`no_changed_file`). The local_source `not_applicable` stays the one literal beside it (X3).
-        taken = acceptable_provenance(provenance, ACCEPTS, task=data.get("task"))
-        if not (taken or said_local or (checked["valid"] and checked["result"] == "not_applicable" and local_source)):
+        # compared nothing (`no_changed_file`); a local_source request's bare `not_applicable` is the word `local_source` (X3).
+        # The word is made by `provenance_word` and judged by the registry (row `provenance_acceptance`, RD1-14).
+        taken = acceptable(provenance_word(provenance, task=data.get("task"), local_source=local_source), "provenance.automation")
+        if not (taken or said_local):
             errors.append(refusal("execution_request:runtime",
                                   "runtime provenance must be valid matched, person_confirmed (the person's word, bound to "
                                   "this story) or not_applicable: " + refusal_text(provenance, task=data.get("task"))))
@@ -2483,13 +2484,13 @@ def _never_ran_a_test(job: dict, project_root: Path) -> str:
     return next((state for state in _NEVER_RAN_STATES if state in states), "")
 
 
-def rehearsal_probe(spec: dict, accepts=ACCEPTS) -> dict:
+def rehearsal_probe(spec: dict) -> dict:
     """THE rehearsal reader of a runtime probe (t-300 B1): the one function every caller that only LOOKS at the stand
     reads it with - gate A's identity read (`gate_preflight._observed_identity`), the S6 freshness read
     (`fresh_evidence`), the build check. It runs the probe's argv as a rehearsal (`runtime_probe.rehearsal_argv`:
     `--task-root` and `--no-evidence`, this script only) and takes the RAW record through
-    `acceptable_provenance(..., rehearsal=True)`, which excuses exactly one rule - a matched record names an
-    evidence file - and only for a record that says it was observed without one.
+    `provenance_word(..., rehearsal=True)` judged by the registry consumer `provenance.rehearsal`, which excuses exactly
+    one rule - a matched record names an evidence file - and only for a record that says it was observed without one.
 
     It is NOT `run_suite.probe_runtime`, which stays strict (a `matched` with no evidence file raises there): the
     S5 run path, the post-run probe and the manual capture write evidence and need it. A refusal here is the same
@@ -2497,13 +2498,14 @@ def rehearsal_probe(spec: dict, accepts=ACCEPTS) -> dict:
     changes nothing. `spec["task_root"]` (an extra key the caller may add; the strict reader ignores it) names
     the story. A rehearsal argv is never stored anywhere: it exists for this one call.
 
-    ONE set (t-300 N2 X4): the default is `profile_contract.ACCEPTS` - `matched`, a person's word, and a probe that
-    compared nothing - the same tokens the run path takes, so what the stage ENTRY accepts the RUN accepts. A refusal is
-    a `ProvenanceRefused` (what the probe said, what was expected, the door), a probe that failed says its own reason."""
+    ONE set (t-300 N2 X4): `provenance.rehearsal` takes `matched`, a person's word, and a probe that compared nothing -
+    the same tokens the run path takes (`provenance.run`), so what the stage ENTRY accepts the RUN accepts. A caller that
+    wants fewer words (gate A's identity) judges the returned record itself. A refusal is a `ProvenanceRefused` (what the
+    probe said, what was expected, the door), a probe that failed says its own reason."""
     from runtime_probe import rehearsal_argv
     result = _node_ids.run_captured(rehearsal_argv(spec["argv"], spec.get("task_root")), spec["cwd"], None, spec["timeout_s"])
     value = probe_record(result)
-    if acceptable_provenance(value, accepts, rehearsal=True):
+    if acceptable(provenance_word(value, rehearsal=True), "provenance.rehearsal"):
         return value
     raise ProvenanceRefused(value)
 
