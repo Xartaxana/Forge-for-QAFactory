@@ -450,7 +450,8 @@ class DriverStageBuild:
             image = seen if re.fullmatch(r"image:sha256:[0-9a-f]{64}", seen) else ""
         voided = record.get("voided") if isinstance(record.get("voided"), dict) else {}
         failed = str(record.get("registry_method_failed") or "")
-        files = [str(name) for name in record.get("differing_files") or []]
+        listed = record.get("differing_files")   # only a list is read: `differing_files: 5` raised here (critic t-1372 F7)
+        files = [str(name) for name in listed] if isinstance(listed, list) else []
         names = self.build_names(files, q)
         docker = ""
         if variant == "no_container":

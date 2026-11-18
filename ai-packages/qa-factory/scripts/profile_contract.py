@@ -1107,8 +1107,10 @@ def content_differs(record) -> bool:
     if not isinstance(record, dict):
         return False
     provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
+    # only a list is read: `differing_files: 5` raised TypeError here, inside a refusal (critic t-1372 F7)
+    files = record.get("differing_files") if isinstance(record.get("differing_files"), list) else []
     return provenance.get("deployed_source_revision") == "content_mismatch" or any(
-        isinstance(f, str) and f.strip() for f in record.get("differing_files") or [])
+        isinstance(f, str) and f.strip() for f in files)
 
 
 def refusal_text(record, *, task=None) -> str:
@@ -1133,7 +1135,8 @@ def refusal_text(record, *, task=None) -> str:
               if _nonempty(voided.get("what")) else "")
     if checked["result"] == "mismatched":
         deployed = provenance.get("deployed_source_revision")
-        differing = [str(f) for f in record.get("differing_files") or [] if isinstance(f, str) and f.strip()]
+        listed = record.get("differing_files") if isinstance(record.get("differing_files"), list) else []   # F7: a list only
+        differing = [str(f) for f in listed if isinstance(f, str) and f.strip()]
         if content_differs(record):
             text = say_refusal("content_mismatch", words,
                                files=shown_files(differing, words) or CONTENT_FILES_FALLBACK)
