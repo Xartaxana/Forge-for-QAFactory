@@ -961,7 +961,8 @@ def argument_refusal_table(root: Path) -> None:
     for field in dict.fromkeys(fields):
         check(f"execution_fingerprint: the card names the field of runtime_provenance that build() requires: {field}",
               names(command, field), card(command))
-    for word in sorted(PC.ACCEPTS[:2]) + ["unknown", "mismatched", "not_applicable"]:
+    # the two words `provenance.run` takes first (RD1-14: the tuple `ACCEPTS` is gone, the registry's `accepts` is the data)
+    for word in ["matched", "person_confirmed"] + ["unknown", "mismatched", "not_applicable"]:
         check(f"execution_fingerprint: the card names the result `{word}`", names(command, word), card(command))
     shutil.rmtree(art, ignore_errors=True)
 

@@ -387,7 +387,8 @@ class DriverStageBuild:
         prov = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
         if result in ("matched", "person_confirmed", "not_applicable"):
             import profile_contract
-            if not profile_contract.acceptable_provenance(record, profile_contract.ACCEPTS, rehearsal=True):
+            from gate_template import acceptable   # RD1-14: the word is made by `provenance_word`, judged by the registry
+            if not acceptable(profile_contract.provenance_word(record, rehearsal=True), "provenance.rehearsal"):
                 return line("probe_unrecognised"), None
             if result == "not_applicable":
                 return line("not_applicable"), None

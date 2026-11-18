@@ -66,8 +66,8 @@ EXPECTED_IDS = [
 # C3-g (t-1157, AR-20): baseline_identity converted (B-281; the receipt's status word through the predicate); 4 -> 3 debt rows.
 # C3-h (RD1-11, t-1179, AR-20): stand_identity converted (B-257; no code, the probe's own result words); 3 -> 2 debt rows.
 # C3-j2, t-1269: s5_stand_limits deleted (owner, 17.11.2026); 2 -> 1 debt rows, 33 -> 32 rows in all, converted unchanged.
-EXPECTED_DEBT = {
-    "provenance_acceptance": "B-255"}
+# RD1-14 k4 (AR-20): provenance_acceptance converted (B-255; one producer `provenance_word`, one predicate); 1 -> 0 debt rows.
+EXPECTED_DEBT = {}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
 EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "stand_check", "probe_verdict",
@@ -84,7 +84,8 @@ EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "st
                       "baseline_identity",      # C3-g (t-1157, AR-20): the receipt's status word through the predicate
                       "critic_review",          # RD1-29 (t-1235): the post-window readers accept the review word through the predicate
                       "case_rollcall",          # RD1-32 (t-1335): the S4 readers of the case critic's approving words accept through the predicate
-                      "stand_identity"]         # C3-h (t-1179, AR-20): the probe's own result words; the unknown branch pinned by test
+                      "stand_identity",         # C3-h (t-1179, AR-20): the probe's own result words; the unknown branch pinned by test
+                      "provenance_acceptance"]  # RD1-14 k4 (AR-20): the word made by `provenance_word`, every accept site through `acceptable`
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
 
@@ -261,7 +262,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "1 gate(s) left as debt:", p.stdout)
+    check_not_in("K-T1.2 it lists no debt (the last row converted, RD1-14 k4)", "left as debt", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -269,7 +270,7 @@ def part_live_registry() -> None:
     check_not_in("K-T1.2 --sites: nothing is UNREGISTERED", "UNREGISTERED", out)
     shown = {(s["file"], s["function"]): s for s in result["items"]}
     # t-300 N2: S1 (run_suite.probe_runtime), S8 (probe_by_code.probe_runtime) and S9 (manual_capture.stand_probe) no longer SHOW a
-    # literal comparison - they go through `acceptable_provenance` (or, S8, through S1) - so they leave this list; the sites
+    # literal comparison - they go through the predicate (`acceptable`; or, S8, through S1) - so they leave this list; the sites
     # that still compare (the local_source and fingerprint bare `not_applicable`, the baseline, the equivalence measure, ...) stay.
     g7 = [("execution_request.py", "validate_request"), ("execution_fingerprint.py", "build"),
           ("manual_evidence.py", "_provenance_errors"), ("manual_evidence.py", "_other_profile_errors"),
@@ -299,8 +300,8 @@ def part_live_registry() -> None:
                                       (("probe_by_code.py", "probe_runtime"), "probe_runtime")):
         check(f"K-N2.12 {fname}:{function} calls `{callee}` (the one predicate; S8 delegates to the strict reader)",
               callee in called_names(PLUGIN_ROOT / "scripts" / fname, function))
-    check("K-N2.12 positive control: the same AST read finds a call known to be in profile_contract.acceptable_provenance",
-          "validate_runtime_provenance" in called_names(PLUGIN_ROOT / "scripts" / "profile_contract.py", "acceptable_provenance"))
+    check("K-N2.12 positive control: the same AST read finds a call known to be in profile_contract.provenance_word",
+          "validate_runtime_provenance" in called_names(PLUGIN_ROOT / "scripts" / "profile_contract.py", "provenance_word"))
     check("K-N2.12 S8 holds no validator call of its own (B-255 a: the copy is gone)",
           "validate_runtime_provenance" not in called_names(PLUGIN_ROOT / "scripts" / "probe_by_code.py", "probe_runtime"))
     # K-N2.12 NEG: a person's word added to the BASELINE consumer of an in-memory copy is exactly one finding, naming it
@@ -361,7 +362,7 @@ def part_live_registry() -> None:
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
     check_eq("K-T1.14 debt lists the one row left after C3-R, its fix round, C3-b1, C3-d, C3-b2, C3-g, C3-h and C3-j2", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
-    check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
+    check_eq("K-T1.14 the last debt row is gone: an empty debt list is a state, not an error (RD1-14 k4)", data["debt"], [])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
              ["decides", "exempt_reason", "id"])
@@ -380,8 +381,9 @@ def part_live_registry() -> None:
     # C3-g (t-1157): baseline_identity converted, converted 23 -> 24, debt 4 -> 3
     # C3-h (t-1179): stand_identity converted, converted 24 -> 25, debt 3 -> 2
     # C3-j2 (t-1269): s5_stand_limits deleted (owner, 17.11.2026), debt 2 -> 1, converted unchanged
-    check_eq("K-T1.14 the registry file's rows split 27 converted / 1 debt / 6 exempt (C3-R converted six debt rows for good; RD1-32 adds case_rollcall)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 27, "debt": 1, "exempt": 6})
+    # RD1-14 k4 (AR-20): provenance_acceptance converted, converted 27 -> 28, debt 1 -> 0
+    check_eq("K-T1.14 the registry file's rows split 28 converted / 0 debt / 6 exempt (C3-R converted six debt rows for good; RD1-32 adds case_rollcall)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 28, "debt": 0, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -788,9 +790,9 @@ def part_fix_pass() -> None:
     check_in("F2 the live registry registers profile_contract.py:<module> as a vocabulary site of provenance_acceptance",
              "('profile_contract.py', 'vocabulary')", [str(v) for v in voc])
     GR.analyse(PLUGIN_ROOT)
-    check("F2 and --sites lists profile_contract.ACCEPTS (a set the old scan hid), attributed",
+    check("F2 and --sites lists profile_contract.PROVENANCE_RESULTS (the result-word set bound to a name; its source is the set), attributed",
           any(i["file"] == "profile_contract.py" and i["function"] == "<module>" and "person_confirmed" in i["source"]
-              and "not_applicable:no_changed_file" in i["source"] and i["rows"] == ["provenance_acceptance"]
+              and i["source"].startswith("{'matched', 'mismatched'") and i["rows"] == ["provenance_acceptance"]
               for i in GR.analyse(PLUGIN_ROOT)["items"]))
 
     # F3: an allow entry is the WHOLE comparison
@@ -838,6 +840,7 @@ def part_fix_pass() -> None:
                      "stand_identity",      # C3-h (t-1179): target -> code (the probe's own `result` words)
                      "critic_review",       # RD1-29 (t-1235): new row, `code` (the critic's four words)
                      "case_rollcall",       # RD1-32 (t-1335): new row, `code` (the case critic's three approving words)
+                     "provenance_acceptance",   # RD1-14 k4: target -> code (the seven words of `provenance_word`)
                      "stand_login_gate", "stand_check", "probe_verdict", "finish_exit_gate", "exploratory_oracle", "branch_accounting",
                      "s3_grounding", "regression_on_main", "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base"]))
     check("F4 no live converted row says target",
@@ -1091,7 +1094,6 @@ D13_TRIPLES = [
     ("planning_contract.py", "_unmet_preconditions", "case_preconditions"),
     ("probe_by_code.py", "_judge_rows", "probe_verdict"),
     ("profile_contract.py", "<module>", "provenance_acceptance"),
-    ("profile_contract.py", "acceptable_provenance", "provenance_acceptance"),
     ("profile_contract.py", "image_identity", "provenance_acceptance"),
     ("profile_contract.py", "local_source_request", "provenance_acceptance"),   # RD1-14 k1 (t-1361): see D13_ITEM_COUNT
     ("profile_contract.py", "no_changed_file", "provenance_acceptance"),
@@ -1196,7 +1198,9 @@ D13_TRIPLES = [
 # `acceptable(provenance_word(..), consumer)`: `_observed_identity`'s tuple (its triple too), `validate_request`'s `target_kind == 'local_source'`
 # and `checked["result"] == "not_applicable"` copy, and `build`'s `checked["result"] == "not_applicable"`; the allow pin gains +3.
 # 180 -> 173 (RD1-14 k3, t-1434, AR-20; 68 -> 67 triples): `_run_step` (whole triple) and the literal copies of four manual/baseline sites leave; allow pin +4.
-D13_ITEM_COUNT = 173
+# 173 -> 166 (RD1-14 k4, AR-20; GR.analyse before 173 / 67 triples, after 166 / 66): `acceptable_provenance` (whole triple) and the tuple `ACCEPTS` leave
+# with the deletion D13 names; the allow pin is unchanged.
+D13_ITEM_COUNT = 166
 
 
 def part_site_attribution() -> None:
@@ -1297,7 +1301,7 @@ def predicate_cases() -> list:
              ("live-unknown", "unknown", "provenance.rehearsal", None, False),
              ("live-na-needs-reason", "not_applicable", "provenance.rehearsal", None, False),
              ("live-na-bare-token", "not_applicable", "provenance.fingerprint", None, True),
-             ("live-record", {"result": "person_confirmed"}, "provenance.manual", None, True),
+             ("live-record", {"result": "person_confirmed"}, "provenance.manual", None, False),   # RD1-14 k4: field null, a whole record is False (E-k4.2)
              # RD1-14 k1: the producer's two reason words are `not_applicable` words carrying their reason (tokens of the row)
              ("live-ncf", "no_changed_file", "provenance.rehearsal", None, True),
              ("live-local", "local_source", "provenance.automation", None, True),
