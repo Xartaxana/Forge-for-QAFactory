@@ -7764,41 +7764,41 @@ def _judged_record(task_root: Path, root: Path, instance_id: str, check: str = "
     return path, record, entry, None
 
 
-def _judge_input(verdict: str, quote, why, facts: dict) -> tuple:
+def _judge_input(verdict: str, quote, why, facts: dict, door: str = JUDGE_DOOR) -> tuple:
     """`(quote, why)` stripped, or the `_judge_refusal`s about the INPUT: the verdict word, the quote (present unless `cannot_judge`, at
     most `JUDGE_QUOTE_MAX`, a substring of the stored message or failure text after whitespace folding - of the flat keys or of any
     row of `rows`, N4), the `why`. `fires` is refused when the facts hold no text to quote (E4.1: no proof with no evidence) or
     when `rows_cut` > 0 (rows the critic could not read: he names `cannot_judge`, and the person's word follows). An old record
     (no `rows`, no `rows_cut`) is read by its flat keys, as before (E4.5)."""
     if verdict not in JUDGE_VERDICTS:
-        raise _judge_refusal(f"--verdict is {verdict!r}; expected one of {', '.join(JUDGE_VERDICTS)}", "Door: " + JUDGE_DOOR)
+        raise _judge_refusal(f"--verdict is {verdict!r}; expected one of {', '.join(JUDGE_VERDICTS)}", "Door: " + door)
     rows = [r for r in (facts.get("rows") or []) if isinstance(r, dict)] if isinstance(facts.get("rows"), list) else []
     stored = [str(source.get(key) or "") for source in [facts, *rows] for key in ("message", "failure_text")]
     if verdict == "fires" and not any(text.strip() for text in stored):
         raise _judge_refusal("`fires` has nothing to stand on: the stored message and failure text of this record are empty",
-                             "No proof with no evidence: name `cannot_judge` with --why. Door: " + JUDGE_DOOR)
+                             "No proof with no evidence: name `cannot_judge` with --why. Door: " + door)
     cut = facts.get("rows_cut")
     if verdict == "fires" and isinstance(cut, int) and not isinstance(cut, bool) and cut > 0:
         raise _judge_refusal(f"`fires` is refused: the record shows {len(rows)} unsettled rows and {cut} more were cut "
                              f"(at most {FACTS_ROWS_MAX} are stored), so the critic cannot have read them all",
                              "Name `cannot_judge` with --why (the rows he could not read); the person's `probe not proved` word "
-                             "follows. Door: " + JUDGE_DOOR)
+                             "follows. Door: " + door)
     quote, why = str(quote or "").strip(), str(why or "").strip()
     if not quote and verdict != "cannot_judge":
         raise _judge_refusal("--quote is empty", "Quote a line of the stored text (probe record, judgment_facts), or name "
-                             "`cannot_judge`. Door: " + JUDGE_DOOR)
+                             "`cannot_judge`. Door: " + door)
     if quote:
         if len(quote) > JUDGE_QUOTE_MAX:
-            raise _judge_refusal(f"--quote is {len(quote)} characters; at most {JUDGE_QUOTE_MAX}", "Quote one line. Door: " + JUDGE_DOOR)
+            raise _judge_refusal(f"--quote is {len(quote)} characters; at most {JUDGE_QUOTE_MAX}", "Quote one line. Door: " + door)
         folded = " ".join(quote.split())
         if not any(folded in " ".join(text.split()) for text in stored):
             raise _judge_refusal("--quote is not in the stored message or failure text of the record, or of any of its rows "
                                  "(whitespace folded on both sides)",
-                                 "Quote a line of the stored text, or name `cannot_judge`. Door: " + JUDGE_DOOR)
+                                 "Quote a line of the stored text, or name `cannot_judge`. Door: " + door)
     if verdict == "cannot_judge" and not why:
-        raise _judge_refusal("`cannot_judge` needs --why (one sentence: what you could not tell)", "Door: " + JUDGE_DOOR)
+        raise _judge_refusal("`cannot_judge` needs --why (one sentence: what you could not tell)", "Door: " + door)
     if len(why) > JUDGE_WHY_MAX:
-        raise _judge_refusal(f"--why is {len(why)} characters; at most {JUDGE_WHY_MAX}", "Door: " + JUDGE_DOOR)
+        raise _judge_refusal(f"--why is {len(why)} characters; at most {JUDGE_WHY_MAX}", "Door: " + door)
     return quote, why
 
 
@@ -7833,7 +7833,7 @@ def _judge_dispatch_why(root: Path, record: dict, dispatch: str) -> str:
     return ""
 
 
-def _demand_critic_dispatch(root: Path, record: dict, dispatch: str, instance_id: str) -> None:
+def _demand_critic_dispatch(root: Path, record: dict, dispatch: str, instance_id: str, door: str = JUDGE_DOOR) -> None:
     """Raise the `_judge_refusal` when `dispatch` is not the code critic's open S5 dispatch of the record's case (F2): an author's
     dispatch, an S6 one, or a critic of another window must not write a `fires` of its own test."""
     why = _judge_dispatch_why(root, record, dispatch)
@@ -7841,7 +7841,7 @@ def _demand_critic_dispatch(root: Path, record: dict, dispatch: str, instance_id
         raise _judge_refusal(f"{dispatch!r} is not the open code-critic dispatch of the window of {instance_id!r} (story "
                              f"{record.get('task')}): it {why}" if not why.startswith("the probe record") else why,
                              "Judge under the dispatch id your brief names - the open S5 dispatch of the code critic that covers "
-                             "this test's case. Door: " + JUDGE_DOOR)
+                             "this test's case. Door: " + door)
 
 
 def _refold(parts: dict, note: str) -> dict:
@@ -7893,8 +7893,8 @@ def _judge_product(task_root: Path, root: Path, instance_id: str, dispatch: str,
     import red_sandbox
     path, record, entry = _product_judged_record(task_root, root, instance_id)
     facts = record["judgment_facts"]
-    quote, why = _judge_input(verdict, quote, why, facts)
-    _demand_critic_dispatch(root, record, dispatch, instance_id)
+    quote, why = _judge_input(verdict, quote, why, facts, JUDGE_PRODUCT_DOOR)
+    _demand_critic_dispatch(root, record, dispatch, instance_id, JUDGE_PRODUCT_DOOR)
     judgment = {"verdict": verdict, "quote": quote, "why": why, "by": dispatch,
                 "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "facts_sha": facts_sha(facts)}
     notes = list(record.get("notes") or []) + [f"judged by the code critic ({dispatch}): {verdict}"]
@@ -8402,7 +8402,8 @@ def main() -> None:
         _alternatives_cli(args)
     if args.judge:
         _judge_cli(args)       # before the probe branch: it reads a record, runs and mutates nothing
-    stray = [flag for flag, value in (("--verdict", args.verdict), ("--quote", args.quote), ("--why", args.why)) if value is not None]
+    stray = [flag for flag, value in (("--verdict", args.verdict), ("--quote", args.quote), ("--why", args.why),
+                                    ("--product", args.product or None)) if value is not None]
     if stray:
         print(json.dumps({"status": "refused", "error": f"probe_by_code: {', '.join(stray)} belong to --judge: add --judge "
                           f"<instance>, or drop them. Door: {JUDGE_DOOR}. Nothing was written."}, ensure_ascii=False))

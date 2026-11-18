@@ -1707,11 +1707,15 @@ def publish_product_refs(task_root: Path, repo: Path, targets: list, refs: dict,
                 fragment_path = Path(scratch) / "manifest-fragment.json"
                 atomic_json(fragment_path, {"obligation_bindings": list(by_obligation.values()),
                                             "tests": test_rows})
-                put = subprocess.run(
-                    [sys.executable, "-B", str(MANIFEST_PUT), "--task", task_root.name,
-                     "--fragment", str(fragment_path)],
-                    cwd=str(repo), capture_output=True, text=True, encoding="utf-8",
-                    errors="replace", timeout=120)
+                try:    # t-1443 F1: a hang or an unspawnable interpreter leaves the receipt and a note, never a traceback
+                    put = subprocess.run(
+                        [sys.executable, "-B", str(MANIFEST_PUT), "--task", task_root.name,
+                         "--fragment", str(fragment_path)],
+                        cwd=str(repo), capture_output=True, text=True, encoding="utf-8",
+                        errors="replace", timeout=120)
+                except (OSError, subprocess.SubprocessError) as exc:
+                    notes.append(f"manifest_put.py: not run ({type(exc).__name__}: {exc})"[:500])
+                    return
                 tail = (put.stdout or put.stderr or "").strip().splitlines()
                 notes.append(("manifest_put.py: " + tail[0]) if put.returncode == 0 and tail else
                             f"manifest_put.py: {(put.stderr or put.stdout or '').strip()[-500:]}")

@@ -1068,8 +1068,12 @@ def no_row_language_reaches_a_counted_receipt() -> None:
         result = probe(world, request)
         record = json.loads(record_path.read_text(encoding="utf-8"))
         check_eq("a basename frame is incomplete with cause judgment and a pending receipt",
-                 (result["status"], record["verdict"], record.get("cause"), bool(record.get("pending_receipt")), result.get("notes")),
-                 ("incomplete", "incomplete", "judgment", True, result.get("notes")))
+                 (result["status"], record["verdict"], record.get("cause"), bool(record.get("pending_receipt"))),
+                 ("incomplete", "incomplete", "judgment", True))
+        # t-1443 F4: the S2 note names the door flags and the record path (it was compared with itself)
+        check_eq("...and the S2 note names --judge, --product and the record path",
+                 [all(w in n for w in ("--judge", "--product", record_path.as_posix())) for n in result.get("notes", [])
+                  if "--judge" in n], [True])
         controller = task / "state" / "controller.json"
         doc = json.loads(controller.read_text(encoding="utf-8"))
         doc["dispatches"] = {"S5-qa-code-critic-1": {"id": "S5-qa-code-critic-1", "stage": "S5", "role": "qa-code-critic",

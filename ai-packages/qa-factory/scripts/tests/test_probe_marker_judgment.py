@@ -325,6 +325,7 @@ def test_judge_refusals_name_the_door(tmp_path, monkeypatch):
     root, task, path = world(tmp_path / "f", monkeypatch, open_dispatch=False)
     messages["dispatch"] = refusal(root, task)
     assert len(messages) == 11
+    assert "--product" not in messages["verdict word"] and "--product" not in messages["dispatch"]     # t-1443 F2 / D15: the live text is unchanged
     before = path.read_bytes()
     for name, text in messages.items():
         assert "Nothing was written" in text and "probe_by_code.py" in text, (name, text)       # every refusal names a command and the state
@@ -337,8 +338,34 @@ def test_judge_refusals_name_the_door(tmp_path, monkeypatch):
         root, task, path = world(tmp_path / name, monkeypatch)
         product = product_record(task, path, **(patch if patch is not None else {})) if patch is not None else PL.probe_record_path(task, IID, "product")
         held = product.read_bytes() if product.exists() else None
-        assert "Nothing was written" in refusal(root, task, product=True, **calls.get(name, {})), name
+        text = refusal(root, task, product=True, **calls.get(name, {}))
+        assert "Nothing was written" in text, name
+        assert PBC.JUDGE_PRODUCT_DOOR in text or name not in ("D4", "D5"), (name, text)     # t-1443 F2: the shared input checks name the product door too
         assert (product.read_bytes() if product.exists() else None) == held and not (task / "work" / "sensitivity-receipts").exists(), name
+
+
+def test_publish_failure_keeps_the_receipt_and_notes(tmp_path, monkeypatch):
+    """t-1443 F1 (D14): a hang or an unspawnable interpreter in `manifest_put.py` is a note, never a traceback."""
+    import subprocess
+    import red_sandbox as RS
+    monkeypatch.setattr(RS, "_written_scope", lambda *a: PL.WHOLE_UNLISTED)
+    ref = {"receipt_ref": {"path": "work/sensitivity-receipts/x.json"}}
+    for exc in (subprocess.TimeoutExpired("manifest_put.py", 120), OSError("no interpreter")):
+        def boom(*a, **k):
+            raise exc
+        monkeypatch.setattr(RS.subprocess, "run", boom)
+        notes = []
+        RS.publish_product_refs(tmp_path / "T-1", tmp_path, [{"instance_id": IID, "obligation_id": "O1"}], {IID: ref}, notes)
+        assert len(notes) == 1 and notes[0].startswith("manifest_put.py: not run") and type(exc).__name__ in notes[0], notes
+
+
+def test_product_flag_without_judge_is_a_stray_flag(monkeypatch, capsys):
+    """t-1443 F3: `--product` is a `--judge` flag like `--verdict`; alone it refuses and runs no probe."""
+    monkeypatch.setattr(sys, "argv", ["probe_by_code.py", "--task", "T-1", "--dispatch", "D1", "--test", "X", "--product"])
+    with pytest.raises(SystemExit) as caught:
+        PBC.main()
+    out = json.loads(capsys.readouterr().out)
+    assert caught.value.code == 2 and out["status"] == "refused" and "--product" in out["error"], out
 
 
 def test_quote_not_in_text_refused(tmp_path, monkeypatch):
