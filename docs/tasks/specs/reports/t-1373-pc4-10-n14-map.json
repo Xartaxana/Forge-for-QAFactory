@@ -1,0 +1,418 @@
+{
+ "source": "test_story_run_stand_identity.py",
+ "common": "story_run_stand_identity_common",
+ "shim": false,
+ "parts": [
+  "test_story_run_stand_identity_k35_k36",
+  "test_story_run_stand_identity_t366_k37",
+  "test_story_run_stand_identity_k38_edges",
+  "test_story_run_stand_identity_ep1"
+ ],
+ "names": [
+  {
+   "name": "HEAD",
+   "kind": "assign",
+   "home": "story_run_stand_identity_common",
+   "_line": 40
+  },
+  {
+   "name": "OLD",
+   "kind": "assign",
+   "home": "story_run_stand_identity_common",
+   "_line": 41
+  },
+  {
+   "name": "NOWHERE",
+   "kind": "assign",
+   "home": "story_run_stand_identity_common",
+   "_line": 42
+  },
+  {
+   "name": "TS",
+   "kind": "assign",
+   "home": "story_run_stand_identity_common",
+   "_line": 43
+  },
+  {
+   "name": "LABEL",
+   "kind": "assign",
+   "home": "story_run_stand_identity_common",
+   "_line": 44
+  },
+  {
+   "name": "DIGEST",
+   "kind": "assign",
+   "home": "story_run_stand_identity_common",
+   "_line": 45
+  },
+  {
+   "name": "PY",
+   "kind": "assign",
+   "home": "story_run_stand_identity_common",
+   "_line": 46
+  },
+  {
+   "name": "FAKE_PROBE",
+   "kind": "assign",
+   "home": "story_run_stand_identity_common",
+   "_line": 48
+  },
+  {
+   "name": "WRAPPED_PROBE",
+   "kind": "assign",
+   "home": "story_run_stand_identity_common",
+   "_line": 67
+  },
+  {
+   "name": "_PLAN",
+   "kind": "assign",
+   "home": "story_run_stand_identity_common",
+   "_line": 80
+  },
+  {
+   "name": "use_plan",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 83
+  },
+  {
+   "name": "Rig",
+   "kind": "class",
+   "home": "story_run_stand_identity_common",
+   "_line": 96
+  },
+  {
+   "name": "record",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 188
+  },
+  {
+   "name": "matched",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 196
+  },
+  {
+   "name": "unknown",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 202
+  },
+  {
+   "name": "mismatched",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 211
+  },
+  {
+   "name": "sources_mismatched",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 219
+  },
+  {
+   "name": "run_entry",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 225
+  },
+  {
+   "name": "reset_question",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 244
+  },
+  {
+   "name": "asked",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 259
+  },
+  {
+   "name": "flag",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 263
+  },
+  {
+   "name": "journal_answers",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 267
+  },
+  {
+   "name": "line_broken",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 271
+  },
+  {
+   "name": "realistic_persons",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k35_k36",
+   "_line": 279,
+   "_section": "# --- K35: the question and its texts ----------------------------------------------------"
+  },
+  {
+   "name": "k35_the_question_and_its_texts",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k35_k36",
+   "_line": 318,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "forms_reader",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k35_k36",
+   "_line": 411,
+   "_section": "# --- the closed forms: the reader, at and beyond its limits -----------------------------",
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "k36_deployed_always_confirm_retry",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k35_k36",
+   "_line": 444,
+   "_section": "# --- K36: the answers (the real ladder) -------------------------------------------------",
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "k36_method_answers",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k35_k36",
+   "_line": 550,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "k36_mismatched_answers",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k35_k36",
+   "_line": 625,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "k36_other_words_and_edges",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k35_k36",
+   "_line": 669,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "t366_f2_f3_f5_partly_recorded_prose_label_and_console",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_t366_k37",
+   "_line": 741,
+   "_section": "# --- t-366: the fix pass after critic t-361 ---------------------------------------------",
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "t366_o1_a_person_label_does_not_outrank_the_sources",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_t366_k37",
+   "_line": 811,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "k37_positions_and_the_flag",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_t366_k37",
+   "_line": 852,
+   "_section": "# --- K37: positions, and the flag -------------------------------------------------------",
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "k38_the_confirm_variant",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k38_edges",
+   "_line": 966,
+   "_section": "# --- K38 / K39 / K40 / K44 --------------------------------------------------------------",
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "persons_how",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k38_edges",
+   "_line": 992
+  },
+  {
+   "name": "k39_what_is_a_line_and_not_a_question",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k38_edges",
+   "_line": 997,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "k40_one_question_per_profile",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k38_edges",
+   "_line": 1075,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "driver_stub",
+   "kind": "def",
+   "home": "story_run_stand_identity_common",
+   "_line": 1100
+  },
+  {
+   "name": "k44_a_labelled_stand_asks_nothing",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k38_edges",
+   "_line": 1106,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "edges_per_window_and_per_kind",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k38_edges",
+   "_line": 1132,
+   "_section": "# --- the edges of the node spec ---------------------------------------------------------",
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "edges_foreign_probe_and_data",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k38_edges",
+   "_line": 1172,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "fb8_matched_line_names_not_shipped",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_k38_edges",
+   "_line": 1209,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "CONTENT",
+   "kind": "assign",
+   "home": "test_story_run_stand_identity_ep1",
+   "_line": 1243
+  },
+  {
+   "name": "fb8_with_identity",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_ep1",
+   "_line": 1246
+  },
+  {
+   "name": "fb8_mismatched_sources_offers_test_as_is",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_ep1",
+   "_line": 1255,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "fb8_test_as_is_runs_confirm_with_content",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_ep1",
+   "_line": 1277,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "fb8_person_content_line_replaces_confirmed",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_ep1",
+   "_line": 1322,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "ep1_28_host_run_stand_asks_the_version",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_ep1",
+   "_line": 1349,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "ep1_41c_the_stand_of_the_profile",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_ep1",
+   "_line": 1432,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "ep1_41e_the_device_build_question",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_ep1",
+   "_line": 1540,
+   "_runs": [
+    "func:main:arg1"
+   ]
+  },
+  {
+   "name": "SI_data",
+   "kind": "def",
+   "home": "test_story_run_stand_identity_ep1",
+   "_line": 1603
+  }
+ ],
+ "statements": [],
+ "_notes": {
+  "runner_blocks": [
+   {
+    "key": "func:main",
+    "kind": "func",
+    "line": 1608,
+    "entries": 22,
+    "reads_run_lists": []
+   },
+   {
+    "key": "u1",
+    "kind": "guard",
+    "line": 1636,
+    "entries": 1,
+    "reads_run_lists": []
+   }
+  ],
+  "runner_names_not_in_names": [
+   "main"
+  ],
+  "run_lists": {},
+  "importers": {},
+  "refused": [],
+  "warnings": []
+ }
+}
