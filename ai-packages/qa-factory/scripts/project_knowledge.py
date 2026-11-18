@@ -30,9 +30,20 @@ exactly, the person's words are stored whole and are the payload, `wait_s` is an
 interprets the words. A lesson leaves with `revoke`; revoking the newest row of a subject shows the previous live row again, so
 removing a lesson means revoking every live row of the subject (`show` lists them). KNOWN RESIDUAL: a lesson belongs to the stand's
 exact name, so a stand renamed in the config orphans its lessons; `show` still lists them.
+
+THE STAND'S PAGE LOAD (`environments.page_load`, C3-j1): the time the stand's start page took to load, SIGNED OUT, which the factory
+measures itself at gate A and uses (the S5 and S7 briefs carry it; the manual capture's page limit is 180 s or this + 30 s when that
+is longer). It is a FLOOR: pages behind the sign-in can be slower, so it only ever lengthens a limit. Its ONE writer is
+`gate_preflight.check_stand_page_load` through `record` (source `measured`, by `gate`; refused in a story that leaves no trace); its
+ONE reader is `page_load`, which says `none` when the row is another stand definition, another address, older than 7 days or older
+than the stand's last verification; its exit is `revoke`. A failed measurement keeps no number but its REASON (owner, 17.11.2026:
+the same failure is not retried blindly): the SAME row holds `{"failed": {cause, why, at, attempts}, definition_sha, address}`
+instead of a number, `page_load` says `failed` while it speaks for this stand definition and address, and a person's `revoke` of it
+is the word to retry. One subject per stand: a kept reason is replaced in place; a measurement is a new row.
 """
 import copy
 import json
+import math
 import re
 import sys
 from contextlib import contextmanager
@@ -76,6 +87,22 @@ INSTANCE_NEEDS = ("another_instance",)
 # `manual_capture.login.ui` for a ui reader); then "factory_default". A role-recorded way ranks above the onboarding config ON
 # PURPOSE (finding item 3: a probe's guess never overrides this record); a stale recorded way has ONE exit, `revoke`.
 SIGN_IN_PRECEDENCE = ("recorded", "project", "factory_default")
+# C3-j1: the stand's page load, measured by the factory at gate A. Stand scope; ONE subject per stand (the element names what was
+# measured: the stand's frontend start page); `value` is `{load_s, at_least, address, definition_sha, at}`. The ONE writer is
+# `gate_preflight.check_stand_page_load` through `record`; the ONE reader is `page_load`.
+PAGE_LOAD_KEY = "environments.page_load"
+PAGE_LOAD_ELEMENT = "frontend"
+PAGE_LOAD_REUSE_DAYS = 7
+HOW_PAGE_LOAD = "measured by the factory's headless browser at gate A, signed out, one full load of the start page"
+PAGE_LOAD_VALUE_KEYS = {"load_s", "at_least", "address", "definition_sha", "at"}
+# a kept reason of a failed measurement (the owner's correction to F-j-failed): the same key and element, the number replaced
+PAGE_LOAD_REASON_KEYS = {"failed", "address", "definition_sha"}
+PAGE_LOAD_FAILED_KEYS = {"cause", "why", "at", "attempts"}
+# `no_browser` is a fact about the MACHINE, never kept in a record the project carries (AR-4): the gate notes it per run, and a row
+# that holds it is read as malformed (not kept), so the next gate measures again
+PAGE_LOAD_CAUSES = ("factory", "unreachable", "outside_hosts", "credentials_in_address")
+PAGE_LOAD_ATTEMPTS_MAX = 2      # the second start tries once more; after that no blind retry
+PAGE_LOAD_WHY_MAX = 200
 
 # S15 / phase 1: the catalogue (references/config-keys.json, section `knowledge`) is the ONE table of project facts, read through
 # `config_contract.config_keys()` (AR-13). `KEYS` is DERIVED from its registry rows, once, at import: the comparator a row names compares
@@ -132,8 +159,8 @@ KEYS, CATALOGUE_PROBLEM = _derive_keys()
 KNOWN, NOT_NEEDED, NOTICED, UNKNOWN = "known", "not_needed", "noticed_unconfirmed", "unknown"
 # `asked` is RESERVED for phase 2 (no producer here); `unreachable` is run-scoped and never stored. A row in any other state is skipped.
 STATES = (KNOWN, NOT_NEEDED, NOTICED)
-SOURCES = ("person", "role", "legacy_config")
-BY = ("conductor", "driver")
+SOURCES = ("person", "role", "legacy_config", "measured")
+BY = ("conductor", "driver", "gate")
 SIGN_INS = ("account", "none")
 NO_TRACE_WORDS = "an experiment leaves no trace: the answer stays in this story's words (waiver); nothing was recorded"
 PLACEHOLDER_STAND = "this stand"
@@ -575,6 +602,75 @@ def sign_in(root, stand) -> dict:
     return out
 
 
+def stale_against_verified(at, verified) -> str:
+    """Why a measurement cannot stand for the stand as it is now, or ''. A stand verified AFTER the measurement may be a different
+    build; both are read as the date they START with and a value that carries no date says nothing (it is never read as stale)."""
+    pattern = re.compile(r"\s*(\d{4}-\d{2}-\d{2})")
+    measured, checked = pattern.match(str(at or "")), pattern.match(str(verified or ""))
+    if measured and checked and measured.group(1) < checked.group(1):
+        return (f"the measurement of {measured.group(1)} is older than the stand's last "
+                f"verification ({checked.group(1)}), so it may describe another build")
+    return ""
+
+
+def page_load(root, cfg, stand) -> dict:
+    """`{"state", "load_s", "at_least", "address", "at", "why", "failed"}`: what the factory measured of the stand's page load (the
+    ONE reader, AR-13). `state` is `measured` (a row that still speaks for this stand), `failed` (a kept REASON of a failed
+    measurement for this stand definition and address: `failed` holds `{cause, why, at, attempts}`, no number, never a pass),
+    `none` (nothing usable: no stand, no row, a revoked row, a malformed one, another definition or address, a number older than 7
+    days or than the stand's verification: the default limit is the safe side) or `unreadable` (the registry or the catalogue could
+    not be read: an unknown, never a number, FR-59). PURE: writes nothing, never raises. `why` says which."""
+    out = {"state": "none", "load_s": None, "at_least": False, "address": "", "at": "", "why": "", "failed": None}
+    try:
+        stand = str(stand or "")
+        if not stand.strip() or stand == PLACEHOLDER_STAND:
+            out["why"] = "no stand"
+            return out
+        if PAGE_LOAD_KEY not in KEYS:
+            out.update(state="unreadable", why=CATALOGUE_PROBLEM or _cut(f"the catalogue has no row for {PAGE_LOAD_KEY}"))
+            return out
+        rows, problem = load(root)
+        if problem:
+            out.update(state="unreadable", why=problem)
+            return out
+        row = _latest(rows, PAGE_LOAD_KEY, stand, PAGE_LOAD_ELEMENT)
+        if row is None:
+            return out
+        value = row.get("value")
+        if _page_load_value_faults(row["element"], value):
+            out["why"] = "malformed"
+            return out
+        card = environment(stand, root, cfg)
+        if not card["found"]:
+            out["why"] = card["problem"]
+            return out
+        import env_probe
+        import manual_capture
+        import stand_identity
+        data = _config(root, cfg)
+        if value["definition_sha"] != stand_identity.definition_sha_for(data, stand):
+            out["why"] = "another stand definition"
+            return out
+        address = manual_capture._safe_url(env_probe.frontend_of(data, stand, root=root)["url"])
+        if value["address"] != address:
+            out["why"] = "another address"
+            return out
+        if "failed" in value:     # a kept reason: no age and no verification date end it, only another identity (above) or a revoke
+            out.update(state="failed", address=value["address"], at=value["failed"]["at"], failed=copy.deepcopy(value["failed"]))
+            return out
+        if ER._moment(ER.now_iso()) - ER._moment(value["at"]) > PAGE_LOAD_REUSE_DAYS * 86400:
+            out["why"] = f"older than {PAGE_LOAD_REUSE_DAYS} days"
+            return out
+        stale = stale_against_verified(value["at"], card["entry"].get("verified"))
+        if stale:
+            out["why"] = stale
+            return out
+        out.update(state="measured", load_s=value["load_s"], at_least=value["at_least"], address=value["address"], at=value["at"])
+    except Exception as exc:    # a reader never stops a gate: what it could not read is unknown, not a number
+        out.update(state="unreadable", load_s=None, why=f"the record of project knowledge could not be read ({type(exc).__name__})")
+    return out
+
+
 def roster(root, cfg, stand) -> dict:
     """`{"elements": [...], "removed": [...], "problem"}`: the product's roles. PURE: writes nothing, never raises.
 
@@ -674,6 +770,58 @@ def _side_value_faults(key, value) -> list:
         return [f"{key} carries {{\"reality\": one of {', '.join(str(w) for w in words)}}}, not {value!r}; "
                 "record it with `side --reality <word>`; nothing was recorded"]
     return []
+
+
+# part of the record_problems unit (shape of a measured page load); not a unit of its own
+def _page_load_value_faults(element, value) -> list:
+    """The shape of a measured page load: its element and its `value`. Form only (AR-29): whether the number is right is the
+    measurement's. No refusal text echoes the address (it may carry a secret)."""
+    out = []
+    if element != PAGE_LOAD_ELEMENT:
+        out.append(f"the element of {PAGE_LOAD_KEY} is `{PAGE_LOAD_ELEMENT}` (the stand's start page); nothing was recorded")
+    reason = isinstance(value, dict) and "failed" in value
+    keys = PAGE_LOAD_REASON_KEYS if reason else PAGE_LOAD_VALUE_KEYS
+    if not isinstance(value, dict) or set(value) != keys:
+        return out + [f"{PAGE_LOAD_KEY} carries exactly {{{', '.join(sorted(PAGE_LOAD_VALUE_KEYS))}}} (a measurement) or "
+                      f"{{{', '.join(sorted(PAGE_LOAD_REASON_KEYS))}}} (a kept reason); nothing was recorded"]
+    if reason:
+        out += _page_load_failed_faults(value["failed"])
+    else:
+        load = value["load_s"]
+        if isinstance(load, bool) or not isinstance(load, (int, float)) or not math.isfinite(load) or load <= 0:
+            out.append("`value.load_s` is a finite number of seconds above zero; nothing was recorded")
+        if not isinstance(value["at_least"], bool):
+            out.append("`value.at_least` is true or false; nothing was recorded")
+    address = value["address"]
+    if not isinstance(address, str) or not re.match(r"https?://", address):
+        out.append("`value.address` is an http or https address; nothing was recorded")
+    else:
+        import manual_capture
+        if manual_capture.has_userinfo(address):
+            out.append("`value.address` carries a user name or password; it is never kept; nothing was recorded")
+    if not isinstance(value["definition_sha"], str) or not value["definition_sha"]:
+        out.append("`value.definition_sha` is the stand definition's hash; nothing was recorded")
+    if not reason and (not isinstance(value["at"], str) or ER._moment(value["at"]) == float("-inf")):
+        out.append("`value.at` is the moment of the measurement; nothing was recorded")
+    return out
+
+
+def _page_load_failed_faults(failed) -> list:
+    """The shape of the kept reason `value.failed`: a closed cause, one line of why, the moment, a count of attempts from 1."""
+    if not isinstance(failed, dict) or set(failed) != PAGE_LOAD_FAILED_KEYS:
+        return [f"`value.failed` carries exactly {{{', '.join(sorted(PAGE_LOAD_FAILED_KEYS))}}}; nothing was recorded"]
+    out = []
+    if failed["cause"] not in PAGE_LOAD_CAUSES:
+        out.append(f"`value.failed.cause` is one of {', '.join(PAGE_LOAD_CAUSES)}; nothing was recorded")
+    why = failed["why"]
+    if not isinstance(why, str) or "\n" in why or "\r" in why or len(why) > PAGE_LOAD_WHY_MAX:
+        out.append(f"`value.failed.why` is one line of at most {PAGE_LOAD_WHY_MAX} characters; nothing was recorded")
+    if not isinstance(failed["at"], str) or ER._moment(failed["at"]) == float("-inf"):
+        out.append("`value.failed.at` is the moment of the failed attempt; nothing was recorded")
+    attempts = failed["attempts"]
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
+        out.append("`value.failed.attempts` is a whole number from 1; nothing was recorded")
+    return out
 
 
 def _wait_ok(number) -> bool:
@@ -786,6 +934,8 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
                        "of the story's record (`sides.<name>.<attribute>=<value>`); nothing was recorded")
     elif key == LESSONS_KEY:     # BEFORE the role rules: a lesson subject never meets them, and a role key never skips them
         out += _lesson_value_faults(element, value)
+    elif key == PAGE_LOAD_KEY:     # BEFORE the role rules: a page-load row never meets them, and a role key never skips them
+        out += _page_load_value_faults(element, value)
     elif key == EXTRA_INSTANCE_KEY:     # BEFORE the role rules: a need word never meets them; only a typed yes/no is ever read
         if text not in INSTANCE_NEEDS:
             out.append(f"the need {text[:60]!r} is not one of {', '.join(INSTANCE_NEEDS)}; nothing was recorded")
@@ -832,7 +982,8 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
 
     Under the lock it LOADS, checks (`record_problems`, `_refuse_no_trace`), numbers (`next_id`) and writes, so two stories never
     lose a row. Refused, nothing written, `row` None and `problem` says why and the door. The same live state AND value for the same
-    subject again is the existing row with `created` False (a changed `value`, e.g. `sign_in`, is a new row). A busy lock raises `TimeoutError` (the CLI exits 2: run it again)."""
+    subject again is the existing row with `created` False (a changed `value`, e.g. `sign_in`, is a new row; except that a kept page-load reason is replaced
+    in place, same id, whatever replaces it). A busy lock raises `TimeoutError` (the CLI exits 2: run it again)."""
     root = Path(root)
     with lock(root):
         rows, load_problem = load(root)
@@ -853,12 +1004,16 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
                 same = True
             if same:
                 return held, "", False
-        row = {"id": ER.next_id(rows, ID_PREFIX), "key": key, "environment": str(environment or ""), "element": str(element).strip(),
+        in_place = (key == PAGE_LOAD_KEY and held is not None and isinstance(held.get("value"), dict) and "failed" in held["value"])
+        row = {"id": held["id"] if in_place else ER.next_id(rows, ID_PREFIX), "key": key, "environment": str(environment or ""), "element": str(element).strip(),
                "state": state, "scope": scope, "value": value,
                "provenance": {"source": source, "words": str(words or "").strip(), "story": str(story or ""), "by": by,
                               "where": " ".join(str(where or "").split())[:160]},
                "at": ER.now_iso()}
-        problem = ER.write_rows(record_path(root), LIST_KEY, SCHEMA_VERSION, rows + [row], RECORD_REL)
+        # a kept reason of a failed page load is REPLACED where it stands (the same cause with its count and time, another cause, or the
+        # number that ends it): a reason never has a second row beside it; a measurement is a new row
+        kept = [row if (in_place and r is held) else r for r in rows] if in_place else rows + [row]
+        problem = ER.write_rows(record_path(root), LIST_KEY, SCHEMA_VERSION, kept, RECORD_REL)
         return (None, problem, False) if problem else (row, "", True)
 
 

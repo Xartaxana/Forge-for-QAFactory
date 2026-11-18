@@ -105,8 +105,8 @@ SPEC_PATH = PLUGIN_ROOT / "references" / "manual-capture-steps.json"
 EVIDENCE_PARTS = ("work", "evidence", "manual")
 
 BODY_CAP = 2 * 1024 * 1024          # a body is stored whole up to this many bytes, cut beyond it
-DEFAULT_TIMEOUT_S = 180             # the limit of one step when the stand's page load was never measured
-TIMEOUT_MARGIN_S = 30               # added to the measured full page load of the stand
+DEFAULT_TIMEOUT_S = 180             # the limit of one step; the stand's measured page load may only LENGTHEN it, never shorten it
+TIMEOUT_MARGIN_S = 30               # added to the measured page load of the stand (the limit is the larger of the two)
 ELEMENT_WAIT_S = 30                 # how long an element lookup (click, fill, drag, read, wait <selector>) may take:
                                     # the page objects' own upper wait; config manual_capture.element_wait_s overrides
 EXIT_OK, EXIT_FAILED_STEP, EXIT_ENV_BLOCKED = 0, 1, 3
@@ -228,6 +228,7 @@ class LoginMaterialMissing(ValueError):
 # --------------------------------------------------------------------------------------------
 BACKEND_FACTORY = None   # () -> a browser backend (see PlaywrightBackend for the methods)
 HTTP = None              # an object with .request(method, url, headers, body, timeout_s) -> HttpResult
+PAGE_LOAD = None         # (cfg, stand_name, project_root) -> measurement dict (see measure_page_load); tests replace it
 PROBE = None             # (spec) -> provenance dict; the default is run_suite.probe_runtime
 NOW = None               # () -> aware datetime
 MONOTONIC = None         # () -> seconds; the clock of the landing loop, the default is time.perf_counter
@@ -552,14 +553,77 @@ def environment_of(url, cfg: dict, values=None, root=None) -> dict:
     return env
 
 
-def timeout_for(env: dict) -> float:
-    """The limit of one step: the stand's measured full page load plus 30 s, else 180 s."""
-    measured = env.get("measured") if isinstance(env.get("measured"), dict) else {}
-    record = measured.get("e2e_page_load_s")
-    value = record.get("value") if isinstance(record, dict) else record
-    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0:
-        return value + TIMEOUT_MARGIN_S
+def timeout_for(project_root, cfg, stand) -> float:
+    """The limit of one step: 180 s, or the stand's measured page load + 30 s when that is longer. The measurement may only
+    LENGTHEN the limit (a signed-out landing time is a floor: pages behind the sign-in can be slower). It is read through the one
+    reader `project_knowledge.page_load`; no project root, no stand, nothing measured, an unreadable record or any error -> 180 s
+    (a missing measurement never shortens a limit)."""
+    name = str((stand or {}).get("name") or "") if isinstance(stand, dict) else ""
+    if project_root and name:
+        try:
+            import project_knowledge
+            got = project_knowledge.page_load(project_root, cfg, name)
+            if got.get("state") == "measured":
+                return max(DEFAULT_TIMEOUT_S, got["load_s"] + TIMEOUT_MARGIN_S)
+        except Exception:    # noqa: BLE001 - a reader of a number never stops a capture; the default is the safe side
+            pass
     return DEFAULT_TIMEOUT_S
+
+
+def measure_page_load(cfg, stand_name, project_root) -> dict:
+    """One headless load of the stand's frontend start page, SIGNED OUT. Never raises. Returns `{"state": "measured", "load_s",
+    "at_least", "address", "definition_sha", "at"}`, `{"state": "n/a", "why"}` (a device stand, or a stand with no web address:
+    nothing to measure, not a failure) or `{"state": "failed", "cause", "why"}` with cause `factory`, `no_browser`, `unreachable`,
+    `outside_hosts` or `credentials_in_address` (the owner of the failure; FR-19). A load that did not finish within
+    `DEFAULT_TIMEOUT_S` is `load_s` = that limit with `at_least` True: an unfinished load is never written as its true value."""
+    try:
+        import env_probe
+        import project_knowledge
+        import stand_identity
+        got = project_knowledge.environment(stand_name, root=project_root, cfg=cfg)
+        if not got["found"]:
+            return {"state": "failed", "cause": "factory", "why": got["problem"]}
+        if got["entry"].get("surface"):
+            return {"state": "n/a", "why": "a device stand has no web page"}
+        url = env_probe.frontend_of(cfg, stand_name, root=project_root)["url"]
+        if not url:
+            return {"state": "n/a", "why": "the stand has no web address"}
+        if has_userinfo(url):
+            return {"state": "failed", "cause": "credentials_in_address",
+                    "why": "the stand's web address carries a user name or password"}
+        hosts = set(stand_hosts(cfg, root=project_root))
+    except Exception as exc:    # noqa: BLE001
+        return {"state": "failed", "cause": "factory", "why": f"{type(exc).__name__}: {_first_line(exc)}"}
+    backend = None
+    try:
+        try:
+            backend = (BACKEND_FACTORY or PlaywrightBackend)()
+            backend.open(DEFAULT_TIMEOUT_S, hosts, None, element_wait_for(cfg))
+        except Exception as exc:    # noqa: BLE001 - no browser starts here: a fact of this machine
+            return {"state": "failed", "cause": "no_browser", "why": _first_line(exc)}
+        mark = backend.event_mark() if hasattr(backend, "event_mark") else 0
+        load_s, at_least = None, False
+        try:
+            seconds = backend.goto(url)
+            load_s = max(0.1, round(seconds, 1))
+        except StepTimeout:
+            load_s, at_least = float(DEFAULT_TIMEOUT_S), True
+        except StepFailed as exc:
+            events = backend.events_since(mark) if hasattr(backend, "events_since") else []
+            blocked = any(isinstance(e, dict) and e.get("kind") == "blocked" for e in events)
+            return {"state": "failed", "cause": "outside_hosts" if blocked else "unreachable", "why": _first_line(exc)}
+        except Exception as exc:    # noqa: BLE001
+            return {"state": "failed", "cause": "factory", "why": f"{type(exc).__name__}: {_first_line(exc)}"}
+        return {"state": "measured", "load_s": load_s, "at_least": at_least, "address": _safe_url(url),
+                "definition_sha": stand_identity.definition_sha_for(cfg, stand_name), "at": _now()}
+    except Exception as exc:    # noqa: BLE001
+        return {"state": "failed", "cause": "factory", "why": f"{type(exc).__name__}: {_first_line(exc)}"}
+    finally:
+        if backend is not None:
+            try:
+                backend.close()
+            except Exception:    # noqa: BLE001 - a close that fails changes nothing about the number
+                pass
 
 
 def element_wait_for(cfg: dict) -> float:
@@ -2701,6 +2765,21 @@ def _safe_url(url) -> str:
     return f"{parts.scheme}://{host}{f':{port}' if port else ''}{parts.path}"
 
 
+def has_userinfo(url) -> bool:
+    """True when the URL carries a user name or password (or cannot be parsed: then it is treated as carrying one)."""
+    try:
+        parts = urlsplit(str(url or ""))
+        return bool(parts.username or parts.password)
+    except ValueError:
+        return True
+
+
+def shown_address(address, chars: int = 120) -> str:
+    """An address for a person's eyes: cut at `chars` with an ellipsis (one rule for the gate's note and the briefs)."""
+    text = str(address or "")
+    return text if len(text) <= chars else text[:chars] + "…"
+
+
 def _poll_landing(backend, recipe, url_not, cookie, hosts) -> tuple:
     """(missing clauses, the URL seen, the error of this poll or ""): one look at the page. All of the following
     must hold to land: the URL is http(s) on a configured stand host (Q5: `chrome-error://` and `about:blank` are
@@ -3012,7 +3091,7 @@ def sign_in(backend, cfg, project_root, actor, stand, *, task_root=None, session
         return {"signed_in": False, "kind": "no_recipe", "actor": actor,
                 "detail": "config.json names no file for the stand's accounts (environment.env_file)"}
     hosts = set(hosts) if hosts is not None else set(stand_hosts(cfg, root=project_root))
-    timeout_s = timeout_s or timeout_for(stand or {})
+    timeout_s = timeout_s or timeout_for(project_root, cfg, stand)
     fit = spec_data.get("login", {}).get("ui_fit_wait_s") if "ui" not in _own_login(cfg) else None
     try:
         backend.login(dict(recipe, fit_wait_s=fit) if fit else recipe, credentials, _frontend_of(cfg, stand, project_root))
@@ -3175,7 +3254,7 @@ def run_ui(args, spec_data, passthrough) -> int:
             raise ValueError(SESSION_VS_AS)
         session_name, session_note = _session_attempt(
             args, args.case, capture_profile(cfg, args.task_root, args.case, "ui", getattr(args, "profile", None)))
-    timeout_s = timeout_for(stand)
+    timeout_s = timeout_for(project_root, cfg, stand)
     element_s = element_wait_for(cfg)
     # The recipe and its landing rule are read HERE, before any attempt exists: a malformed rule is a refusal like every
     # other one (no attempt folder, no probe, no browser), and the call's fault (FR-46).
@@ -3410,7 +3489,7 @@ def run_app(args, spec_data) -> int:
     attempt = Attempt(args.task_root, args.case, name, cfg)
     attempt.command = "app"
     attempt.entry_limitation = str((spec_data.get("capture_surfaces", {}).get("app") or {}).get("limitation") or "")
-    timeout_s, element_s = timeout_for(stand), element_wait_for(cfg)
+    timeout_s, element_s = timeout_for(project_root, cfg, stand), element_wait_for(cfg)
 
     def session(backend):
         try:
@@ -5380,7 +5459,7 @@ def _run_http(args, spec_data, passthrough, closers) -> int:
         new_name, new_password = generated_account(args.task_root, args.case)
         created = Credentials(new_name, new_password)
         store = created_account_store(args.task_root)      # opened BEFORE anything is sent: a user must never be created unrecorded
-    timeout_s = timeout_for(env)
+    timeout_s = timeout_for(project_root, cfg, env)
     # B-408 (E4): the factory's User-Agent is part of the request the evidence records - put into `headers` HERE, before the
     # request document is built, so the saved request shows what was sent. A role's own User-Agent (any case) wins.
     if not any(k.lower() == "user-agent" for k in headers):

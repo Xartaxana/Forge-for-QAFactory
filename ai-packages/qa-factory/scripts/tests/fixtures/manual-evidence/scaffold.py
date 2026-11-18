@@ -64,8 +64,7 @@ def config(**over):
         "case_id_form": "{ticket}_TC_{nnn}",
         "environment": {"env_file": "harness/.env", "user_key": "AUTH_USERNAME", "secret_keys": ["AUTH_PASSWORD"]},
         "environments": [
-            {"name": "localhost", "base_url": "http://localhost:8080", "frontend_url": "http://localhost:5173",
-             "measured": {"e2e_page_load_s": {"value": 70, "command": "measured by hand", "at": "2026-10-01"}}},
+            {"name": "localhost", "base_url": "http://localhost:8080", "frontend_url": "http://localhost:5173"},
             {"name": "preview", "base_url": "https://stand.example.test/api", "frontend_url": "https://stand.example.test/"}],
         "secret_content_patterns": [
             "-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----",
