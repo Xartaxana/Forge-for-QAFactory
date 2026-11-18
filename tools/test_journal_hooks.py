@@ -39,6 +39,8 @@ def template(tmp_path_factory):
     git(repo, "config", "core.autocrlf", "false")
     (repo / "tools/dev.config.yaml").write_text("developer: dev1\n")
     (repo / "logs/journal/dev1.jsonl").write_text(SEED)
+    (repo / "plans").mkdir()
+    (repo / "plans/features.json").write_text('{"features": [{"id": "F19"}]}\n')   # FG7-70: never the live registry
     shutil.copy(TOOLS.parent / "logs/journal-letters.json", repo / "logs/journal-letters.json")
     assert jw.claim_letter(repo).code == 0
     git(repo, "add", "-A")
@@ -165,7 +167,7 @@ def test_e_b23_5_a_validator_refusal_writes_nothing_and_shows_its_text_with_the_
     task = jw.reserve_ids(repo, 1).ids[0]
     assert jh.post_agent(payload(repo, prompt=f"task: {task}\nx"))[0].startswith("JOURNAL: delegated")
     res = jw.write_event(repo, {"event": "accepted", "agent": "scout", "model": "sonnet", "task_id": task, "by": "fable",
-                                "category": "recon", "notes": "closed"})
+                                "category": "recon", "feature": "F19", "notes": "closed"})
     assert res.written, res.messages
     before = (repo / "logs/journal/dev1.jsonl").read_bytes()
     out = jh.post_agent(payload(repo, agent_id="other9", prompt=f"task: {task}\nx"))
