@@ -123,7 +123,7 @@
     },
     {
       "id": "test_identity", "inventory": "G5", "vocabulary": "code",
-      "decides": "an old result or probe still speaks for this test (the same test); a non-match is an unknown and the answer is to run again",
+      "decides": "an old result or probe still speaks for this test (the same test); a non-match is an unknown and the answer is to run again; a red/green pair of the same test owes no expectation change; twin contracts count as one function only on equal code and content",
       "sites": [
         {"file": "proof_level.py", "function": "same_test", "role": "produce"},
         {"file": "proof_level.py", "function": "instance_identity", "role": "produce"},
@@ -138,7 +138,13 @@
         {"file": "proof_level.py", "function": "_stale_receipt", "role": "produce"},
         {"file": "execution_request.py", "function": "instance_shas", "role": "produce"},
         {"file": "execution_request.py", "function": "_match", "role": "accept"},
-        {"file": "execution_request.py", "function": "green_over_same_bytes", "role": "validate"}
+        {"file": "execution_request.py", "function": "green_over_same_bytes", "role": "validate"},
+        {"file": "acceptance.py", "function": "_bound_to", "role": "accept"},
+        {"file": "acceptance.py", "function": "green_on_current_bytes_why", "role": "accept", "allow": [
+          {"compare": "word == 'raw'", "why": "E11: a mechanical round is bound to the raw bytes the reviewer saw; the row's class matched does not separate raw from instance"}]},
+        {"file": "run_history.py", "function": "_job_contract", "role": "accept"},
+        {"file": "run_history.py", "function": "_compare_shas", "role": "accept", "allow": [
+          {"compare": "('unknown', 'unknown', _first_sha(red), _first_sha(green))", "why": "a state the function returns to its caller, not an acceptance of an identity word"}]}
       ],
       "field": null,
       "words": ["raw", "instance", "instance_code", "file_code", "same", "different", "unknown"],
@@ -155,7 +161,11 @@
         "test_identity.probe_repeat": ["matched"],
         "test_identity.run_reuse": ["matched"],
         "test_identity.run_fresh": ["matched"],
-        "test_identity.receipt_holds": ["matched"]
+        "test_identity.receipt_holds": ["matched"],
+        "test_identity.window_bound": ["matched"],
+        "test_identity.mechanical_bytes": ["matched"],
+        "test_identity.contract_twin": ["matched"],
+        "test_identity.pair_same": ["matched"]
       },
       "promotable": false,
       "unknown_branch": "rerun", "on_no_answer": "rerun", "waits_at": null,

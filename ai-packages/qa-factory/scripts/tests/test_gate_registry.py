@@ -316,7 +316,9 @@ def part_live_registry() -> None:
                                               "hit['holds'] in ('instance_code', 'file_code')",
                                               "('unknown', WHY_RUN_NO_IDENTITY)",
                                               "('unknown', why or WHY_RUN_NOT_COMPARED)",
-                                              "how in ('instance_code', 'file_code')"])
+                                              "how in ('instance_code', 'file_code')",
+                                              "word == 'raw'",
+                                              "('unknown', 'unknown', _first_sha(red), _first_sha(green))"])
 
     # NEG: the registry minus provenance_acceptance, in memory -> F-a findings naming the S-sites
     minus = copy.deepcopy(registry)
@@ -1022,6 +1024,7 @@ def part_text() -> None:
 # of a registered site (or a registry edit that dropped a site) was seen only as a smaller count. These are the triples, with no line
 # numbers (a moved line never breaks the pin). An addition or a removal here is a decision, taken in the diff that makes it.
 D13_TRIPLES = [
+    ("acceptance.py", "green_on_current_bytes_why", "test_identity"),   # RD1-26 (t-1309): `word == 'raw'`, the declared E11 narrowing (allowed)
     ("check_delivery.py", "assess", "delivery"),
     ("contract.py", "resolve_then_oracle", "then_oracle"),
     ("contract.py", "then_oracle_errors", "then_oracle"),
@@ -1074,6 +1077,7 @@ D13_TRIPLES = [
     ("proof_level.py", "already_probed", "test_identity"),
     ("proof_level.py", "novelty_of", "live_check_demand"),
     ("proof_level.py", "same_test", "test_identity"),      # C3-b2 (t-1080): `verdict == 'same'` counts once the row's words gain `same`; `same_test` is a produce site
+    ("run_history.py", "_compare_shas", "test_identity"),   # RD1-26 (t-1309): the returned unknown tuple (allowed), a state returned to the caller
     ("run_suite.py", "build_run_block", "equivalence_metric"),
     ("run_suite.py", "selection_line", "equivalence_metric"),
     ("runtime_probe.py", "conclude", "stand_identity"),
@@ -1130,7 +1134,10 @@ D13_TRIPLES = [
 # `window_record.review_note` (an `acceptable(...)` call, role `accept` under `s5_window`), so the triple `("window_record.py", "build", "s5_window")`
 # leaves the set (54 -> 53 triples) and the count falls by that one comparison. Measured with `gate_registry.py --sites` before (151) and after (150).
 # The new row `critic_review` (six sites) adds no counted comparison: its sites ask `acceptable` and compare no row word.
-D13_ITEM_COUNT = 150
+# 150 -> 152 (RD1-26, t-1309, AR-20; `--sites` 150 / 53 triples before, 152 / 55 after), both allowed under `test_identity`: `green_on_current_bytes_why`
+# `word == 'raw'` (the E11 narrowing, F3 (a)) and `_compare_shas` `('unknown', 'unknown', ...)` (a state returned to the caller).
+# `_bound_to` and `_job_contract` add none (`basis == 'content'` is a word of no row).
+D13_ITEM_COUNT = 152
 
 
 def part_site_attribution() -> None:
