@@ -187,6 +187,7 @@
         "scripts/tests/test_story_resume_migration.py",
         "scripts/tests/fixtures/old-generation-project/**",
         "scripts/tests/fixtures/config-live-shape.json",
+        "scripts/tests/fixtures/knowledge-read-baseline.json",
         "scripts/onboarding_probe.py",
         "scripts/report_cures.py",
         "references/report-cures.json",
