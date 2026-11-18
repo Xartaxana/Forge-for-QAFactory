@@ -2,7 +2,7 @@
 pull a whole job log into its context (B-466, t-575; GitHub backend GM1-4, t-1887).
 
   python tools/ci_read.py pipelines [--n N]                    N is 1..100 (GitHub returns at most 100 per page)
-  python tools/ci_read.py jobs <run_id>
+  python tools/ci_read.py jobs <run_id>                        under each job, every failed step
   python tools/ci_read.py log <job_id> [--grep REGEX] [--tail N]             (default: FAIL|===|Error|Traceback)
   python tools/ci_read.py artifact <run_id> <name>/<path> [--grep REGEX] [--tail N]   (no --grep: every line)
 (--tail N, default 200, keeps the LAST N lines AFTER the grep filter; the last output line is
@@ -166,6 +166,15 @@ def _rows(raw: bytes, key: str) -> list:
     return rows
 
 
+def failed_steps(job) -> list:
+    """The steps of a job (API order) whose conclusion is in FAILED: the ONE predicate `jobs` and `why` both read (FG7-90).
+    A job that is not a dict, steps absent / None / not a list, entries that are not dicts: skipped, never raises."""
+    steps = job.get("steps") if isinstance(job, dict) else None
+    if not isinstance(steps, list):
+        return []
+    return [s for s in steps if isinstance(s, dict) and s.get("conclusion") in FAILED]
+
+
 def _done(row: dict) -> str:
     return str(row.get("conclusion") or row.get("status"))
 
@@ -217,6 +226,11 @@ def make_commands(repo: str, root=None) -> dict:
     def cmd_jobs(args, token):
         for j in _rows(_open("%s/actions/runs/%d/jobs?per_page=100" % (base, args.id), token)[1], "jobs"):
             emit("%s %s %s" % (j.get("id"), j.get("name"), _done(j)))
+            bad = failed_steps(j)
+            for s in bad:
+                emit("  step %s %s %s" % (s.get("number"), s.get("name"), s.get("conclusion")))
+            if not bad and j.get("conclusion") in FAILED:      # a red job never prints as if nothing failed (E8)
+                emit_own("  no failed step recorded (job %s)" % j.get("conclusion"))
 
     def cmd_log(args, token):
         _emit_tail(_text(_open("%s/actions/jobs/%d/logs" % (base, args.job_id), token)[1]), args.grep, args.tail)
@@ -300,7 +314,7 @@ def make_commands(repo: str, root=None) -> dict:
             return
         steps = [s for s in (job.get("steps") or []) if isinstance(s, dict)]
         whole_shown = False
-        for step in [s for s in steps if s.get("conclusion") in FAILED] or [None]:
+        for step in failed_steps(job) or [None]:
             section = None
             if step is not None:
                 emit("step %s %s %s" % (step.get("number"), step.get("name"), step.get("conclusion")))
