@@ -385,6 +385,15 @@ def test_runner_facts_is_a_probe_on_pull_request_and_push_only():
         assert token in run, token
 
 
+def test_min_python_compile_compiles_the_package_under_the_install_md_floor():
+    """INSTALL.md promises Python 3.10+; this job compiles every package .py under 3.10 and fails on zero files (t-1348 RD24-c)."""
+    job = load("forge-check.yml")["jobs"]["min-python-compile"]
+    (setup,) = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/setup-python@")]
+    assert setup["with"]["python-version"] == "3.10" and job["timeout-minutes"] <= 15
+    (run,) = runs(job)
+    assert "ai-packages/qa-factory" in run and "rglob" in run and "sys.exit" in run
+
+
 # ---------------------------------------------------------------- the test diet: quarantine watch and test-redundancy
 
 def _quarantine_config():

@@ -139,6 +139,35 @@ jobs:
           t1=$(date +%s)
           echo "selftest --limits --lang wall time: $((t1 - t0)) s"
 
+  min-python-compile:
+    # INSTALL.md promises Python 3.10+; the canon runs 3.12 only, so an f-string that compiles on 3.12 but not on 3.10/3.11
+    # passed it (critic t-1348, RD24-c). Compile every package .py under 3.10; a failure names file and line, zero files fails.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+      - run: |
+          python - <<'PY'
+          import pathlib, sys
+          files = sorted(pathlib.Path("ai-packages/qa-factory").rglob("*.py"))
+          if not files:
+              sys.exit("no .py files under ai-packages/qa-factory: a broken path, not a pass")
+          bad = 0
+          for f in files:
+              try:
+                  compile(f.read_bytes(), str(f), "exec")
+              except SyntaxError as e:
+                  bad += 1
+                  print("%s:%s: %s" % (f, e.lineno, e.msg))
+          print("compiled %d files under %s, %d failed" % (len(files), sys.version.split()[0], bad))
+          sys.exit(1 if bad else 0)
+          PY
+
   changes:
     runs-on: ubuntu-latest
     outputs:
