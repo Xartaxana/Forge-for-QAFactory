@@ -89,6 +89,8 @@ P_RE = re.compile(r"(?<![\w-])P(?P<a>\d+)(?:" + SEP + r"P?|\s*-\s*P)(?P<b>\d+)" 
 RULE_RE = re.compile(r"(?P<f>[\w./-]+\.md)[`'s]{0,3}\s+(?:routing\s+)?rules?\s+(?P<a>\d+[a-z]?)(?:" + SEP.replace("—)", "—|-)") + r"(?P<b>\d+[a-z]?))?" + rest(""), re.I)
 RULE_OF_RE = re.compile(r"\b(?:rule (?P<a>\d+[a-z]?)|R(?P<c>\d+)-\w)\s+of\s+(?P<f>[\w./-]+\.md)"
                         r"|правил\w*\s+(?P<d>\d+\w?)\s+(?:в\s+)?`?(?P<g>[\w./-]+\.md)")
+# The old K-STALE form without the section sign (the file name, up to 4 non-word characters, then a retired section name): the wide pass, CLAUDE.md only.
+STALE_NAME_RE = re.compile(r"(?P<f>CLAUDE\.md)(?:'s)?\W{0,4}(?P<a>Tiers|Routing log|Routing rules|Role\s*≠\s*tier|Lead degradation|Contents|Cost gates)")
 ANCHOR_RE = re.compile(r"(?P<f>[\w./-]+\.md)`?\s*§\s*(?P<a>" + PROSE_ANCHORS + r")")
 NUM_ANCHOR = re.compile(r"(?:Rule\s+)?(\d+(?:\.\d+)*[a-z]?)(?:\s*[-–]\s*(\d+))?")
 
@@ -388,7 +390,10 @@ class Lint:
 
     def rule_forms(self, carrier, n, line):
         """`<file> rule N`, `rule N of <file>`, `<file> § N`: the forms of the retired K-STALE (a rule that left its file)."""
-        heading = line.startswith("#") and carrier.endswith(".md")
+        heading = line.startswith("#") and carrier.endswith(".md") and not self.wide    # the old K-STALE had no heading exemption
+        if self.wide:
+            for m in STALE_NAME_RE.finditer(line):
+                self.anchor(carrier, n, m.group("f"), m.group("a"))
         for m in RULE_RE.finditer(line):
             self.rule(carrier, n, m.group("f"), m, heading)
         for m in RULE_OF_RE.finditer(line):

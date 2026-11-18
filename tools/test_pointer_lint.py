@@ -104,6 +104,13 @@ CASES = [
         "CLAUDE.md § 11", "rule 11 of CLAUDE.md", "toolkit/CLAUDE.md rule 10", "CLAUDE.md rule 11", "правило 11 `CLAUDE.md`",
         "COORDINATOR.md rule 3", "CLAUDE.md § Worker duties"]],
     ("a tools file citing a retired rule (rule kind over the wide set)", {"tools/x.py": "# see CLAUDE.md rule 3\n"}, (), 1, ["tools/x.py:1: [R]"]),
+    ("wide: a CLAUDE.md section name without the section sign", {"tools/x.py": "# CLAUDE.md: Routing log\nsee CLAUDE.md (Cost gates)"}, (), 1, ["tools/x.py:1: [A]", "tools/x.py:2: [A]"]),
+    ("wide: a heading is not exempt", {"docs/a.md": "## From CLAUDE.md rule 3\n"}, (), 1, ["docs/a.md:1: [R]"]),
+    ("wide: from-1 full-set claims are register-only", {"tools/x.py": "COORDINATOR.md rules 1-10"}, (), 0, ["ok ("]),
+    ("register: the same from-1 claim is red", C("COORDINATOR.md rules 1-10"), (), 1, ["full-set claim"]),
+    ("wide: anchors outside CLAUDE.md are register-only", {"tools/x.py": "COORDINATOR.md § 99"}, (), 0, ["ok ("]),
+    ("wide: a CLAUDE.md anchor is judged", {"tools/x.py": "CLAUDE.md § Tiers"}, (), 1, ["tools/x.py:1: [A]"]),
+    ("register: the same anchor is red", C("COORDINATOR.md § 99"), (), 1, ["[A] COORDINATOR.md § 99"]),
     # numbers (E8, E9)
     ("more than 4 against 6", C("more than 4 WRITING workers"), PAIR, 1, ["[N] more than 4 WRITING", "tools/gate.py::CAP = 6"]),
     ("a word is the same as its digit", C("more than Six WRITING, then шесть"), PAIR, 0, ["ok ("]),
