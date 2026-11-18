@@ -246,10 +246,11 @@ NODE_ROWS = [
 # RD1-35 (F1 (b), E8): the writer's row and a hand row that copied `generated_from` (a forged mark on it) take the same ask
 SENDERS = {"hand": {}, "writer": {"generated_from": ["x"]},
            "hand, copied generated_from, forged mark": {"generated_from": ["x"], "node_id_check": {"status": "verified", "note": "x"}}}
+# every row by hand; the other senders on the rename (E4a) and the no-test file (E7) only - more collects kill nothing more (R4)
+SENT = [(*r, "hand") for r in NODE_ROWS] + [(*NODE_ROWS[i], s) for i in (0, 5) for s in list(SENDERS)[1:]]
 
 
-@pytest.mark.parametrize("sender", SENDERS)
-@pytest.mark.parametrize("label,typed,file,stored,status,asked", NODE_ROWS, ids=[r[0][:40] for r in NODE_ROWS])
+@pytest.mark.parametrize("label,typed,file,stored,status,asked,sender", SENT, ids=[f"{r[0][:34]}-{r[-1][:6]}" for r in SENT])
 def test_a_hand_typed_id_joins_the_collect_of_its_file(stand, label, typed, file, stored, status, asked, sender):
     """Kill: the id stored as typed with no mark (the TP1-15045 defect), a `missing` said about a file that yielded nothing, the class
     added to the manifest's spelling, a path split at a space, or `file` rewritten; a writer row exempted from the ask (RD1-35)."""

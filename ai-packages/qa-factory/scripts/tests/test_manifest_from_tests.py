@@ -278,9 +278,9 @@ def fr16_store_road() -> None:
         out, held = json.loads(buf.getvalue()), json.loads(manifest.read_text(encoding="utf-8"))
         row = next((t for t in held["tests"] if t.get("instance_id") == "test_region[chromium-eu]"), {})
         check_eq("a plugin rename: stored as collected, `asked` kept, Then and row form follow, the store's line printed",
-                 (code, row.get("node_id_check", {}).get("asked"), "test_region[eu]" in [b.get("instance_id") for b in held["then_bindings"]],
+                 (code, row.get("node_id_check", {}).get("asked"), {"test_region[eu]", "test_region[chromium-eu]"} & {b.get("instance_id") for b in held["then_bindings"]},
                   "test_region[chromium-eu]" in [t["instance_id"] for t in out["row_form"]["tests"]],
-                  "pytest collects test_region[eu] as test_region[chromium-eu]" in out["manifest_put"]), (0, "test_region[eu]", False, True, True))
+                  "pytest collects test_region[eu] as test_region[chromium-eu]" in out["manifest_put"]), (0, "test_region[eu]", {"test_region[chromium-eu]"}, True, True))
     finally:
         node_ids.collect, sys.argv = kept, argv
         harness.cleanup(root)

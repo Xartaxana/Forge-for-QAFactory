@@ -537,7 +537,7 @@ def rebind_writes_only_known_ids():
         # RD1-35 (F3, E15): the store renamed the row to the collected spelling and kept the source one as `asked`
         asked = {"node_id_check": {"status": "verified", "note": "renamed", "asked": "test_a"}}
         for extra, want in (([], ["dry", "write", "probe:test_a[chromium]"]), ([row(w, "test_a[firefox]", **asked)], ["dry"])):
-            put_manifest(w, [row(w, "test_a[chromium]", bound=STALE, **asked)] + extra)
+            put_manifest(w, extra + [row(w, "test_a[chromium]", bound=STALE, **asked)])   # probed row LAST: kills "last wins"
             record(w, "test_a[chromium]", measured=STALE)
             stub = Stub(w)
             stub.dry_ids = ["test_a"]
