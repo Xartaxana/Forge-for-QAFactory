@@ -188,6 +188,33 @@ def test_rows_record_cause_judgment_with_facts():
     assert other["cause"] == "tooling" and "judgment_facts" not in other                         # the tool's gap carries no facts
 
 
+def test_rows_read_the_pinned_site_through_the_reader(tmp_path):
+    """RD1-38 (P7, P9): the REAL reader, a grammar that reads nothing: a failed row whose text names the record's pin and whose message
+    agrees with its marker gets the pinned location as its site; the same row with another message keeps `site_unread`."""
+    spec = PBC.parse_node("src/sum.test.ts::adds")
+    detail = {"language": "typescript", "candidates": [3], "at": None, "line": 3, "end_line": 5}
+    request = {"instance_contracts": {"adds": {"file": "src/sum.test.ts", "report_test_id": "sum.test.ts::adds", "classname_match": "file_suffix"}},
+               "command": {"argv": ["npx", "playwright", "test"]}}
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "sum.test.ts").write_text("x", encoding="utf-8")
+    seen, old = [], PBC.judge_probe_row
+
+    def stub(r, site, entry, detail_, *, among, argv):
+        seen.append(site)
+        return {"verdict": "incomplete", "actual_location": None, "actual_reason": None, "mismatches": [], "note": "", "observed": {}}
+    PBC.judge_probe_row = stub
+    try:
+        for message in ("m", "another"):
+            record = {"task": "T", "notes": [], "expected_location": "src/sum.test.ts:3", "expected_reason": "m", "verdict": "not_executed"}
+            PBC._judge_rows(tmp_path, record, [{"test_id": "sum.test.ts::adds", "status": "failed", "problems": [
+                {"kind": "failure", "message": message, "text": f"{message}\n see src/sum.test.ts:3: failed"}]}],
+                "junit-xml", spec, detail, request, tmp_path / "src" / "sum.test.ts", ["adds"], True)
+    finally:
+        PBC.judge_probe_row = old
+    assert seen[0].get("location") == "src/sum.test.ts:3" and "site_unread" not in seen[0], seen[0]
+    assert "site_unread" in seen[1] and "not the pinned one" in seen[1]["reason"], seen[1]
+
+
 # --- the judge: effects ------------------------------------------------------------------------------------
 
 def test_judge_fires_writes_receipt_and_proved_by_critic(tmp_path, monkeypatch):

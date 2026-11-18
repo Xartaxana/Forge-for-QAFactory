@@ -432,6 +432,39 @@ def pinned_frames(test_file, line) -> "list | None":
     return [f"(?:^|(?<=[{edge}]))(?P<path>(?:[^{edge}]*{sep})?{body}):(?P<line>{line})(?!\\w)"]
 
 
+def reason_agrees(actual, expected) -> bool:
+    """Do two assertion messages agree (`assertion_reason`: whole texts, else headlines), the expected one non-empty."""
+    wanted, seen = assertion_reason(expected, actual)
+    return bool(wanted) and wanted == seen
+
+
+def pinned_site(site: dict, row: dict, reporter: str, clone_root, location, expected_reason, message, *,
+                pytest_command: bool = True, runtime: str = "") -> dict:
+    """The final site of a failed row (RD1-38, was `red_sandbox._pinned_read`: the read enters the reader, SIBLING_MAP). `site` itself
+    unless it is `site_unread` and the row `failed` - a vetted grammar's read is never re-read. Then the failure text is read once more
+    for the pinned `<path>:<line>`; that answer stands ONLY as a full proof: no unread, the same location, kind `assertion`, and
+    `message` agreeing with `expected_reason`. Any other answer is `site` with the why appended to its reason, so this step can turn
+    an unread site into a location and never into a verdict (FR-59, AR-28). `message` is the CALLER's (P8: the failure problem's,
+    not whatever problem the second read happens to pick). Raises nothing."""
+    if "site_unread" not in site or row.get("status") != "failed":
+        return site
+    file, _, line = str(location or "").rpartition(":")
+    pinned = pinned_frames(file, line)
+    if pinned is None:
+        return site
+    second = assertion_site(row, reporter, clone_root, file, pytest_command=pytest_command, runtime=runtime, frames=pinned,
+                            skip_frames=[], frame_path="path")
+    if "site_unread" in second:
+        why = f"{location} was not found in the failure text as a path inside the clone ({second['reason']})"
+    elif second.get("location") != location or second.get("failure_kind") != "assertion":
+        why = f"the failure text names {location} as another kind of failure or another place"
+    elif not reason_agrees(message, expected_reason):
+        why = f"the failure text names {location}, but its message is not the pinned one"
+    else:
+        return second
+    return dict(site, reason=f"{site.get('reason', '')}; {why}")
+
+
 def _expected_path(test_file, clone_root) -> str:
     """The test file as the frames are compared with it: forward slashes, clone-relative when it
     is inside the clone, no leading `./`."""
