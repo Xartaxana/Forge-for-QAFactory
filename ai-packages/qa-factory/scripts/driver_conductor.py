@@ -256,9 +256,14 @@ class DriverConductor:
         held = self._answer
         if not held or held.get("row") or "kind" not in held:
             return ""
-        path = self.answer_file()
-        self.record_answer_row("")
-        return path
+        self.record_answer("")
+        return self.answer_file()
+
+    def record_answer(self, token: str, dispatch: str | None = None) -> None:
+        """The answer's words file, THEN its row (the row names the file; without the first call `words_file` is ''): the one pair of
+        every site that reads an answer and then raises a Person, which skips `take_answer`'s end (FV3-16 P4)."""
+        self.answer_file()
+        self.record_answer_row(token, dispatch)
 
     def conductor(self, refusal: str, *, words: str = "", files=None, words_file: str | None = None) -> dict:
         """One conductor session. Called ONLY from `no_move` (I-one). The cap raises `ConductorSpent`, which only `no_move`
@@ -884,8 +889,12 @@ class DriverConductor:
         tokens (a dict gives its keys) - so the conductor may offer them back (`retry` / `go on` as the moves they are, any other
         as `site_door`), `lead` - the one sentence that says the answer was not read - and `again(lead)` - the Person that
         shows the SAME question again, which the seam raises when the conductor cannot answer. `stop` is always a door."""
+        # FV3-16 (I5 lifted to the one entry of all `unread` sites, AR-15): the answer is on record BEFORE a conductor call that may
+        # raise a Person and end the process; a no-op when no answer is being taken or its row is already written (once per answer).
+        self.record_answer("")
+        words_file = self.answer_file()
         state = {"why": "unread_answer", "kind": kind, "stage": stage, "dispatch": dispatch, "text": text,
-                 "words": words, "words_file": self.answer_file(), "block": block}
+                 "words": words, "words_file": words_file, "block": block}
         if doors is None:
             return self.no_move(state, None)
         tokens = [self.s0_normalize(token) for token in doors]

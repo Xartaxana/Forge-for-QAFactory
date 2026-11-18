@@ -124,6 +124,7 @@ from hooklib import project_root, read_json, story_root  # noqa: E402
 import contract as C  # noqa: E402
 import detector_verdict as DV  # noqa: E402
 import proof_level as PL  # noqa: E402
+import node_ids  # noqa: E402 - the one id-to-collect join `stamp_node_ids` asks (standard library only)
 from person_words import door  # noqa: E402
 from role_cli import (REPAIR_MARKER, RefusingParser, command_from_argv, epilog, refuse,  # noqa: E402
                       run_guarded)
@@ -867,6 +868,273 @@ def stamp_provisional(fragment, project) -> tuple:
                                "home_hash_after": C.marked_line_hash(project, file, pid)[0]}
         out.append(row)
     return {**fragment, BY_ID[0]: out}, said
+
+
+NODE_ID_CHECK = "node_id_check"
+NODE_ID_STATUSES = ("verified", "not_verified", "passed_by_person")
+NODE_ID_REASON_CUT = 300      # an exception text in a mark's note: a line, never a traceback
+
+
+def _typed_id_key(row) -> str:
+    """The key a `tests[]` row's EXPLICIT instance id sits under (`instance_id`, else `test_instance_id`), '' when it carries
+    none: an id the code derives from `function` is not a pytest spelling and is never asked (RD1-19, E9)."""
+    for key in ("instance_id", "test_instance_id"):
+        if isinstance(row.get(key), str) and row[key].strip():
+            return key
+    return ""
+
+
+def _rewrite_instance_ids(fragment: dict, mapping: dict) -> None:
+    """Rewrite, IN PLACE, every instance-id carrier of `fragment` that names a key of `mapping` to its value (C5): `tests[]`,
+    `then_bindings[]`, `obligation_bindings[].instance_ids[]`, `unresolved[].instance_id(s)`. `retracted_instances` names stored
+    rows by their stored spelling and is not touched."""
+    def one(value):
+        return mapping.get(value.strip(), value) if isinstance(value, str) else value
+
+    for name, keys in (("tests", ("instance_id", "test_instance_id")), ("then_bindings", ("instance_id",)),
+                       ("unresolved", ("instance_id",))):
+        for row in fragment.get(name) if isinstance(fragment.get(name), list) else []:
+            for key in keys:
+                if isinstance(row, dict) and key in row:
+                    row[key] = one(row[key])
+    for name in ("obligation_bindings", "unresolved"):
+        for row in fragment.get(name) if isinstance(fragment.get(name), list) else []:
+            if isinstance(row, dict) and isinstance(row.get("instance_ids"), list):
+                row["instance_ids"] = [one(v) for v in row["instance_ids"]]
+
+
+def _ask_spelling(row, typed: str) -> str:
+    """The id as pytest is asked for it: the typed id with a legacy `<case>::` prefix (0.7.7) stripped when the prefix names one of
+    the row's own cases; a class path (`TestA::test_y`) stays, its first part is not a case."""
+    prefix, sep, rest = typed.partition("::")
+    if not sep:
+        return typed
+    try:
+        if any(prefix == c or C.case_matches(prefix, c) for c in C.manifest_test_links(row)):
+            return rest
+    except Exception:  # noqa: BLE001 - an unreadable case list: the id stays whole (asked as typed, the safe side)
+        pass
+    return typed
+
+
+def _drop_role_marks(rows: list, notes: list) -> None:
+    """A `node_id_check` a role sent on ANY `tests[]` row is removed, with one note: the mark is the code's alone (AR-14, E10)."""
+    if any(isinstance(r, dict) and NODE_ID_CHECK in r for r in rows):
+        for r in rows:
+            if isinstance(r, dict):
+                r.pop(NODE_ID_CHECK, None)
+        notes.append(f"{NODE_ID_CHECK} is written by manifest_put; the value you sent was dropped")
+
+
+def _asked_map(stored: list, stored_spellings: dict) -> dict:
+    """{the author's spelling -> the stored id} out of every stored `node_id_check.asked` that no stored row answers to itself:
+    a re-sent author spelling (a patch, a Then, an obligation) joins its resolved row with no collect (E8)."""
+    again = {}
+    for s in stored:
+        mark = s.get(NODE_ID_CHECK)
+        asked = mark.get("asked") if isinstance(mark, dict) else None
+        if isinstance(asked, str) and asked.strip() and _instance(s) and asked.strip() not in stored_spellings:
+            again[asked.strip()] = _instance(s)
+    return again
+
+
+def _eligible_rows(rows: list, stored_spellings: dict) -> list:
+    """[(row, held)] of the rows asked (E9): a dict with no `WRITER_MARK`, an explicit id and a `file`, whose spelling no stored
+    row answers to - or a stored `not_verified` row answers to it (`held`, asked again: the FR-40 way out); `held` is None else."""
+    out = []
+    for r in rows:
+        if not isinstance(r, dict) or WRITER_MARK in r or not _typed_id_key(r):
+            continue
+        if not isinstance(r.get("file"), str) or not r["file"].strip():
+            continue
+        held = stored_spellings.get(r[_typed_id_key(r)].strip())
+        mark = held.get(NODE_ID_CHECK) if held else None
+        if held is not None and not (isinstance(mark, dict) and mark.get("status") == "not_verified"):
+            continue
+        out.append((r, held))
+    return out
+
+
+def _ask_file(row) -> str:
+    """The row's `file` as asked (slashes normalized for the ask only: the stored `file` is the role's, E6)."""
+    return row["file"].strip().replace("\\", "/")
+
+
+def _ask_node(row) -> str:
+    return f"{_ask_file(row)}::{_ask_spelling(row, row[_typed_id_key(row)].strip())}"
+
+
+def _ask_collect(eligible: list, project) -> tuple:
+    """(`node_ids.check_request`'s answer, the files asked alone) for ONE collect, or (None, reason) when no collect can answer
+    (E1): the switch off, no pytest-shaped command, any exception of the imports or the call (`<ExcType>: <message>`). The
+    reason of a raising call is returned, never read as an empty answer ("pytest gave no answer" hid it: critic t-1315 A3)."""
+    try:
+        from config_contract import effective_config
+        from gate_preflight import collect_base
+        from hooklib import load_config
+        config = effective_config(load_config())
+        section = config.get("execution") if isinstance(config.get("execution"), dict) else {}
+        argv = collect_base(config)
+        timeout = section.get("node_id_collect_timeout_s", 180)
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+            timeout = 180
+        if section.get("verify_node_ids", True) is False:
+            return None, "`execution.verify_node_ids` is false in qa-factory/config.json"
+        if not argv:
+            return None, "the project has no pytest-shaped command in `test_command_templates`"
+        files = sorted({_ask_file(r) for r, _ in eligible})
+        form, _ = node_ids.runner_form(argv)
+        asks = sorted({_ask_node(r) for r, _ in eligible} | set(files))
+        return node_ids.check_request(argv, str(project), asks, int(timeout), form=form), files
+    except Exception as exc:  # noqa: BLE001 - nothing may stop a store because the check could not run (E1)
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def _read_collect(eligible: list, checked, files: list) -> dict:
+    """{id(row): (status, detail)} out of one collect's answer: resolved -> verified; unverified (partial) -> node_ids' reason;
+    missing in a file that yielded no test -> not_verified (E7); missing -> a problem; no answer -> the collect's own word."""
+    checked = checked if isinstance(checked, dict) else {}
+    resolved = checked.get("resolved") or {}
+    missing = {m.get("asked"): m for m in checked.get("missing") or []}
+    unverified = {u.get("asked"): u.get("reason") for u in checked.get("unverified") or []}
+    why = "; ".join(str(n) for n in checked.get("notes") or []) or str(checked.get("collect_error") or "") \
+        or "pytest gave no answer"
+    answers = {}
+    for r, _ in eligible:
+        node, file = _ask_node(r), _ask_file(r)
+        if node in resolved:
+            answers[id(r)] = ("verified", str(resolved[node]))
+        elif node in unverified:
+            answers[id(r)] = ("not_verified", str(unverified[node])[:NODE_ID_REASON_CUT])
+        elif node in missing and file in missing and file in files:
+            answers[id(r)] = ("not_verified", f"file {file} yielded no test in this collect")
+        elif node in missing:
+            answers[id(r)] = ("missing", missing[node])
+        else:
+            answers[id(r)] = ("not_verified", why[:NODE_ID_REASON_CUT])
+    return answers
+
+
+def _verified_mark(row, detail: str, notes: list, renames: dict) -> dict:
+    """The `verified` mark of a row collected as `detail`. The stored id is the typed one with ONLY the part the collect changed
+    replaced (item 2d): the parameters, or the function a judge named in the same file (`node_ids._judged`, mode on: critic
+    t-1315 A4 - `test_logn` kept under `test_login`'s mark joined nothing). A class found is not added (E5a)."""
+    typed = row[_typed_id_key(row)].strip()
+    bare = _ask_spelling(row, typed)
+    _, t_base, t_params = node_ids.split_id(f"{_ask_file(row)}::{bare}")
+    _, r_base, r_params = node_ids.split_id(detail)
+    last = r_base.rsplit("::", 1)[-1]
+    base = t_base if r_base == t_base or ("::" not in t_base and last == t_base) else (r_base if "::" in t_base else last)
+    params = t_params if r_params is None or r_params == t_params else r_params
+    new = typed[:len(typed) - len(bare)] + base + (f"[{params}]" if params is not None else "")
+    if new != typed:
+        renames[typed] = new
+        notes.append(f"{NODE_ID_CHECK}: pytest collects {typed} as {new} - the manifest carries the collected id")
+        return {"status": "verified", "note": f"pytest collects {typed} as {new}", "asked": typed}
+    collected = detail.partition("::")[2]
+    if collected and collected != bare:
+        notes.append(f"{NODE_ID_CHECK}: pytest collects {typed} as {collected} (the manifest keeps its own spelling)")
+        return {"status": "verified", "note": f"pytest collects {typed} as {collected}"}
+    return {"status": "verified", "note": "pytest collects the id as typed"}
+
+
+def _stamp_rows(eligible: list, answers: dict, words, notes: list, problems: list) -> tuple:
+    """Mark every eligible row by its answer; ({typed: stored} renames, [old spellings to retract]). A resolution into another
+    file is no match for this row (the store never rewrites `file`, E6): not_verified, never `verified` (A4)."""
+    renames, retract, reasons = {}, [], {}
+    for r, held in eligible:
+        typed = r[_typed_id_key(r)].strip()
+        status, detail = answers[id(r)]
+        if status == "verified" and not node_ids.same_file(_ask_file(r), detail):
+            status, detail = "not_verified", f"the collect named {detail}, a test of another file"[:NODE_ID_REASON_CUT]
+        if status == "verified":
+            r[NODE_ID_CHECK] = _verified_mark(r, detail, notes, renames)
+            if held is not None and typed in renames:
+                _carry_held(r, held)
+                retract.append(typed)
+        elif status == "not_verified":
+            r[NODE_ID_CHECK] = {"status": "not_verified", "note": detail}
+            reasons.setdefault(detail, []).append(typed)
+        else:
+            text = node_ids.missing_sentence([detail])
+            said = words(text) if callable(words) else ""
+            if said:
+                r[NODE_ID_CHECK] = {"status": "passed_by_person", "note": f"passed by a person's recorded decision: {said}"}
+            else:
+                problems.append(text)
+    for reason, ids in reasons.items():
+        notes.append(f"{NODE_ID_CHECK}: {', '.join(ids[:5])}{' and more' if len(ids) > 5 else ''} stored not_verified - {reason}")
+    return renames, retract
+
+
+def _carry_held(row: dict, held: dict) -> None:
+    """The stored row a rename retracts hands the re-send every field it does not carry (`covers`, `case_version_links`, ...):
+    a status-only re-send otherwise left the case with no proving row and no receipt line (critic t-1325 N1). A field the
+    re-send carries wins, an empty list included; the ids and the mark are the re-send's own."""
+    for key, value in held.items():
+        if key not in ("instance_id", "test_instance_id", NODE_ID_CHECK):
+            row.setdefault(key, copy.deepcopy(value))
+
+
+def _retract_renamed(fragment: dict, spellings: list) -> None:
+    """A stored `not_verified` row asked again and renamed (FR-40) leaves its old spelling in this same fragment: `merge` matches
+    by `_identity`, whose aliases never hold the new spelling, so the old row stood beside the new one (critic t-1315 A2, the
+    ghost E8 forbids). A `retracted_instances` that is no list is left as sent: the merge reads it as it reads any such value."""
+    sent = fragment.get("retracted_instances")
+    if sent is None:
+        fragment["retracted_instances"] = list(dict.fromkeys(spellings))
+    elif isinstance(sent, list):
+        fragment["retracted_instances"] = sent + [s for s in dict.fromkeys(spellings) if s not in sent]
+
+
+def stamp_node_ids(fragment, task_root, project, words=None) -> tuple:
+    """(the fragment with its hand-typed `tests[]` ids resolved, [problems], [sentences to print]). Pure of the given fragment
+    (a copy is returned); the one subprocess is ONE collect per call, started only when a row is eligible (RD1-19, FR-16, AR-15).
+
+    A hand-typed id is the id pytest collects in the row's `file`: asked through `node_ids` (the survivor the runner, the sandbox
+    and the probe use), and the row is marked `node_id_check` {status, note, asked?}: `verified` (collected as typed, or rewritten
+    to the collected spelling with `asked` keeping the author's), `not_verified` (no collect could answer: the id is stored as
+    typed, never refused, never `missing`), `passed_by_person` (a `missing` id the person's recorded word passes: `words(text)`
+    returns their words, '' when none). A `missing` id whose file DID collect and that no word passes is a problem. Direction of
+    error: toward `not_verified`, never `verified` without a collected match (FR-59, AR-28)."""
+    rows = fragment.get("tests") if isinstance(fragment, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return fragment, [], []
+    fragment = copy.deepcopy(fragment)
+    rows = fragment["tests"]
+    notes, problems = [], []
+    _drop_role_marks(rows, notes)
+    stored = [s for s in _current_tests(task_root) if isinstance(s, dict)]
+    stored_spellings = {s_: s for s in stored for s_ in _spellings(s)}
+    again = _asked_map(stored, stored_spellings)
+    if again:
+        _rewrite_instance_ids(fragment, again)
+    eligible = _eligible_rows(rows, stored_spellings)
+    if not eligible:
+        return fragment, problems, notes
+    checked, extra = _ask_collect(eligible, project)
+    answers = _read_collect(eligible, checked, extra) if checked is not None else \
+        {id(r): ("not_verified", str(extra)[:NODE_ID_REASON_CUT]) for r, _ in eligible}
+    renames, retract = _stamp_rows(eligible, answers, words, notes, problems)
+    if renames:
+        _rewrite_instance_ids(fragment, renames)
+    if retract:
+        _retract_renamed(fragment, retract)
+    return fragment, problems, notes
+
+
+def _node_id_words(task_root):
+    """`words(text)` for `stamp_node_ids`: the person's recorded S5 words when a stage override covers this refusal text (the
+    sandbox's road, `red_sandbox._passed_by_person`: `waiver.split_overridden`), else ''. A story with no readable pipeline: ''."""
+    def words(text: str) -> str:
+        try:
+            from waiver import split_overridden
+            pipeline = json.loads((Path(task_root) / "pipeline.json").read_text(encoding="utf-8"))
+            _, passed = split_overridden([text], pipeline, "S5")
+        except Exception:  # noqa: BLE001 - no pipeline, no waiver module: no word, the refusal stands
+            return ""
+        return str(passed[0]["decision"]) if passed else ""
+    return words
 
 
 def _record_retractions(merged: dict, summary: dict, retracted: list) -> None:
@@ -2510,9 +2778,10 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
         return EXIT_BAD_FRAGMENT
     claim_faults = claim_pair_problems(read_json(path, {}) if path.exists() else {}, fragment)
     if claim_faults:
-        print("manifest_put: " + _problems_text(task_root, "claim-then-pairs", claim_faults) + ". " + REPAIR_MARKER + ".",
-              file=sys.stderr)
-        return EXIT_BAD_FRAGMENT
+        # Sourced (RD1-34): the Record reaches `refuse`, the way `probe_owed` does; the check row is stage-joints.json.
+        refuse("manifest_put.py --fragment",
+               DV.refusal("manifest_put:claim_then_pairs", _problems_text(task_root, "claim-then-pairs", claim_faults)))
+        return EXIT_BAD_FRAGMENT      # refuse() says 2; this refusal has always exited with the bad-fragment code
     # A `novelty` on a row is the measurer's, never a role's (t-187, F-B). The refusal is here and not
     # in `merge()`: merge is pure and replays every event already committed, and a refusal there would
     # reject a manifest written before this rule. The door is the role's own: leave the key out - the
@@ -2617,6 +2886,19 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
         print("manifest_put: " + _problems_text(task_root, "unresolved-reasons", reason_conflicts)
               + ". " + REPAIR_MARKER + ".", file=sys.stderr)
         return EXIT_BAD_FRAGMENT
+    # A hand-typed `tests[]` id joins the collect of its file BEFORE the commit (RD1-19, FR-16): after every cheaper shape refusal above
+    # (no collect is spent on a fragment those refuse), before `stamp_provisional`, the content hash, the validation and the story lock
+    # (one bounded collect per call, never under the lock; the receipt is the hash of the bytes stored; a rewrite that makes two rows
+    # one id is refused by `validate` as stored). `merge`/`fold`/replay never collect (E14). An id pytest does not collect, whose file
+    # did collect, is a SOURCED refusal unless a person's recorded S5 word covers it (`node_ids.missing_sentence` holds the block words).
+    fragment, id_problems, id_notes = stamp_node_ids(fragment, task_root, project_root(), words=_node_id_words(task_root))
+    if id_problems:
+        text = ("; ".join(id_problems) + ". Nothing was committed. The id in the manifest is the id pytest collects, or the join at S6 "
+                "finds nothing. Correct the id to the collected one (the nearest are listed); for a test inside a class send the class "
+                "path `<Class>::<function>`; a row you no longer want goes out with `retracted_instances`. If a person has decided "
+                "the id stands, the orchestrator records `" + door(f"waiver.py --task {task} --stage S5 --block \"not collected by "
+                "pytest\"") + "`. " + REPAIR_MARKER)
+        return refuse("manifest_put.py --fragment", DV.refusal("manifest_put:node_id", text))
     # `home_hash` of a provisional row is the code's, stamped HERE and committed with the fragment: `merge` stays pure and a replay
     # of the journal reads the hash that was true when the row was written, not a line that has changed since.
     fragment, stamp_notes = stamp_provisional(fragment, project_root())
@@ -2693,7 +2975,7 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
         print(line)
     for line in retract_idle_lines(fragment):
         print(line)
-    for line in stamp_notes:
+    for line in stamp_notes + id_notes:
         print(line)
     records = merged.get("expectation_changes")
     if isinstance(records, list) and records and "expectation_changes" in fragment:

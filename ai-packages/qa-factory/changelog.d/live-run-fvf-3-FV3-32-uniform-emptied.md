@@ -1,0 +1,1 @@
+- `handoff_init.empty_optional_lists` now empties every untouched top-level optional list of any contract (not required, not a null-outcome section) instead of a per-contract table; nested lists stay as written.

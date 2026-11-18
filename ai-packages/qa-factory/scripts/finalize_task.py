@@ -564,6 +564,14 @@ def reduce(task: Path) -> tuple[dict, dict]:
             latest = dict(latest, current_obligation_ids=[obligation_id])
             from coverage_contract import unprepared_only, validate_manual_current
             issues = validate_manual_current(task, latest)
+            # N4: a need record stands INSTEAD of a result, never over one (AR-28); the ambiguous-order branch above wins
+            marker = rows[-1].get("unprepared")
+            if isinstance(marker, dict) and isinstance(marker.get("need"), str) and marker["need"] and not order_ambiguous(rows, manual_sources):
+                live = [r for r in rows[:-1] if r.get("result") in ("pass", "fail") and not r.get("stale")
+                        and obligation_id not in manual_invalidated.get(id(r), set())]
+                if live:
+                    issues = [f"a need is recorded instead of a result, never over one: this check already has a recorded {live[-1]['result']} in this run"] + list(issues)
+                    walk = False
             if walk and unprepared_only(issues):
                 # carried under its own name: not validated as evidence, no result, the marker kept for the four readers
                 latest = dict(latest, evidence_validated=False, unprepared=latest["unprepared"])

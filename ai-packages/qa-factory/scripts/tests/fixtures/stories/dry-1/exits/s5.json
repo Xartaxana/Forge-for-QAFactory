@@ -1,0 +1,1958 @@
+{
+ "schema": 1,
+ "group": "s5",
+ "rows": [
+  {
+   "id": "s5.repair_limit/debt",
+   "start": "S4",
+   "seed": "to-s5-repair-limit",
+   "answer": {
+    "token": "debt",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.repair_limit/stop",
+   "start": "S4",
+   "seed": "to-s5-repair-limit",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.repair_limit/free words",
+   "start": "S4",
+   "seed": "to-s5-repair-limit",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.repair_limit/empty",
+   "start": "S4",
+   "seed": "to-s5-repair-limit",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_review/review",
+   "start": "S4",
+   "seed": "to-s5-nobody-review",
+   "answer": {
+    "token": "review",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_review/debt",
+   "start": "S4",
+   "seed": "to-s5-nobody-review",
+   "answer": {
+    "token": "debt",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_review/stop",
+   "start": "S4",
+   "seed": "to-s5-nobody-review",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_review/free words",
+   "start": "S4",
+   "seed": "to-s5-nobody-review",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_review/empty",
+   "start": "S4",
+   "seed": "to-s5-nobody-review",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_environment/fixed",
+   "start": "S4",
+   "seed": "to-s5-nobody-environment",
+   "answer": {
+    "token": "fixed",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_environment/debt",
+   "start": "S4",
+   "seed": "to-s5-nobody-environment",
+   "answer": {
+    "token": "debt",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_environment/stop",
+   "start": "S4",
+   "seed": "to-s5-nobody-environment",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_environment/free words",
+   "start": "S4",
+   "seed": "to-s5-nobody-environment",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_environment/empty",
+   "start": "S4",
+   "seed": "to-s5-nobody-environment",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_tooling/debt",
+   "start": "S4",
+   "seed": "to-s5-nobody-tooling",
+   "answer": {
+    "token": "debt",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_tooling/stop",
+   "start": "S4",
+   "seed": "to-s5-nobody-tooling",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_tooling/free words",
+   "start": "S4",
+   "seed": "to-s5-nobody-tooling",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s5.nobody_tooling/empty",
+   "start": "S4",
+   "seed": "to-s5-nobody-tooling",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "stub": {
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
+    }
+   },
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "exit.resume_limit/stop",
+   "start": "S4",
+   "seed": "to-exit-resume-limit",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    }
+   }
+  },
+  {
+   "id": "exit.resume_limit/free words",
+   "start": "S4",
+   "seed": "to-exit-resume-limit",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    }
+   }
+  },
+  {
+   "id": "exit.resume_limit/empty",
+   "start": "S4",
+   "seed": "to-exit-resume-limit",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    }
+   }
+  },
+  {
+   "id": "exit.resume_limit_halted/stop",
+   "start": "S4",
+   "seed": "to-exit-resume-limit-halted",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    }
+   }
+  },
+  {
+   "id": "exit.resume_limit_halted/free words",
+   "start": "S4",
+   "seed": "to-exit-resume-limit-halted",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    }
+   }
+  },
+  {
+   "id": "exit.resume_limit_halted/empty",
+   "start": "S4",
+   "seed": "to-exit-resume-limit-halted",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    }
+   }
+  },
+  {
+   "id": "s6.walk_supply/the app makes them",
+   "start": "S5",
+   "seed": "to-s6-walk-supply",
+   "answer": {
+    "token": "the app makes them",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.walk_supply/one at a time",
+   "start": "S5",
+   "seed": "to-s6-walk-supply",
+   "answer": {
+    "token": "one at a time",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.walk_supply/I will add accounts",
+   "start": "S5",
+   "seed": "to-s6-walk-supply",
+   "answer": {
+    "token": "I will add accounts",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.walk_supply/free words",
+   "start": "S5",
+   "seed": "to-s6-walk-supply",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.walk_supply/empty",
+   "start": "S5",
+   "seed": "to-s6-walk-supply",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s6.walk_account/added",
+   "start": "S5",
+   "seed": "to-s6-walk-account",
+   "answer": {
+    "token": "added",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.walk_account/by hand",
+   "start": "S5",
+   "seed": "to-s6-walk-account",
+   "answer": {
+    "token": "by hand",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.walk_account/go on",
+   "start": "S5",
+   "seed": "to-s6-walk-account",
+   "answer": {
+    "token": "go on",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.walk_account/free words",
+   "start": "S5",
+   "seed": "to-s6-walk-account",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.walk_account/empty",
+   "start": "S5",
+   "seed": "to-s6-walk-account",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s6.data_change/only use what exists",
+   "start": "S5",
+   "seed": "to-s6-data-change",
+   "answer": {
+    "token": "only use what exists",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.data_change/may create, never delete",
+   "start": "S5",
+   "seed": "to-s6-data-change",
+   "answer": {
+    "token": "may create, never delete",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.data_change/may create and delete",
+   "start": "S5",
+   "seed": "to-s6-data-change",
+   "answer": {
+    "token": "may create and delete",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.data_change/free words",
+   "start": "S5",
+   "seed": "to-s6-data-change",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.data_change/empty",
+   "start": "S5",
+   "seed": "to-s6-data-change",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "code_close.stage/retry",
+   "start": "S4",
+   "seed": "to-code-close-stage",
+   "answer": {
+    "token": "retry",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.stage/stop",
+   "start": "S4",
+   "seed": "to-code-close-stage",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.stage/free words",
+   "start": "S4",
+   "seed": "to-code-close-stage",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.stage/empty",
+   "start": "S4",
+   "seed": "to-code-close-stage",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "code_close.factory_file/retry",
+   "start": "S4",
+   "seed": "to-code-close-factory-file",
+   "answer": {
+    "token": "retry",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.factory_file/stop",
+   "start": "S4",
+   "seed": "to-code-close-factory-file",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.factory_file/free words",
+   "start": "S4",
+   "seed": "to-code-close-factory-file",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.factory_file/empty",
+   "start": "S4",
+   "seed": "to-code-close-factory-file",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "code_close.closed_story/stop",
+   "start": "S8",
+   "seed": "to-code-close-closed-story",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.closed_story/free words",
+   "start": "S8",
+   "seed": "to-code-close-closed-story",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.closed_story/empty",
+   "start": "S8",
+   "seed": "to-code-close-closed-story",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "code_close.behind/retry",
+   "start": "S4",
+   "seed": "to-code-close-behind",
+   "answer": {
+    "token": "retry",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.behind/stop",
+   "start": "S4",
+   "seed": "to-code-close-behind",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.behind/free words",
+   "start": "S4",
+   "seed": "to-code-close-behind",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "code_close.behind/empty",
+   "start": "S4",
+   "seed": "to-code-close-behind",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "kind:data_change/free words",
+   "start": "S5",
+   "seed": "to-kind-data-change",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "kind:data_change/empty",
+   "start": "S5",
+   "seed": "to-kind-data-change",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "kind:walk_account/free words",
+   "start": "S5",
+   "seed": "to-kind-walk-account",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "kind:walk_account/empty",
+   "start": "S5",
+   "seed": "to-kind-walk-account",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "kind:walk_supply/free words",
+   "start": "S5",
+   "seed": "to-kind-walk-supply",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "kind:walk_supply/empty",
+   "start": "S5",
+   "seed": "to-kind-walk-supply",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  }
+ ]
+}

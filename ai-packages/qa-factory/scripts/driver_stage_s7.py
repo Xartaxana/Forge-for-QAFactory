@@ -510,6 +510,7 @@ class DriverStageS7:
             return
         self.answer_row(f"{stage} open work ({token}): ", words.strip(), what="your answer about the open work")
         if token == "stop":
+            self.record_answer(token)   # FV3-16 P4: the row before the Person below
             raise self.held_question(self.stop_held("If you want the factory to close the stage after all, answer `close`."))
         rec.update(token="close", words_file=self.answer_file(), answered=_now())
         self.save_state()

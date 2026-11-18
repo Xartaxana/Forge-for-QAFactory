@@ -757,8 +757,32 @@ def _validate_unprepared(task, record):
     marker = record.get("unprepared")
     reason = marker.get("reason") if isinstance(marker, dict) else None
     request = ME.unprepared_request(task, record.get("case"))
-    if not request or not reason or request.get("reason") != reason:
+    need = marker.get("need") if isinstance(marker, dict) else None
+    if need is not None:       # U7 E7 N6: a need counts only in its closed, code-written form
+        from project_knowledge import INSTANCE_NEEDS
+        prepared = ME.prepared_request(task, record.get("case"))
+        recorded = record.get("obligation_ids") or [record.get("obligation_id")]
+        if request:
+            bad = not reason or request.get("reason") != reason
+        else:
+            bad = not (need in INSTANCE_NEEDS and reason == ME.NEED_REASON and prepared is not None
+                       and sorted(str(x) for x in recorded) == sorted(str(x) for x in prepared.get("obligation_ids") or []))
+        if bad:
+            issues.append("unprepared marker without an unprepared request")
+        if need not in INSTANCE_NEEDS:
+            issues.append("an unprepared record's need is not one the factory knows")
+        if not request:       # B3: the one rule (a blank `need_why` is a problem here too), asked as the CLI and the walk ask it
+            issues += ME.need_record_problems(task, record.get("case"), need, marker.get("need_why"), None)
+    elif not request or not reason or request.get("reason") != reason:
         issues.append("unprepared marker without an unprepared request")
+    if isinstance(marker, dict) and marker.get("walked") is True:
+        # B3 and its older twin: `walked` is taken from the recorder's files, never on the runner's word (P26, AR-28)
+        try:
+            walks = ME._recorded_walks(task, record.get("case"))
+        except Exception:  # noqa: BLE001 - an unreadable record of steps is no walk
+            walks = []
+        if not walks:
+            issues.append("the record says the check was walked, but no walk of it is recorded")
     if "result" in record or "then_quotes" in record:
         issues.append("an unprepared walk records no result: its observations go to the analyst")
     if request:
