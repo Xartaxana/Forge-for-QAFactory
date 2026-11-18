@@ -83,7 +83,7 @@ def test_decide(numstat, message, merge, warned, numbers, pred):
     assert bool(text) == warned
     if warned:
         assert "+%d test lines vs +%d product lines" % numbers in text
-        assert "tests-over:" in text
+        assert "tests-over:" in text and "tests not written: <row> -- over budget" in text and "wave.py merge" in text
         assert "Бюджет / Объём" in text
 
 

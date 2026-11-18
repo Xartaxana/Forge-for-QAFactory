@@ -2255,7 +2255,68 @@ def fv1_30b_n2_no_run_row_names_the_word() -> None:
         cleanup(root)
 
 
+def a_run_whose_results_code_could_not_read_reaches_delivery_by_the_analysts_word() -> None:
+    """U7 7b-B, the four walks of the spec (reporter `none`, exit 0, S6 completed): the analyst's NOT_EXECUTED is the checks left with
+    the person (`run_unread`, `after_checks`, factory, ONE item per case), her failure verdict is the ordinary red (`no`, product only),
+    no row for the target is `no` with a `triage:` reason and no `after_checks` item for it. KILLS: the ledger/trace/coverage/finding
+    sites left on the old `no`, a red softened to `run_unread`, an unanswered target excused."""
+    import coverage_contract as CC
+    import delivery_verdict as DV
+    from harness import FIXTURES, temp_dir
+    name = "tests/test_coupon.py::test_cap_rejected"
+    read = {"verdict": "NOT_EXECUTED", "evidence": "e", "limitation": ["the log reads as passed: 1 passed"]}
+    for label, rows, twin, want, run_unread in (
+            ("all read NOT_EXECUTED", [dict(read, instance_id=name)], False, "after_checks", True),
+            ("two unread instances of one case, both read: one item", [dict(read, instance_id=name), dict(read, instance_id=name + "_b")],
+             True, "after_checks", True),
+            ("APP_BUG on an unread instance", [{"instance_id": name, "verdict": "APP_BUG", "evidence": "e"}], False, "no", False),
+            ("ENV_ISSUE on an unread instance", [{"instance_id": name, "verdict": "ENV_ISSUE", "evidence": "e"}], False, "no", False),
+            ("no row for the target", [], False, "no", False)):
+        top = temp_dir("qa-run-unread-")
+        try:
+            task = top / "QA-1"
+            shutil.copytree(FIXTURES / "after-checks", task)
+            rpath, tpath = task / "work" / "run-report.json", task / "work" / "triage.json"
+            report, triage = json.loads(rpath.read_text(encoding="utf-8")), json.loads(tpath.read_text(encoding="utf-8"))
+            coded = {"case": "TC-001", "status": "not_run", "reason_code": "report_unread"}
+            report["current_results"] = [dict(coded, instance_id=i, test=i) for i in ([name, name + "_b"] if twin else [name])]
+            mpath = task / "work" / "automation-manifest.json"      # the test's own id is a row's id: the join is by id, not "the only row of the case"
+            manifest = json.loads(mpath.read_text(encoding="utf-8"))
+            manifest["tests"][0]["instance_id"] = name
+            ob = {"obligation_id": "O-TC1", "behavior": "b", "observation_boundary": "api", "completion_condition": "done",
+                  "requirement_refs": [{"ref": "R-1", "revision": "r"}], "applicable_scenarios": ["positive"],
+                  "oracle_status": "resolved", "oracle_source_ref": "spec", "decision": "automate",
+                  "execution_scope": "current_task", "planned_check_refs": ["x"]}
+            (task / "work" / "test-plan.json").write_text(json.dumps(
+                {"rows": [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [ob]}]}), encoding="utf-8")
+            manifest["obligation_bindings"] = [{"obligation_id": "O-TC1", "obligation_hash": CC.content_hash(ob), "instance_ids": [name],
+                                                "design_assessment": "sufficient"}]
+            mpath.write_text(json.dumps(manifest), encoding="utf-8")
+            triage["triage"] += rows
+            rpath.write_text(json.dumps(report), encoding="utf-8")
+            tpath.write_text(json.dumps(triage), encoding="utf-8")
+            doc = D.assess(task)
+            items = [i for i in doc["left_items"] if i.get("ref") == "TC-001"]
+            owners = {r["owner"] for r in doc["reason_records"] or []}
+            check_eq(f"walk {label}: verdict", doc["delivery_verdict"], want)
+            check_eq(f"walk {label}: the TC-001 items and their kinds", [i["kinds"] for i in items], [["run_unread"]] if run_unread else [])
+            check_not_in(f"walk {label}: no not-re-derived finding", "NOT_EXECUTED_NOT_RE_DERIVED", str(doc["factory_findings"]))
+            cov = [r for r in doc["reasons"] if "O-TC1" in r]       # the coverage excuse: read -> none, a failure -> `coverage red:`, ENV_ISSUE -> `coverage:`
+            check_eq(f"walk {label}: the obligation's reason", [r.split(" - ")[0].split(" — ")[0] for r in cov],
+                     [] if run_unread else ["coverage red: O-TC1"] if "APP_BUG" in label else ["coverage: O-TC1"])
+            if run_unread:
+                check_eq(f"walk {label}: no reason, owner of the kind is the factory", (doc["reasons"], DV.owner_of_kind("run_unread")), ([], "factory"))
+                check_in(f"walk {label}: the item names the log and the config", "the log reads as passed", items[0]["to_check"])
+            elif rows and "ENV" not in label:
+                check_eq(f"walk {label}: the red is the product's alone", owners, {"product"})
+            else:
+                check("walk no row: a `triage:` reason stands", any(r.startswith("triage:") for r in doc["reasons"]), str(doc["reasons"]))
+        finally:
+            cleanup(top)
+
+
 if __name__ == "__main__":
+    a_run_whose_results_code_could_not_read_reaches_delivery_by_the_analysts_word()
     f5_unprepared_walk_is_a_left_item()
     fv1_30b_n2_no_run_row_names_the_word()
     main()

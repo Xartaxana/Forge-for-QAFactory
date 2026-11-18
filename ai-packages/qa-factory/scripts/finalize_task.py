@@ -684,7 +684,7 @@ def reduce(task: Path) -> tuple[dict, dict]:
     triage = {"schema_version": 2, "task_id": task.name, "triage": [],
               "reducer": {"name": "finalize_task", "sources": sources}}
     # an observation (P26) is work for the analyst whatever the checks' results: "no product failures" is not said over one
-    if not (targets["results"] or targets["manual"] or targets["unnamed"] or targets["observations"]):
+    if not (targets["results"] or targets["manual"] or targets["unnamed"] or targets["observations"] or targets["unread"]):
         triage["reason"] = "no product failures in reduced run blocks"
         triage["evidence_refs"] = [item["source"] for item in sources]
     return report, triage
@@ -724,7 +724,8 @@ def refresh(task: Path) -> dict:
     # of the S7 check and of gate B - not when the union of every spelling meets the union of every failure's: that
     # kept a stale `x[multi]` for the failure `x[json]`, and `s7_repairs` then repaired a test that passes.
     targets = C.triage_targets(report)
-    has_failure = bool(targets["results"] or targets["manual"] or targets["unnamed"] or targets["observations"])
+    has_failure = bool(targets["results"] or targets["manual"] or targets["unnamed"] or targets["observations"]
+                       or targets["unread"])        # U7 7b-A: an unread target keeps its analyst row
     if has_failure and isinstance(existing_triage.get("triage"), list) and existing_triage["triage"]:
         # t-323 A1: kept = what `contract.bind_triage` binds to a failure, plus the rows it calls ambiguous (a row
         # that names two failures is the analyst's to fix, so S7 refuses it BY NAME; archived, it would read as "no

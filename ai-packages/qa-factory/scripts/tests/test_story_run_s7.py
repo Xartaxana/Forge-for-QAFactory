@@ -34,6 +34,7 @@ from story_run_common import awaits, driver_for, seed  # noqa: E402
 from test_s7_pretriage import Verdict, check_row, report, result  # noqa: E402
 
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
+import contract as C  # noqa: E402
 import s7_pretriage as S  # noqa: E402
 import story_run  # noqa: E402
 
@@ -1231,6 +1232,9 @@ def u7_7a_a_not_executed_a_role_can_triage_enters_s7() -> None:
              (None, ["code_only"], [], [])),
             ("unprepared only -> triaged: the analyst is dispatched for that walk", null(manual=[unprepared]), done,
              (None, [], [("S7", "qa-failure-analyst")], ["Failures to triage: manual TC-8"])),
+            ("U7 7b-A: reporter none, an unread target only -> the analyst is dispatched, no code close, the brief names it",
+             dict(null([result("t_u", "not_run", reason_code=C.REPORT_UNREAD_CODE)]), current_totals={"not_run": 1}), done,
+             (None, [], [("S7", "qa-failure-analyst")], ["Failures to triage: results the run could not read t_u"])),
             ("manual target + automated not_run (a broken half) -> refused as today", null([result("t_a", "not_run")], [check_row("TC-9")]),
              done, (refusal, [], [], [])),
             ("code-only S6 -> as today: nothing to triage, S7 closes by code", null(), {"status": "completed", "code_only": True},

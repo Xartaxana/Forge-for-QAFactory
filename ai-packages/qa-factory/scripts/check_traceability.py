@@ -36,7 +36,7 @@ FAILED = ("failed", "fail")
 
 
 def _case_chain(case: str, row: dict, manifest: dict, report: dict, stricter=frozenset(), handed=frozenset(),
-                cfg=None) -> tuple:
+                cfg=None, triage_rows=None) -> tuple:
     """(outcome, detail, gap): ONE walk of the chain for a case, read by `outcome_for_case` and `gap_of_case` (C5: no
     twin). `outcome == ""` means the chain stops here, and `gap` then says where, as a typed WORD (t-305 N8): the
     delivery verdict is decided from the word, never from the detail's sentence (FR-12):
@@ -49,7 +49,8 @@ def _case_chain(case: str, row: dict, manifest: dict, report: dict, stricter=fro
       `not_in_manifest`          neither in tests[] nor in unresolved[];
       `no_result`                an automated test the run has no result for.
     A case that reached an outcome has gap "". `cfg`: the project's case config, resolved once by the caller (`walk`); None =
-    resolved per call (E-B5)."""
+    resolved per call (E-B5). `triage_rows` (the analyst's rows, `contract.triage_rows`): None = a caller that reads no verdicts, an
+    unread case then keeps `result:not_run`; `result:report_unread` is a case whose coded instances the analyst read (U7 7b-B)."""
     cfg = C.case_config() if not isinstance(cfg, dict) else cfg
     results = C.run_results(report, cfg=cfg)          # once per call: it is a pure projection of the report
     for entry in C.manifest_unresolved(manifest):
@@ -89,6 +90,17 @@ def _case_chain(case: str, row: dict, manifest: dict, report: dict, stricter=fro
             return ("executed_passed", f"{case}: passed", "")
         if result in FAILED:
             return ("executed_failed", f"{case}: failed", "")
+        if result == "not_run" and triage_rows is not None:
+            # U7 7b-B (D4, F6): every instance of the case is coded `report_unread` (the run's results code could not read it) and
+            # the failure analyst read its log. The bound verdict decides: a failure is red (terminal, the ledger's red speaks
+            # alone); NOT_EXECUTED is the checks left with the person. "" / "unanswered" keep `result:not_run` below. PASSED and
+            # FAILED above are untouched: only an all-coded `not_run` case moves. `None` (every other caller) reads as before.
+            reading = C.unread_case_reading(report, triage_rows, case, cfg)
+            if reading == "red":
+                return ("executed_failed", f"{case}: failed (the failure analyst read it in the run log)", "")
+            if reading == "read":
+                return ("", f"{case}: the run's results could not be read by code; the failure analyst read the log",
+                        "result:report_unread")
         return ("", f"{case}: run result '{result}' is not terminal", f"result:{result or 'none'}")
 
     if disposition == "manual-human":
@@ -114,17 +126,17 @@ def _case_chain(case: str, row: dict, manifest: dict, report: dict, stricter=fro
 
 
 def outcome_for_case(case: str, row: dict, manifest: dict, report: dict, stricter=frozenset(), handed=frozenset(),
-                     cfg=None) -> tuple:
+                     cfg=None, triage_rows=None) -> tuple:
     """(outcome, detail). outcome == "" means the chain stops here. `stricter` as in `walk` (t-1339 Q2: every reader of the
     chain takes the same set, so none reads a case the walk has already ended as still broken)."""
-    outcome, detail, _gap = _case_chain(case, row, manifest, report, stricter, handed, cfg)
+    outcome, detail, _gap = _case_chain(case, row, manifest, report, stricter, handed, cfg, triage_rows)
     return outcome, detail
 
 
 def gap_of_case(case: str, row: dict, manifest: dict, report: dict, stricter=frozenset(), handed=frozenset(),
-                cfg=None) -> str:
+                cfg=None, triage_rows=None) -> str:
     """The typed word of the link that broke for this case (see `_case_chain`), "" when it reached an outcome."""
-    return _case_chain(case, row, manifest, report, stricter, handed, cfg)[2]
+    return _case_chain(case, row, manifest, report, stricter, handed, cfg, triage_rows)[2]
 
 
 def _handed_cases(artifacts: Path) -> frozenset:
@@ -202,6 +214,7 @@ def walk(artifacts: Path, stricter=frozenset(), handed=None) -> dict:
     report = C.load_json(C.artifact(artifacts, "run-report.json"))
     cases = C.case_index(artifacts)
     cfg = C.case_config(artifacts)      # RD1-2: resolved once for the whole walk, handed down to every case (E-B5)
+    triage_rows = C.triage_rows(C.load_json(C.artifact(artifacts, "triage.json")))    # U7 7b-B: the analyst's readings of unread cases
 
     word_index = _word_index(artifacts)
     rows = []
@@ -242,7 +255,7 @@ def walk(artifacts: Path, stricter=frozenset(), handed=None) -> dict:
         outcomes, details, gaps = [], [], []
         for case in cases_for_req:
             row = next((r for r in plan_for_req if r["ts"] == cases[case].get("plan_row")), plan_for_req[0])
-            outcome, detail, gap = _case_chain(case, row, manifest, report, stricter, handed, cfg)
+            outcome, detail, gap = _case_chain(case, row, manifest, report, stricter, handed, cfg, triage_rows)
             # FV1-30b R2 (D8): the walk is case-level, so a case with one green Then and one unbound Then reaches a terminal
             # outcome and the unbound Then never reaches the verdict. A Then of this case the person's word passed at S5 ends the
             # case's outcome here, beside the case's own gap.
