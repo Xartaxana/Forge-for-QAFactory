@@ -1029,6 +1029,33 @@ def site_unread_is_incomplete() -> None:
     check_eq("a passed row of a non-pytest runner is not 'unread'", (green["status"], "site_unread" in green),
              ("passed", False))
 
+    # RD1-24 (B-337): a suffix with no row is read ONLY when the failure text names the pinned `<path>:<line>` inside the clone and
+    # carries the pinned message; every other text stays the typed unread - incomplete, never survived (card sections 0.3, 4, 5)
+    msg, huge = "AssertionError: sum must be 4", "x" * 10 ** 6
+    for label, where, text, reason, status, clone, read in (
+            ("E6 path inside the clone", "tests/Calc.kt", "/clone/tests/Calc.kt:5: AssertionError", msg, "failed", "/clone", True),
+            ("A8 a Windows backslash path", "tests/Calc.kt", "C:\\sbx\\tests\\Calc.kt:5: AssertionError", msg, "failed", "C:/sbx", True),
+            ("A9 a non-ASCII directory", "tests/\u00fc/Calc.kt", "/clone/tests/\u00fc/Calc.kt:5: E", msg, "failed", "/clone", True),
+            ("E7 another message", "tests/Calc.kt", "/clone/tests/Calc.kt:5: E", "AssertionError: other", "failed", "/clone", False),
+            ("A1 a tree outside the clone", "tests/Calc.kt", "/elsewhere/tests/Calc.kt:5: E", msg, "failed", "/clone", False),
+            ("E12 an absolute pin", "/clone/tests/Calc.kt", "/clone/tests/Calc.kt:5: E", msg, "failed", "/clone", False),
+            ("A3 line :50", "tests/Calc.kt", "/clone/tests/Calc.kt:50: E", msg, "failed", "/clone", False),
+            ("A3 line :5x", "tests/Calc.kt", "/clone/tests/Calc.kt:5x", msg, "failed", "/clone", False),
+            ("A3 suffix .kts", "tests/Calc.kt", "/clone/tests/Calc.kts:5: E", msg, "failed", "/clone", False),
+            ("A4 a boundary char in the name", "tests/a (1).kt", "/clone/tests/a (1).kt:5: E", msg, "failed", "/clone", False),
+            ("E3 no text", "tests/Calc.kt", "", msg, "failed", "/clone", False),
+            ("A5 a 1 MB line", "tests/Calc.kt", huge, msg, "failed", "/clone", False)):
+        pin = target_of(expected_location=f"{where}:5", expected_reason="sum must be 4")
+        got = RS.target_result(pin, {"test_id": "t", "status": status, "problems": [{
+            "kind": "failure" if status == "failed" else "error", "message": reason, "text": text}]}, "junit-xml", clone,
+            command=["ktrunner"])
+        check_eq(f"RD1-24 {label}: read as the pinned assertion, or typed unread",
+                 (got.get("location") == f"{where}:5" and got.get("failure_kind") == "assertion", "site_unread" in got), (read, not read))
+        if not read:
+            check_eq(f"RD1-24 {label}: verify says incomplete (an error row: probe_defect), never survived",
+                     RS.verify({"repo": "u", "original_hashes": {}, "targets": [pin]}, [got], [{"instance_id": pin["instance_id"],
+                              "status": "passed"}])["status"], "probe_defect" if status == "error" else "incomplete")
+
 
 def no_reporter_no_rows() -> None:
     root = temp_dir("qa-probe-noreporter-")
@@ -1347,6 +1374,10 @@ def frames_from_the_table() -> None:
         check_eq("R12: a stack with only library frames is the typed unread answer, never a location",
                  (got.get("site_unread"), got.get("location"), got.get("semantic_verdict")), ("junit-xml/npx", None, None))
         check_in("...with the reader's reason", "no frame of its stack matched the declared frame grammar", got.get("site_unread_reason", ""))
+        refused = dict(row, problems=[{"kind": "failure", "message": "boom", "text": f"{(clone / 'src' / 'sum.test.ts').as_posix()}:11: Error"}])
+        second = RS.target_result(dict(target, expected_reason="boom"), refused, "junit-xml", clone, command=["npx", "jest", "--ci"])
+        check_eq("RD1-24 E5: a `.ts` row whose grammar refuses but whose text names the pinned path is read (one road)",
+                 (second.get("location"), second.get("failure_kind"), "site_unread" in second), ("src/sum.test.ts:11", "assertion", False))
         receipt = {"repo": str(root), "original_hashes": {}, "targets": [target]}
         check_eq("...and verify() calls it incomplete", RS.verify(receipt, [got], [{"instance_id": "calc adds", "status": "passed"}])["status"],
                  "incomplete")
