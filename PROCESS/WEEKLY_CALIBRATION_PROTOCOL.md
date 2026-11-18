@@ -250,7 +250,8 @@ for the period, and diffs to DECISIONS.md.
     tools/negative_lint.py; Negative
     claim -- tools/claim_control_gate.py; Search returned nothing --
     tools/search_control_gate.py; Command hygiene -- tools/
-    hygiene_gate.py.
+    hygiene_gate.py; COORDINATOR-READ -- tools/coordinator_rules.py
+    (called from both gates).
     LIST IS OPEN: a live layer missing from this list
     is a finding about THIS CHECK, not about the layer; a layer NAMED
     here but missing from `tools/warn_layers.json` is a finding about

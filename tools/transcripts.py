@@ -165,6 +165,38 @@ def _read_back(path, enough, limit=None):
     return (b"".join(reversed(chunks)) if len(chunks) > 1 else chunks[0]), start
 
 
+def lines_back_to(path, is_boundary, limit):
+    """(lines, bounded): the complete lines from the line AFTER the newest line whose parsed object satisfies
+    `is_boundary(obj)` to the end of the file; the whole file when it holds no boundary and its start is reached.
+    `bounded` is False when `limit` bytes were read with no boundary and the file start not reached (the window
+    is then only the last `limit` bytes). Built on _read_back: each growth step judges only the lines of the bytes
+    it added, a line cut at a chunk edge is completed with the head of the newer chunk first (FG7-89). Raises OSError."""
+    def enough(chunks, start):
+        data = chunks[-1]
+        if len(chunks) > 1:      # the oldest bytes end inside a line that goes on in the newer chunk
+            newer = chunks[-2]
+            data += newer[:newer.find(b"\n") + 1 or len(newer)]
+        parts = split_lines(data.decode("utf-8", errors="replace"))
+        if start > 0:
+            parts = parts[1:]    # the first line may be cut at the window start
+        return any(_is_boundary_line(p, is_boundary) for p in parts)
+
+    data, start = _read_back(path, enough, limit)
+    lines = split_lines(data.decode("utf-8", errors="replace"))
+    data = None
+    if start > 0:
+        lines = lines[1:]
+    for i in range(len(lines) - 1, -1, -1):
+        if _is_boundary_line(lines[i], is_boundary):
+            return lines[i + 1:], True
+    return lines, start == 0
+
+
+def _is_boundary_line(line, is_boundary) -> bool:
+    obj = parse_line(line)
+    return obj is not None and bool(is_boundary(obj))
+
+
 def _last_line_whole(chunks, _start) -> bool:
     """tail_lines' stop: the window holds a "\\n" before its last line. The first window is looked at whole,
     every later step only at the bytes it added (the older ones were already looked at)."""
