@@ -163,6 +163,64 @@ def no_rule_is_not_checked_never_ok() -> None:
         cleanup(project)
 
 
+def s5_code_close_excuses_the_empty_manifest() -> None:
+    """U7 5b (N3, AR-22, AR-28; expected from: spec r3 section 2 r11 "Error direction" and "Adversarial inputs"): an EMPTY manifest owes no
+    `run_witness` only under the controller's S5 code-close receipt (`stages.S5.code_only`, completed), at both readers; every other
+    reading of an empty manifest keeps the witness owed."""
+    import controller as CT
+    import hooklib
+    from harness import use_project
+    empty = {"tests": [], "unresolved": []}
+    row = test("test_a")
+    project = temp_project("qa-witness-5b-")
+    old = hooklib._PROJECT_ROOT_CACHE
+    try:
+        use_project(project)
+        task = project / "qa-factory" / "artifacts" / "QA-1"
+        (task / "work").mkdir(parents=True)
+        c = CT.Controller(task)
+        c.apply("initialize", {"scope": ["TC-1"], "source_revision": "r", "known_paths": {"root": str(task)}, "idempotency_key": "init"})
+        no_receipt = AC.run_witness_excused(empty, task)
+        (task / "ev.txt").write_text("receipt", encoding="utf-8")
+        import hashlib
+        c.store.commit("code_only", {"id": "s5-nothing", "stage": "S5", "reason": "nothing to automate",
+                                     "evidence_refs": [{"path": "ev.txt", "sha256": hashlib.sha256(b"receipt").hexdigest()}]},
+                       "s5-nothing", project=c.project)
+        path = task / "work" / "automation-manifest.json"
+        path.write_text(json.dumps(empty), encoding="utf-8")
+
+        def phase(d, at=path):
+            at.write_text(json.dumps(d), encoding="utf-8")
+            errors: list = []
+            V.check_phase_json(at, errors)
+            return errors
+        check_eq("5b: derived-empty S5 close: the excuse reads `nothing` (receipt + exactly empty lists)", AC.run_witness_excused(empty, task), "nothing")
+        check_eq("5b: derived-empty S5 close -> no witness owed (check_witness rule)", RULE(empty, task), [])
+        check_eq("5b: derived-empty S5 close -> no witness owed (phase_errors, from the manifest's own path)", phase(empty), [])
+        check_eq("5b: the S5 node itself - no receipt yet - empty manifest -> still `` (witness owed)", no_receipt, "")
+        for label, d, root in (("no root given (the path names no story)", empty, None),
+                               ("a controller that cannot be read (no story there)", empty, project / "nowhere"),
+                               ("`tests` key missing is not empty", {"unresolved": []}, task),
+                               ("`tests` holds a row", {"tests": [row], "unresolved": []}, task),
+                               ("`unresolved` holds a row", {"tests": [], "unresolved": [PENDING_ROW]}, task)):
+            check_eq(f"5b: {label} -> no excuse", AC.run_witness_excused(d, root), "")
+            check_in(f"5b: {label} -> the witness is owed", "run_witness missing", " ".join(RULE(d, root)))
+        check_eq("5b: `tests` that is not a list -> no excuse", AC.run_witness_excused({"tests": None, "unresolved": []}, task), "")
+        check_in("5b: receipt + a test row -> phase_errors still demands the key", "run_witness", " ".join(phase({"tests": [row], "unresolved": []})))
+        check_eq("5b: a manifest outside work/ has no story root", (V.manifest_task_root(path), V.manifest_task_root(project / "m.json")), (task, None))
+        real = CT.Controller.state
+        try:
+            CT.Controller.state = lambda self: {"stages": {"S5": {"status": "running", "code_only": True}}}
+            check_eq("5b: stale receipt (code_only but S5 no longer completed) -> no excuse", AC.run_witness_excused(empty, task), "")
+            CT.Controller.state = lambda self: {"stages": {"S5": {"status": "completed"}}}
+            check_eq("5b: an S5 an automator completed (no code_only) with an empty manifest -> no excuse", AC.run_witness_excused(empty, task), "")
+        finally:
+            CT.Controller.state = real
+    finally:
+        hooklib._PROJECT_ROOT_CACHE = old
+        cleanup(project)
+
+
 def main() -> None:
     no_rule_is_not_checked_never_ok()
     all_pending_with_collect_accepted()
@@ -173,6 +231,7 @@ def main() -> None:
     one_runnable_needs_run_witness()
     collect_is_no_run_witness()
     unchanged_roads()
+    s5_code_close_excuses_the_empty_manifest()
     finish("check witness")
 
 

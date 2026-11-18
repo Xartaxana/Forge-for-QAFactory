@@ -210,6 +210,7 @@
   {"file": "controller.py", "function": "_s3_completion_gate", "class": "shape", "roles": ["qa-test-strategist", "conductor"], "owner": "data", "note": "T9a: road (b) resumes the strategist only for the S3 structured test plan invalid site (card T9a (a)); the labelling close, rows-not-list and grounding-only raises carry no marker, so the conductor stays in reach; named raise qa-test-strategist 121->122, conductor unchanged"},
   {"file": "controller.py", "function": "_open_windows_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "controller.py", "function": "_s5_running_beside_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},
+  {"file": "controller.py", "function": "_s5_code_only_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "controller.py", "function": "_s5_completion_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "controller.py", "function": "_s5_gap_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "controller.py", "function": "_s5_plan_accept_problems", "class": "shape", "roles": ["qa-automator", "qa-code-critic"], "owner": "data", "note": "T9a: road-(b) unit, resumed to the dispatch roles (mech 5.3a, T0 M7)"},

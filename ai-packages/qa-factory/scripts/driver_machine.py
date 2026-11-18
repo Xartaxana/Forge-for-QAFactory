@@ -4209,7 +4209,9 @@ class DriverMachine:
                       "close S7 by code (finalize_task, code_only S7, stage_done)")
             elif stage == "S7":
                 try:
-                    print("failures to triage: " + (self.failures_to_triage() or "none -> code_only S7 + stage_done"))
+                    import acceptance
+                    awaiting = acceptance.awaits_acceptance(self.controller_state(), "S6", self.pipeline())   # as stage_S7 computes it
+                    print("failures to triage: " + (self.failures_to_triage(awaiting=awaiting) or "none -> code_only S7 + stage_done"))
                 except Refusal as exc:
                     print("S7 entry: " + exc.text)
             elif stage == "S9":

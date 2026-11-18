@@ -38,7 +38,7 @@ ONE reader is `page_load`, which says `none` when the row is another stand defin
 than the stand's last verification; its exit is `revoke`. A failed measurement keeps no number but its REASON (owner, 17.11.2026:
 the same failure is not retried blindly): the SAME row holds `{"failed": {cause, why, at, attempts}, definition_sha, address}`
 instead of a number, `page_load` says `failed` while it speaks for this stand definition and address, and a person's `revoke` of it
-is the word to retry. The row is replaced in place (one row per stand), never appended to.
+is the word to retry. One subject per stand: a kept reason is replaced in place; a measurement is a new row.
 """
 import copy
 import json
@@ -92,7 +92,9 @@ PAGE_LOAD_VALUE_KEYS = {"load_s", "at_least", "address", "definition_sha", "at"}
 # a kept reason of a failed measurement (the owner's correction to F-j-failed): the same key and element, the number replaced
 PAGE_LOAD_REASON_KEYS = {"failed", "address", "definition_sha"}
 PAGE_LOAD_FAILED_KEYS = {"cause", "why", "at", "attempts"}
-PAGE_LOAD_CAUSES = ("factory", "no_browser", "unreachable", "outside_hosts", "credentials_in_address")
+# `no_browser` is a fact about the MACHINE, never kept in a record the project carries (AR-4): the gate notes it per run, and a row
+# that holds it is read as malformed (not kept), so the next gate measures again
+PAGE_LOAD_CAUSES = ("factory", "unreachable", "outside_hosts", "credentials_in_address")
 PAGE_LOAD_ATTEMPTS_MAX = 2      # the second start tries once more; after that no blind retry
 PAGE_LOAD_WHY_MAX = 200
 
@@ -741,13 +743,8 @@ def _page_load_value_faults(element, value) -> list:
     if not isinstance(address, str) or not re.match(r"https?://", address):
         out.append("`value.address` is an http or https address; nothing was recorded")
     else:
-        from urllib.parse import urlsplit
-        try:
-            parts = urlsplit(address)
-            userinfo = parts.username or parts.password
-        except ValueError:
-            userinfo = True
-        if userinfo:
+        import manual_capture
+        if manual_capture.has_userinfo(address):
             out.append("`value.address` carries a user name or password; it is never kept; nothing was recorded")
     if not isinstance(value["definition_sha"], str) or not value["definition_sha"]:
         out.append("`value.definition_sha` is the stand definition's hash; nothing was recorded")
@@ -955,7 +952,7 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
                               "where": " ".join(str(where or "").split())[:160]},
                "at": ER.now_iso()}
         # a kept reason of a failed page load is REPLACED where it stands (the same cause with its count and time, another cause, or the
-        # number that ends it): one row per stand, never a second one beside it
+        # number that ends it): a reason never has a second row beside it; a measurement is a new row
         kept = [row if (in_place and r is held) else r for r in rows] if in_place else rows + [row]
         problem = ER.write_rows(record_path(root), LIST_KEY, SCHEMA_VERSION, kept, RECORD_REL)
         return (None, problem, False) if problem else (row, "", True)

@@ -248,7 +248,8 @@
       "sites": [
         {"file": "acceptance.py", "function": "validate_window", "role": "accept"},
         {"file": "window_record.py", "function": "verdict", "role": "produce"},
-        {"file": "window_record.py", "function": "build", "role": "produce"}
+        {"file": "window_record.py", "function": "build", "role": "produce"},
+        {"file": "window_record.py", "function": "review_note", "role": "accept"}
       ],
       "field": null,
       "words": ["approved", "unverified"],
@@ -266,6 +267,35 @@
       "closed_by": ["role:qa-code-critic", "person"], "addressee": ["role:qa-code-critic"], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_window_record.py",
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
+    },
+    {
+      "id": "critic_review", "inventory": "RD1-29", "vocabulary": "code",
+      "decides": "the critic's review word on a manifest row (`critic_verdict`), or on a critic's form (`review.outcome`), approves the test AFTER its S5 window: `approved` and `approved_with_fixes` approve (the case stamp is given, the test counts as proven, gate B demands the case's Automated transition, the basis shows the proof level); `unverified` (a static review, D-0013) and `rejected` never approve; any other word or none is not approving, and the ledger names it `review_unrecognised` (FR-19). Inside the window the review is closed by `s5_window`, where `approved_with_fixes` does not close it",
+      "sites": [
+        {"file": "case_stamp.py", "function": "instance_hold", "role": "accept"},
+        {"file": "check_delivery.py", "function": "lifecycle_reasons", "role": "accept"},
+        {"file": "report_facts.py", "function": "_tests", "role": "accept"},
+        {"file": "handoff_check.py", "function": "_claim_rollcall", "role": "validate"},
+        {"file": "traceability.py", "function": "_review_basis", "role": "measure"},
+        {"file": "factory_dashboard.py", "function": "instance_basis", "role": "measure"}
+      ],
+      "field": "critic_verdict",
+      "words": ["approved", "approved_with_fixes", "rejected", "unverified"],
+      "verdict_map": {
+        "approved": {"class": "matched"}, "approved_with_fixes": {"class": "matched"},
+        "rejected": {"class": "mismatched"},
+        "unverified": {"class": "not_applicable", "reason_code": "static_review"}
+      },
+      "accepts": {
+        "critic_review.stamp": ["matched"], "critic_review.lifecycle": ["matched"], "critic_review.proven": ["matched"],
+        "critic_review.rollcall_claim": ["matched"], "critic_review.basis_report": ["matched"], "critic_review.basis_dashboard": ["matched"]
+      },
+      "promotable": false,
+      "unknown_branch": "refuse_with_door", "on_no_answer": "refuse_with_door", "waits_at": null,
+      "closed_by": [], "addressee": ["role:qa-code-critic"], "person_subject": null,
+      "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
+      "test": "scripts/tests/test_case_stamp.py",
       "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {

@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import acceptance as AC  # noqa: E402  (`red_by_own_row`: the one predicate of "this instance is red by THIS case's row")
 import bug_records as BR  # noqa: E402
 import contract as C  # noqa: E402
+import gate_template  # noqa: E402  (the ONE predicate the critic's review word approves through: row `critic_review`)
 import grammar as G  # noqa: E402
 import hooklib  # noqa: E402
 import ledger as L  # noqa: E402  (the one spelling of `expectation_unconfirmed`; ledger imports this module lazily)
@@ -881,7 +882,7 @@ class Story:
             # Each verdict in its own words (FR-35): a rejected or unverified test is never shown as
             # "review not recorded", which says the critic never spoke.
             words = PL.review_words(verdict)
-            if verdict not in ("approved", "approved_with_fixes"):
+            if not gate_template.acceptable(verdict, "critic_review.basis_report"):
                 return words
             # How sure the check is, from the one reader of receipts (`ledger.proof_shown` over
             # `proof_level.reached`), not from whether some probe key exists on the row.

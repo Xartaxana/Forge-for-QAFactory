@@ -588,12 +588,7 @@ def measure_page_load(cfg, stand_name, project_root) -> dict:
         url = env_probe.frontend_of(cfg, stand_name, root=project_root)["url"]
         if not url:
             return {"state": "n/a", "why": "the stand has no web address"}
-        try:
-            parts = urlsplit(url)
-            userinfo = parts.username or parts.password
-        except ValueError:
-            userinfo = True
-        if userinfo:
+        if has_userinfo(url):
             return {"state": "failed", "cause": "credentials_in_address",
                     "why": "the stand's web address carries a user name or password"}
         hosts = set(stand_hosts(cfg, root=project_root))
@@ -2768,6 +2763,21 @@ def _safe_url(url) -> str:
     if not host:
         return f"{parts.scheme}:{parts.path}"
     return f"{parts.scheme}://{host}{f':{port}' if port else ''}{parts.path}"
+
+
+def has_userinfo(url) -> bool:
+    """True when the URL carries a user name or password (or cannot be parsed: then it is treated as carrying one)."""
+    try:
+        parts = urlsplit(str(url or ""))
+        return bool(parts.username or parts.password)
+    except ValueError:
+        return True
+
+
+def shown_address(address, chars: int = 120) -> str:
+    """An address for a person's eyes: cut at `chars` with an ellipsis (one rule for the gate's note and the briefs)."""
+    text = str(address or "")
+    return text if len(text) <= chars else text[:chars] + "…"
 
 
 def _poll_landing(backend, recipe, url_not, cookie, hosts) -> tuple:

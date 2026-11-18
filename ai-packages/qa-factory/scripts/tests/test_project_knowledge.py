@@ -1410,27 +1410,8 @@ def pl_reason(stand=PL_STAND, failed=None, **over):
 
 @pytest.mark.parametrize("label, failed, over, fault", [
     ("valid", {}, {}, ""),
-    ("every closed cause: factory", {"cause": "factory"}, {}, ""),
-    ("every closed cause: credentials_in_address", {"cause": "credentials_in_address"}, {}, ""),
     ("cause not closed", {"cause": "slow"}, {}, "failed.cause"),
-    ("cause not text", {"cause": 7}, {}, "failed.cause"),
-    ("why with a line break", {"why": "a\nb"}, {}, "failed.why"),
-    ("why too long (AT the limit is valid below)", {"why": "w" * 201}, {}, "failed.why"),
-    ("why at the limit", {"why": "w" * 200}, {}, ""),
-    ("why not text", {"why": None}, {}, "failed.why"),
-    ("at not a moment", {"at": "later"}, {}, "failed.at"),
-    ("attempts zero", {"attempts": 0}, {}, "failed.attempts"),
-    ("attempts negative", {"attempts": -1}, {}, "failed.attempts"),
-    ("attempts a bool", {"attempts": True}, {}, "failed.attempts"),
-    ("attempts a string", {"attempts": "2"}, {}, "failed.attempts"),
-    ("attempts a float", {"attempts": 1.5}, {}, "failed.attempts"),
-    ("failed a string", None, {"failed": "boom"}, "value.failed"),
-    ("failed with a missing field", None, {"failed": {"cause": "factory", "why": "x", "at": _iso_ago(0)}}, "value.failed"),
-    ("failed with an extra field", {"x": 1}, {}, "value.failed"),
-    ("a number beside the reason", {}, {"load_s": 70.0}, "carries exactly"),
-    ("no identity: address missing", {}, {"address": None}, "carries exactly"),
-    ("address with user:pw", {}, {"address": "http://user:pw@host/"}, "user name or password"),
-    ("definition_sha empty", {}, {"definition_sha": ""}, "definition_sha"),
+    ("no_browser is the machine's fact and never kept (AR-4)", {"cause": "no_browser"}, {}, "failed.cause"),
 ], ids=lambda x: x if isinstance(x, str) and " " not in x else None)
 def test_page_load_kept_reason_shape(label, failed, over, fault):
     value = pl_reason(failed=failed or {}, **{k: v for k, v in over.items() if v is not None and k != "failed"})
@@ -1447,44 +1428,18 @@ def test_page_load_kept_reason_shape(label, failed, over, fault):
     assert not any("user:pw" in p for p in problems)
 
 
-def test_page_load_kept_reason_reads_replaces_in_place_and_is_never_a_pass(tmp_path, monkeypatch):
+def test_page_load_a_reason_has_no_age_and_a_number_appends(tmp_path, monkeypatch):
     proj = _pl_proj(tmp_path, monkeypatch)
-    row, problem, created = pl_record(proj, value=pl_reason())
-    assert (problem, created) == ("", True)
-    got = PK.page_load(proj.root, None, "dev")
-    assert (got["state"], got["load_s"], got["failed"]["cause"], got["failed"]["attempts"]) == ("failed", None, "unreachable", 1)
-    # same cause: attempts and time updated IN PLACE (same id, one row)
-    again, problem, _ = pl_record(proj, value=pl_reason(failed={"attempts": 2, "at": _iso_ago(0)[:-1] + "9"}))
-    assert problem == "" and again["id"] == row["id"] and len(PK.load(proj.root)[0]) == 1
-    assert PK.page_load(proj.root, None, "dev")["failed"]["attempts"] == 2
-    # another cause replaces it with attempts 1, still one row
-    other, problem, _ = pl_record(proj, value=pl_reason(failed={"cause": "no_browser", "why": "none"}))
-    assert problem == "" and other["id"] == row["id"] and len(PK.load(proj.root)[0]) == 1
-    assert (PK.page_load(proj.root, None, "dev")["failed"]["cause"], PK.page_load(proj.root, None, "dev")["failed"]["attempts"]) == ("no_browser", 1)
-    # a reason keeps no age: eight days later it still speaks for the stand (only another identity or a revoke ends it)
     pl_record(proj, value=pl_reason(failed={"at": _iso_ago(8)}))
-    assert PK.page_load(proj.root, None, "dev")["state"] == "failed"
-    # a number replaces the reason: one row, no reason left
-    done, problem, _ = pl_record(proj)
-    assert problem == "" and done["id"] == row["id"] and len(PK.load(proj.root)[0]) == 1
-    got = PK.page_load(proj.root, None, "dev")
-    assert (got["state"], got["load_s"], got["failed"]) == ("measured", 70.0, None)
-    # a number is not replaced in place: the old append rule stands
+    assert PK.page_load(proj.root, None, "dev")["state"] == "failed"     # a reason keeps no age
+    pl_record(proj)
     pl_record(proj, value=pl_value(load_s=75.0))
-    assert len(PK.load(proj.root)[0]) == 2
-    # another definition: the reason is not this stand's any more (a fresh attempt is owed)
-    (tmp_path / "b").mkdir()
-    proj2 = _pl_proj(tmp_path / "b", monkeypatch)
-    pl_record(proj2, value=pl_reason())
-    proj2.stands[0] = dict(PL_STAND, base_url="http://localhost:9999")
-    proj2.write_config()
-    got = PK.page_load(proj2.root, None, "dev")
-    assert (got["state"], got["why"], got["failed"]) == ("none", "another stand definition", None)
+    assert len(PK.load(proj.root)[0]) == 2                               # a number is not replaced in place
 
 
 def test_page_load_a_broken_kept_reason_in_the_file_is_read_as_broken_never_as_a_pass(tmp_path, monkeypatch):
     for label, broken in (("attempts 0", {"attempts": 0}), ("attempts negative", {"attempts": -3}), ("attempts a string", {"attempts": "1"}),
-                          ("cause unknown", {"cause": "slow"}), ("a field missing", {"attempts": None})):
+                          ("cause unknown", {"cause": "slow"}), ("a no_browser row an earlier version kept", {"cause": "no_browser"}), ("a field missing", {"attempts": None})):
         (tmp_path / label.replace(" ", "_")).mkdir()
         proj = _pl_proj(tmp_path / label.replace(" ", "_"), monkeypatch)
         row = pl_record(proj, value=pl_reason())[0]

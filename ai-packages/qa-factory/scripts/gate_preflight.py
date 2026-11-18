@@ -529,6 +529,61 @@ def executor_question(tool: str, profile_id: str, cases: list, stage: str = "S5"
     return statement, options
 
 
+# --- one conductor turn before the person is asked about a missing launcher (U7 stream 5a, AR-17) ---------------
+#
+# A launcher that is not here is the person's remainder - unless the project itself names a command that installs what
+# its environment lacks (a `_drift` entry of `check_s5_dependencies` with a command): then the conductor gets ONE turn
+# for the key `(profile, tool, command digest)` and the person is asked only if the launcher is still missing at the
+# next rehearsal. The driver writes the turn record (`DriverGates.close_executor_bound`, the ONE writer); this module
+# holds its ONE reader. Unreadable record -> "turn had": the card, never a second paid call (FR-59, AR-28).
+EXECUTOR_TURNS_FILE = "executor-turns.json"        # <task root>/state/, {"turns": [{"key", "at"}]}
+
+
+def executor_turns(task_root):
+    """The rows of the turn record: `[]` when there is no record yet, `None` when it exists and cannot be read."""
+    path = Path(task_root) / "state" / EXECUTOR_TURNS_FILE
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return None
+    try:
+        turns = json.loads(text)["turns"]
+    except Exception:
+        return None
+    return turns if isinstance(turns, list) else None
+
+
+def executor_turn_key(profile_id, tool, digest) -> str:
+    return f"{profile_id}|{tool}|{digest}"
+
+
+def executor_turn_had(task_root, key: str) -> bool:
+    """Has the conductor had its turn for this key? An unreadable record reads as yes."""
+    turns = executor_turns(task_root)
+    return True if turns is None else any(isinstance(t, dict) and t.get("key") == key for t in turns)
+
+
+def executor_install(task_root, profile_id: str, tool: str, drift) -> tuple:
+    """`(the install command of profile P, its digest)`; `(None, digest)` when a turn was had for the key, `(None, "")`
+    when none is known. `drift` is the `_drift` list of `check_s5_dependencies` (entries `differs` / `missing_only`, each
+    with `profiles` and `result.command`); None - the check did not run - names no command, so an executor decision is
+    never read over an unset `_drift` (the card, as today). Nothing is installed but the command the project names."""
+    for entry in drift or []:
+        if not isinstance(entry, dict) or str(profile_id) not in [str(p) for p in entry.get("profiles") or []]:
+            continue
+        command = (entry.get("result") or {}).get("command") or {}
+        argv = [str(a) for a in command.get("argv") or []]
+        if not argv:
+            continue
+        digest = hashlib.sha256(json.dumps([argv, str(command.get("cwd") or ".")]).encode("utf-8")).hexdigest()[:12]
+        if executor_turn_had(task_root, executor_turn_key(profile_id, tool, digest)):
+            return None, digest
+        return {"argv": argv, "cwd": str(command.get("cwd") or "."), "source": str(command.get("source") or "")}, digest
+    return None, ""
+
+
 # --- and the case before that one: nothing here can run a test at all -------------------------
 #
 # TP2-2553 ran with `profiles` absent from `qa-factory/config.json`. `s5_profiles`
@@ -745,7 +800,7 @@ def stand_profiles(config: dict, task_root: Path, dispositions) -> dict:
 def _surface_level_fits(config: dict, profiles: list, level: str) -> list:
     """EP1-41f: the ids of the profiles that hold the capability of a surface row whose `fits_levels` names this plan level
     (references/surfaces.json, read through `surfaces`, the one reader). [] - no fit, no answer - when the level is empty, when the
-    project declares nothing beyond web/API words (the table is NOT read: that road does not change), or when the table cannot be
+    project declares nothing beyond web/API words, or when the table cannot be
     read: a case left unkeyed is asked about, never keyed to a guessed profile."""
     if not level:
         return []
@@ -2842,11 +2897,43 @@ class Rehearsal:
             probe = executor_probe(argv, cwd, profile)
             if probe["status"] != "missing":
                 continue
-            statement, options = executor_question(probe["tool"], profile_id, entry["cases"],
-                                                   self.next_stage)
-            self.add(check, PERSON_DECIDES, statement, options,
-                     profile=profile_id, tool=probe["tool"], cases=list(entry["cases"]),
-                     keyed_on=entry["keyed_on"], options=executor_options(len(entry["cases"])))
+            self._missing_launcher(check, profile_id, probe["tool"], list(entry["cases"]), keyed_on=entry["keyed_on"])
+
+    def _missing_launcher(self, check: str, profile_id: str, tool: str, cases: list, **extra) -> None:
+        """The ONE decision of a missing launcher, for the road before S5 (`check_s5_executor`, `check_s5_toolchain`): when the
+        project names an install command for the profile and the conductor has not had its turn for the key, a
+        `factory_fixable` finding (the driver hands it to the conductor, which installs once and ends its turn WITHOUT asking:
+        the next rehearsal gives the card, so the person is contacted once per missing launcher); otherwise the three-answer
+        card, its words unchanged, plus the F-14 clause when the profile's installed packages could not be read.
+        Error direction: toward the card, never toward assuming a launcher exists or a second paid call."""
+        statement, options = executor_question(tool, profile_id, cases, self.next_stage)
+        command, digest = executor_install(self.task_root, profile_id, tool, getattr(self, "_drift", None))
+        if command is not None:
+            import dependency_drift
+            where = f" (in `{command['cwd']}`)" if command["cwd"] not in ("", ".") else ""
+            # F5a-1: only a command the project wrote is "its own"; a table-guessed one is the factory's guess
+            owner = "the project's own install command" if command.get("source") == "profile" else "the install command"
+            self.add(check, FACTORY_FIXABLE, f"{statement}; a command is known that installs what its environment lacks",
+                     "this turn came from the gate rehearsal: the project's dependencies are not installed or differ from its lock, "
+                     f"and {owner} is `{dependency_drift.command_text(command)}`{where}; run the "
+                     "install_dependencies action once, then end the turn without asking the person - if the launcher is still "
+                     "missing, the next rehearsal asks the person the one question",
+                     profile=profile_id, tool=tool, cases=list(cases), install_digest=digest, **extra)
+            return
+        clause = self._unread_clause(profile_id)
+        self.add(check, PERSON_DECIDES, statement + (f"; {clause}" if clause else ""), options,
+                 profile=profile_id, tool=tool, cases=list(cases), options=executor_options(len(cases)), **extra)
+
+    def _unread_clause(self, profile_id: str) -> str:
+        """F-14 (b): the ONE clause a card of profile P gets when the dependency check could not read its installed packages
+        (an `unknown` entry covering P, with that entry's own reason). Nothing said when no entry covers P (no check ran,
+        or it read the environment): the clause only joins a card that exists, it never makes a note of its own."""
+        for entry in getattr(self, "_drift_all", None) or []:
+            result = entry.get("result") or {}
+            if result.get("state") == "unknown" and str(profile_id) in [str(p) for p in entry.get("profiles") or []]:
+                why = " ".join(str(result.get("why") or "").split())
+                return "the packages installed for this profile could not be read" + (f": {why}" if why else "")
+        return ""
 
     def check_s5_dependencies(self) -> None:
         """What is installed in the PROJECT's environment against the project's lock (RH1-4, F-8 (c)).
@@ -2861,6 +2948,7 @@ class Rehearsal:
         check = "s5_dependencies"
         root = self.project_root
         self._drift = []
+        self._drift_all = []          # every entry, `unknown` included: the F-14 clause of a card reads it (`_unread_clause`)
         if root is None or self._gate_switch("skip_dependencies"):
             return
         import dependency_drift
@@ -2891,6 +2979,11 @@ class Rehearsal:
         import dependency_drift
         return dependency_drift.drift_text(drift, of=getattr(self, "_drift_all", None))
 
+    def _plan_readable(self) -> bool:
+        """Is `work/test-plan.json` a plan the rehearsal can read (a list of rows or an object holding them)? Only then does an
+        empty `automate_rows()` mean "no automate row" and not "the plan could not be read"."""
+        return isinstance(_read_json(self.task_root / "work" / "test-plan.json", None), (list, dict))
+
     def check_s5_toolchain(self) -> None:
         """Collect the tests that ALREADY exist, the way the project's own command would.
 
@@ -2908,13 +3001,23 @@ class Rehearsal:
         root = self.project_root
         if root is None or (self.config.get("gate_rehearsal") or {}).get("skip_collect"):
             return
+        if not self.automate_rows() and self._plan_readable():
+            # B-006 (iii): a plan with no `automate` row has no test for S5 to write or run, so the project's existing tests are
+            # collected for nothing and a toolchain card would ask about 0 cases. An unreadable plan is not "no automate row"
+            # (AR-28): it keeps today's collect.
+            return
         tests_root = (root / str(self.config.get("tests_root") or ".")).resolve()
         if not tests_root.is_dir():
+            # Q12: said, not silent - informs and passes nothing (FR-4)
+            self.note(check, f"the existing tests were not collected before {self.next_stage}: the project's tests folder "
+                             f"`{self.config.get('tests_root') or '.'}` is not a folder here; {self.next_stage} meets the toolchain first")
             return
         command = collect_base(self.config)
         if not command:
-            # Only a pytest-shaped command can be rehearsed this cheaply. A project on another
-            # runner is not told a step is broken — there is simply no step here to run.
+            # Only a pytest-shaped command can be rehearsed this cheaply. A project on another runner is not told a
+            # step is broken - but it IS told the existing tests were not collected (Q12; the one-road collect is U8's).
+            self.note(check, f"the existing tests were not collected before {self.next_stage}: the project's test command is not "
+                             f"one this check knows how to collect; {self.next_stage} meets the toolchain first")
             return
         try:
             timeout = int((self.config.get("gate_rehearsal") or {}).get("collect_timeout_s") or 120)
@@ -2942,13 +3045,12 @@ class Rehearsal:
                 # `launch_failed` and takes the unavailable branch below. The same fact `check_s5_executor` asks about, reached from the other side — so
                 # it is asked in the same words, with the same three answers. Two differently
                 # worded questions about one missing binary is two stops (TP2-2536).
+                # (U7 5a: the same decision as the first road - one conductor turn when the project names an install
+                # command and none was had for the key, else the card - through the one method)
                 profiles = self.keyed_profiles()
                 profile_id = next(iter(sorted(profiles)), "the project command")
                 cases = list((profiles.get(profile_id) or {}).get("cases") or [])
-                statement, options = executor_question(command[0], profile_id, cases, self.next_stage)
-                self.add(check, PERSON_DECIDES, statement, options,
-                         profile=profile_id, tool=command[0], cases=cases,
-                         options=executor_options(len(cases)))
+                self._missing_launcher(check, profile_id, command[0], cases)
             elif exc.kind == "timeout":
                 self.add(check, PERSON_DECIDES,
                          f"collecting the existing tests in `{self.config.get('tests_root') or '.'}` "
@@ -3080,7 +3182,7 @@ class Rehearsal:
 
         The ONE writer of the registry row `environments.page_load` (`project_knowledge.record`; refused in a story that leaves no
         trace, P8). Reused while `project_knowledge.page_load` says `measured`. A failure keeps no number, names its owner in the
-        note, and keeps its REASON in the same row (cause, why, time, attempts; the owner, 17.11.2026): the second start tries once more,
+        note, and keeps its REASON (one subject per stand; a kept reason is replaced in place, a measurement is a new row; cause, why, time, attempts; the owner, 17.11.2026): the second start tries once more,
         a second failure of the same cause stops the tries and carries the reason in the note (never a pass,
         AR-28) until the stand's definition or address changes or a person revokes the row. No project, `gate_rehearsal.skip_stand_limits: true`, nothing that uses the number, no stand, a stand with no web page
         (a device or API-only stand): nothing, no note."""
@@ -3140,8 +3242,8 @@ class Rehearsal:
 
     @staticmethod
     def _page_load_address(address) -> str:
-        text = str(address or "")
-        return text if len(text) <= 120 else text[:120] + "\u2026"
+        import manual_capture as MC
+        return MC.shown_address(address)
 
     def _page_load_text(self, got, when) -> str:
         """The ONE sentence of a measurement, used by a fresh note and a reused one: it says SIGNED OUT, says the number is a floor,
@@ -3192,14 +3294,16 @@ class Rehearsal:
         import manual_capture as MC
         import project_knowledge as PK
         cause = str(result.get("cause") or "factory")
-        if cause not in PK.PAGE_LOAD_CAUSES:
+        if cause not in PK.PAGE_LOAD_CAUSES + ("no_browser",):
             cause = "factory"
         why = " ".join(str(result.get("why") or "").split())[:PK.PAGE_LOAD_WHY_MAX]
         sha, address = self._page_load_identity(name)
         shown = self._page_load_address(address) if cause == "unreachable" else ""
         attempts = kept["attempts"] + 1 if kept and kept["cause"] == cause else 1
         problem = ""
-        if sha and address:
+        if cause == "no_browser":
+            problem = "the browser is a fact about this machine, so it is not kept"     # AR-4: noted per run, never carried
+        elif sha and address:
             value = {"failed": {"cause": cause, "why": why, "at": MC._now(), "attempts": attempts}, "definition_sha": sha, "address": address}
             try:
                 _, problem, _ = PK.record(self.project_root, key=PK.PAGE_LOAD_KEY, environment=name, element=PK.PAGE_LOAD_ELEMENT,
@@ -6036,10 +6140,11 @@ class Rehearsal:
 
 
 def run(task_root, gate: str = "A") -> dict:
-    """The rehearsal. Read-only except for ONE file and ONE registry row: gate A's `check_actor_sign_in` writes `state/sign-in-probe.json`
-    (the sign-in proof of each manual account, rewritten whole each run), and gate A's `check_stand_page_load` writes the stand's page load
-    through `project_knowledge.record` (project level, `records/project-knowledge.json`; refused in a story that leaves no trace); no other
-    state file is written by this call or anything it calls."""
+    """The rehearsal. Read-only except for these writes, the one list: gate A's `check_actor_sign_in` writes `state/sign-in-probe.json`
+    (the sign-in proof of each manual account, rewritten whole each run); the reporter check writes `state/reporter-rehearsals.json`
+    (the proofs of a test command's report) and `state/reporter-unread/` (a probe's report the code could not read); and gate A's
+    `check_stand_page_load` writes the stand's page load through `project_knowledge.record` (project level,
+    `records/project-knowledge.json`; refused in a story that leaves no trace). No other file is written by this call or anything it calls."""
     gate = str(gate or "A").upper()
     if gate not in GATE_STAGE:
         raise ValueError(f"gate must be one of: {', '.join(sorted(GATE_STAGE))}")
@@ -6048,7 +6153,7 @@ def run(task_root, gate: str = "A") -> dict:
         steps = (r.check_gate_decision, r.check_stage_guard, r.check_prepare,
                  r.check_role_permissions, r.check_cases, r.check_planning_contract,
                  r.check_vcs, r.check_stand, r.check_case_environment_gaps, r.check_role_accounts, r.check_actor_sign_in,
-                 r.check_s5_executor, r.check_s5_dependencies, r.check_s5_toolchain,
+                 r.check_s5_dependencies, r.check_s5_executor, r.check_s5_toolchain,
                  r.check_stand_page_load, r.check_stand_lessons,
                  r.check_s5_reporter, r.check_s5_runtime_probe,
                  r.check_s5_credentials,

@@ -2913,10 +2913,8 @@ def stand_page_load_lines(project, cfg: dict, env_name: str) -> list:
             return [f"- Stand page load: could not be read ({got['why']})"]
         if got["state"] != "measured":
             return []
-        address = str(got["address"])
-        if len(address) > STAND_LOAD_ADDRESS_CHARS:
-            address = address[:STAND_LOAD_ADDRESS_CHARS] + "\u2026"
         import manual_capture as MC
+        address = MC.shown_address(got["address"], STAND_LOAD_ADDRESS_CHARS)
         cap = MC.DEFAULT_TIMEOUT_S
         day = str(got["at"])[:10]
         if got["at_least"]:

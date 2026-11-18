@@ -91,7 +91,7 @@ class Targets(unittest.TestCase):
         self.assertEqual(C.triage_targets(empty)["manual"], {"TC-9"}, "an empty current list falls back, as the driver always read it")
         for nothing in (None, [], "x", {}, {"current_results": "x", "current_manual_checks": {"a": 1}}):
             got = C.triage_targets(nothing)
-            self.assertEqual(sorted(got), ["all", "manual", "names", "observations", "results", "unnamed", "unnamed_manual"])
+            self.assertEqual(sorted(got), ["all", "manual", "names", "observations", "results", "unnamed", "unnamed_manual", "unread"])
             self.assertEqual(got["all"] | got["manual"] | got["unnamed"] | got["unnamed_manual"], set(), repr(nothing))
             self.assertEqual(got["names"], [], repr(nothing))
 
@@ -125,6 +125,21 @@ class Targets(unittest.TestCase):
         legacy = {"results": history + [{"instance_id": "old", "status": "passed", "attempt_id": "a2"},
                                        {"instance_id": "still", "status": "failed"}]}
         self.assertEqual(C.triage_targets(legacy)["results"], {"still"}, "legacy: the latest row per instance decides")
+
+    def test_an_unread_row_is_a_target_of_its_own_kind(self):
+        """U7 7b-A: a `not_run` row coded `report_unread` is kind `unread`, named by all four keys (N3); a code on a passed row, a
+        row with no code and a nameless coded row (a note) are not targets; two rows on one unread target are `multiple`."""
+        import contract as C
+        coded = {"status": "not_run", "reason_code": C.REPORT_UNREAD_CODE}
+        report = {"current_results": [dict(coded, instance_id="u1", test_id="m::u1", test="m.u1", attempt_id="a1", case="TC-1"),
+                                      {"instance_id": "u2", "status": "passed", "reason_code": C.REPORT_UNREAD_CODE},
+                                      {"instance_id": "u3", "status": "not_run"}, dict(coded)]}
+        got = C.triage_targets(report)
+        self.assertEqual((got["unread"], got["names"], got["results"], len(got["unnamed"])), ({"u1"}, [], set(), 1))
+        failures, _notes = C.triage_failures(report)
+        self.assertEqual({key: found["names"] for key, found in failures.items()}, {("unread", "u1"): ["u1", "m::u1", "m.u1"]})
+        rows = [{"instance_id": "m.u1", "verdict": "NOT_EXECUTED"}]
+        self.assertEqual(list(C.bind_triage(failures, rows + [{"instance_id": "u1", "verdict": "APP_BUG"}])["multiple"]), [("unread", "u1")])
 
     def test_names_are_per_failure(self):
         import contract as C

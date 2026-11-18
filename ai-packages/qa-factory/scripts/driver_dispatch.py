@@ -45,9 +45,11 @@ KNOWN_REFUSALS = [
     # "expected_revision", "stands in front of gate"); the fact that the event is in the journal is
     # the one that decides. (FR-48, P3: the conductor is called for a problem.)
     # NOTE: its "projection stale" half also matches a `manifest_put.py` commit refusal, whose
-    # manifest projection the controller's `recover` does not rebuild; the driver does not run
-    # manifest_put today, so no such text reaches this row from here - a run that starts to
-    # would need a row of its own.
+    # manifest projection the controller's `recover` does not rebuild. The driver runs manifest_put in
+    # ONE place, the S5 close over a derived-empty scope (`stage_S5`, site `s5.nothing`, U7 5b): it
+    # answers the writer's stale exit (4) with `manifest_put.py --task <T> --recover` itself and never
+    # quotes the writer's text into a refusal, so no such text reaches this row from there. A second
+    # caller would need the same care, or a row of its own.
     # The pattern is the semicolon form every such text shares ("event committed; derived view not refreshed",
     # "event committed; projection stale", "event committed; the step that follows it did not finish",
     # "event already committed; ..."), not a list of what follows it: a refusal that says the event is committed
