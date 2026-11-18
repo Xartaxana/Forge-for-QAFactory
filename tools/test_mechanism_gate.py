@@ -772,12 +772,22 @@ def test_decide_full_tier_exact_model_id_passes():
     assert code == 0
 
 
-def test_decide_full_skip_line_without_tier_passes():
-    code, _ = mg.decide_full(
-        msg="docs: typo fix\n\naxes: not a mechanism (typo in rule 3)",
-        block_extra="", staged=["CLAUDE.md"], map_text="## Axis 1 --\n",
-        config_text=None)
-    assert code == 0
+_SKIP = "docs: typo fix\n\naxes: not a mechanism (typo in rule 3)\n"
+
+
+# FG7-72 (t-1368): moved pin of test_decide_full_skip_line_without_tier_passes -- a skip
+# passes on mechanism hits only with a Lead-tier line; the refusal names both doors.
+@pytest.mark.parametrize("msg, staged, code, fragment", [
+    (_SKIP + "tier: fable\n", ["CLAUDE.md"], 0, ""),
+    (_SKIP, ["CLAUDE.md"], 1, "two doors"),
+    (_SKIP + "tier: sonnet\n", ["CLAUDE.md"], 1, "two doors"),
+    (_SKIP + "```\ntier: fable\n```\n", ["CLAUDE.md"], 1, "CLAUDE.md"),
+    (_SKIP, ["gateway/metrics.py"], 0, ""),
+])
+def test_decide_full_skip_line_needs_a_lead_tier_line(msg, staged, code, fragment):
+    got, reason = mg.decide_full(msg=msg, block_extra="", staged=staged,
+                                 map_text="## Axis 1 --\n", config_text=None)
+    assert got == code and fragment in reason
 
 
 def test_decide_full_merge_commit_without_tier_passes():

@@ -13,7 +13,9 @@ without git):
 3. Skip line "axes: not a mechanism (<reason>)" (this template's
    English phrasing, COORDINATOR.md rule 10) works ONLY from the commit
    message -- a written statement by the committer, the same pattern
-   as `dispatch_skipped`. Not looked up in the diff: decision text that
+   as `dispatch_skipped` -- and ONLY together with a Lead-tier "tier:" line
+   (rule 7's acceptance, tier_declared_ok; FG7-72: a bare skip once let a
+   builder commit mechanism files). Skip without it is refused, naming both doors. Not looked up in the diff: decision text that
    quotes the skip syntax would otherwise bypass the gate. Inside the
    message itself the line counts ONLY as its OWN separate line
    (^...$ anchor with MULTILINE, indentation by spaces allowed) --
@@ -104,9 +106,8 @@ without git):
    rank_of_model(declared) >= the lead rank) -- a non-Claude binding has
    no family, so only an exact model-id match qualifies for it. The
    mechanism-commit reader for the Architect's batch review is
-   `--list --since <date|sha>`. The skip branch ("not a mechanism") and merge
-   commits do not require a tier line (same exemption net as the axis
-   block). The gate does NOT verify the declaration is true --
+   `--list --since <date|sha>`. Merge commits do not require a tier line; the skip
+   branch DOES since FG7-72 (point 3). The gate does NOT verify the declaration is true --
    two-layer enforcement: code guarantees the line's presence and
    shape, truth is judged by calibration against transcripts, a tier
    above.
@@ -771,8 +772,15 @@ def decide_full(msg: str, block_extra: str, staged: list[str],
     if code:
         return code, reason
     hits = mechanism_paths(staged)
-    if not hits or merging or _skip_declared(msg, scan_result):
+    if not hits or merging:
         return 0, ""
+    # FG7-72 (t-1368): a skip line no longer exempts the tier check -- a builder
+    # committed mechanism files with "axes: not a mechanism" alone. The skip is
+    # accepted only with a Lead-tier line, same function as the axis-block branch.
+    skipped = _skip_declared(msg, scan_result)
+    doors = (" -- two doors: the full axis block with a \"tier: <lead-tier model>\" line, or the "
+             "skip line \"axes: not a mechanism (<reason>)\" with a \"tier: <lead-tier model>\" line"
+             ) if skipped else ""
     binding = resolve_lead_binding(config_text)
     config_note = tier_ladder.effective_bindings(config_text)[1]
     # spec 2.4: a fallback road never drops its reason -- both refusals carry the config note
@@ -786,14 +794,14 @@ def decide_full(msg: str, block_extra: str, staged: list[str],
     if not declared_list:
         return 1, ("commit touches mechanism files:\n  " + "\n  ".join(hits)
                     + "\nNo \"tier: <value>\" line (lead binding: "
-                    + binding + ")" + note + " -- " + _tier_queue_note())
+                    + binding + ")" + note + " -- " + _tier_queue_note() + doors)
     bad = [d for d in declared_list if not tier_declared_ok(d, binding, config_text)]
     if bad:
         return 1, ("commit touches mechanism files:\n  " + "\n  ".join(hits)
                     + "\nNot lead tier: \"tier: " + bad[0]
                     + "\" does not match the binding (" + binding
                     + "); expected the lead binding or a model ranked lead or above on "
-                    "tools/tier_ladder.py" + note + " -- " + _tier_queue_note())
+                    "tools/tier_ladder.py" + note + " -- " + _tier_queue_note() + doors)
     return 0, ""
 
 
