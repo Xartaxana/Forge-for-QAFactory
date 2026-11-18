@@ -64,7 +64,7 @@ _FORM_TAIL = (
 )
 
 
-def _writing_payload(owns_text: str, session_id="s-1", cwd="D:\\ctl", description="sonnet: write") -> dict:
+def _writing_payload(owns_text: str, session_id="s-1", cwd="D:\\ctl", description="builder: write") -> dict:
     # owns is on ITS OWN line (a realistic manifest form for this kit:
     # each manifest item is a separate bullet line).
     prompt = (
@@ -227,7 +227,7 @@ def test_decide_bold_marker_writes_declared_paths_to_sidecar(tmp_path):
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -254,7 +254,7 @@ def test_two_bold_marker_manifests_with_overlap_detected(tmp_path):
     )
     payload1 = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt1, "description": "sonnet: write A"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt1, "description": "builder: write A"},
         "session_id": "s-A",
         "cwd": "D:\\ctl",
     }
@@ -272,7 +272,7 @@ def test_two_bold_marker_manifests_with_overlap_detected(tmp_path):
     )
     payload2 = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt2, "description": "sonnet: write B"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt2, "description": "builder: write B"},
         "session_id": "s-B",
         "cwd": "D:\\ctl",
     }
@@ -324,7 +324,7 @@ def test_decide_prose_with_bare_star_does_not_register_in_sidecar(tmp_path):
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -377,7 +377,7 @@ def test_decide_given_line_with_owns_in_filename_writes_declared_owns_only(tmp_p
         "tool_input": {
             "subagent_type": "builder",
             "prompt": _CONTROL_INPUT_PROMPT,
-            "description": "sonnet: write",
+            "description": "builder: write",
         },
         "session_id": "s-1",
         "cwd": "D:\\ctl",
@@ -514,7 +514,7 @@ def test_decide_multiline_owns_block_writes_declared_paths_to_sidecar(tmp_path):
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -554,7 +554,7 @@ def test_decide_continuation_limit_hit_gives_blind_owns_warn(tmp_path):
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -594,7 +594,7 @@ def test_decide_regression_prose_owns_word_sidecar_gets_real_target(tmp_path):
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -614,7 +614,7 @@ def test_prose_owns_word_mid_sentence_alone_gives_blind_warn_not_silence(tmp_pat
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -809,7 +809,7 @@ def test_decide_blind_owns_warn_when_marker_present_but_no_paths_parsed(tmp_path
     )
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "builder: write"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -825,7 +825,7 @@ def test_decide_true_readonly_no_marker_no_write_indicator_is_silent(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "scout", "prompt": "Find the file and read it.", "description": "haiku: scout"},
+        "tool_input": {"subagent_type": "scout", "prompt": "Find the file and read it.", "description": "scout: scout"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -844,7 +844,7 @@ def test_readonly_dispatch_is_silent_and_sidecar_not_grown(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "scout", "prompt": "Find the file and read it.", "description": "haiku: scout"},
+        "tool_input": {"subagent_type": "scout", "prompt": "Find the file and read it.", "description": "scout: scout"},
         "session_id": "s-1",
         "cwd": "D:\\ctl",
     }
@@ -1229,7 +1229,7 @@ def _k5_blocked_payload(session_id="s-k5-blocked"):
         "tool_input": {
             "subagent_type": "builder",
             "prompt": _K5_BLOCKED_PROMPT,
-            "description": "sonnet: x",
+            "description": "builder: x",
         },
         "session_id": session_id,
         "cwd": "D:\\ctl",

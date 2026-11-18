@@ -75,7 +75,7 @@ def _raise_scan(text):
 _NOW = datetime(2026, 8, 25, 12, 0, 0)
 
 
-def _writing_payload(prompt: str, session_id="s-1", cwd="D:\\ctl", description="sonnet: write") -> dict:
+def _writing_payload(prompt: str, session_id="s-1", cwd="D:\\ctl", description="builder: write") -> dict:
     return {
         "tool_name": "Task",
         "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": description},

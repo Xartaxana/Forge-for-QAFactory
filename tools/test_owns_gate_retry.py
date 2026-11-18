@@ -78,7 +78,7 @@ def _write_registry_line(path: Path, ts, session_key, cwd: str, description: str
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _writing_payload(owns_text: str, session_id="s-1", cwd="D:\\repo", description="sonnet: write") -> dict:
+def _writing_payload(owns_text: str, session_id="s-1", cwd="D:\\repo", description="builder: write") -> dict:
     prompt = (
         "DoD: the test is green, witness attached.\n"
         "Given: the whole repo.\n"
@@ -271,7 +271,7 @@ def test_record_missing_session_key_fail_closed_still_warns(tmp_path):
     registry = tmp_path / "owns_registry.jsonl"
     # session_key field is ABSENT from the record entirely.
     entry = {
-        "ts": _ts(_NOW), "cwd": "D:\\repo", "description": "sonnet: no session_key",
+        "ts": _ts(_NOW), "cwd": "D:\\repo", "description": "builder: no session_key",
         "owns": ["D:\\repo\\tools\\a.py"],
     }
     registry.parent.mkdir(parents=True, exist_ok=True)
