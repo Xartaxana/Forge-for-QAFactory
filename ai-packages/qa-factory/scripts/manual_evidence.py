@@ -1297,7 +1297,7 @@ def unprepared_rows(report) -> list:
 
 
 def _unprepared_scan(report) -> tuple:
-    """`({case: [all rows ok, obligation ids]}, {case keys of an unprepared row that is not ok})`; the ONE read of the rows.
+    """`({case: [all rows ok, obligation ids]}, {case keys of every current manual row that is not ok})`; the ONE read of the rows.
     A row is ok when it carries `unprepared`, no `result`, no `current_reason` (a stale walk never counts) and a marker whose `walked` is
     exactly True (`write_unprepared` always writes a bool; absent, False or any other value = nobody is known to have looked)."""
     rows = report.get("current_manual_checks") if isinstance(report, dict) else None
@@ -1308,7 +1308,7 @@ def _unprepared_scan(report) -> tuple:
             continue
         marker = row.get("unprepared")
         ok = (isinstance(marker, dict) and marker.get("walked") is True and not row.get("result") and not row.get("current_reason"))
-        if marker is not None and not ok:
+        if not ok:
             off.add(str(row["case"]))
         entry = cases.setdefault(str(row["case"]), [True, []])
         entry[0] = entry[0] and ok
@@ -1327,8 +1327,8 @@ def current_unprepared(report) -> dict:
 
 
 def unprepared_disqualified(report) -> set:
-    """The case keys of the current unprepared rows `current_unprepared` rejects (stale, not walked, with a result): a bare plan case
-    that one of them names is NOT a walked case even when another area's row of it is (U7 7c F3). Never raises: `set()` on any junk."""
+    """The case keys of the current manual rows that make `current_unprepared` reject (stale, not walked, with a result, no marker): a
+    bare plan case that one of them names is NOT a walked case even when another area's row of it is (U7 7c F3). Never raises: `set()`."""
     try:
         return _unprepared_scan(report)[1]
     except Exception:  # noqa: BLE001

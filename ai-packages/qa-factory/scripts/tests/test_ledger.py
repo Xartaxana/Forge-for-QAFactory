@@ -1562,6 +1562,7 @@ def an_unread_run_reads_as_checks_left_never_green():
             ("stale walk", [dict(walk, current_reason="stale")], ["TC-9"], "", no_result),
             ("F9: a marker with no walked field is not walked", [dict(walk, unprepared={"reason": "r"})], ["TC-9"], "", no_result),
             ("F3: web/TC-9 walked, api/TC-9 not walked", [dict(walk, case="web/TC-9"), dict(walk, case="api/TC-9", unprepared=off)], ["TC-9"], "", no_result),
+            ("F3: web/TC-9 walked, api/TC-9 a row with no marker", [dict(walk, case="web/TC-9"), {"case": "api/TC-9"}], ["TC-9"], "", no_result),
             ("unprepared + a failed sibling: the failure wins", [walk], ["TC-9", "TC-4"], "failed", "failed:untriaged"),
             ("F1: walked + a deferred passed sibling stays deferred", [walk], ["TC-9", "TC-4"], "passed", "deferred_by_decision")):
         report = {"current_manual_checks": rows, "current_results": [{"case": "TC-4", "instance_id": "i4", "status": sib}] if sib else []}
