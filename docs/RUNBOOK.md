@@ -146,7 +146,8 @@ GitHub её мерят (FK-4), дверь — строка `canon-over-hour: <п
 (UTC, понедельник и четверг; расписание GitHub берёт из файла на ветке по умолчанию, настраивать в вебе нечего);
 `workflow_dispatch` с входом `ref` (по умолчанию `main`) — разовый прогон: кнопка Run или `python tools/ci_read.py start
 --workflow quarantine-watch.yml --ref <ветка>`, отдельной переменной `QUARANTINE_WATCH` на GitHub нет (её роль играет сам
-запуск этого workflow); `push` в `main`, меняющий `ai-packages/qa-factory/.claude-plugin/plugin.json` (смена версии). Что читать:
+запуск этого workflow); `push` в `main`, меняющий `ai-packages/qa-factory/.claude-plugin/plugin.json` (смена версии). Пока workflow не активен на GitHub или в его файле нет cron, `python tools/test_quarantine.py enter`
+отказывает («the watch schedule cannot be confirmed»; дверь — `--owner-word`). Что читать:
 `python tools/test_quarantine.py status` (то же печатает строка `TEST QUARANTINE …` в начале сессии); результаты прогонов
 вытягивает `pull` в `plans/test-quarantine/watch.jsonl`; красное разбирает роль (`judge`), настоящий улов переносится (`land`) и
 сразу сообщается владельцу. Замер покрытия остающегося набора — `TEST_REDUNDANCY=1 REDUNDANCY_SCOPE=keep`, его
