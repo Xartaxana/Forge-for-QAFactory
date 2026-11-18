@@ -44,7 +44,7 @@ Hard constraints (all load-bearing):
   boundary, exactly like quota_lines().
 - Fast (<2s) and NO network at all (the NOW line's whole point is to
   guard against a narrative-future timestamp: read the system clock,
-  not a narrated/inferred time).
+  not a narrated/inferred time). The MAIN CI line (FG7-94) reads a file; its refresh is a DETACHED process after the read.
 - ASCII-safe output: some consoles run a non-UTF8 codepage. Every line
   built here is plain ASCII -- including the one line built from a
   NON-hardcoded source (MODEL from stdin), which goes through
@@ -705,6 +705,22 @@ def test_quarantine_line(root) -> list:
         return [str(x) for x in test_quarantine.status_line(root)]
     except Exception as exc:  # noqa: BLE001 -- fail-open by design
         return [f"TEST QUARANTINE: unavailable ({_ascii_sanitize(f'{type(exc).__name__}: {exc}', 120)})"]
+
+
+def main_red_lines(root) -> list:
+    """FG7-94 D5: the MAIN CI line of the red list (0 or 1 line): ONE file read and at most two local git calls (no network:
+    the header's promise), THEN a detached refresh (ci_read.main_red_launch, rate-limited, never waits) -- the read comes
+    first, the refresh rewrites the file. The one formatter is ci_read.main_red_line. Any failure: one `MAIN CI: unavailable`."""
+    try:
+        here = str(Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import ci_read
+        line = ci_read.main_red_line(root, time.time())
+        ci_read.main_red_launch(root, "session-start")
+        return [line] if line else []
+    except Exception as exc:  # noqa: BLE001 -- fail-open by design
+        return [f"MAIN CI: unavailable ({_ascii_sanitize(f'{type(exc).__name__}: {exc}', 120)})"]
 
 
 def gemini_aliases(config: dict) -> list:
@@ -2429,6 +2445,7 @@ def build_context_lines(
     architect_bound = _tl is None or _tl.architect_binding(config_text) is not None
     lines.append(last_calibration_line(events, now, session_function(stdin_payload, config_text), architect_bound))
     lines.extend(test_quarantine_line(root))
+    lines.extend(main_red_lines(root))
     lines.extend(quota_lines(gateway_root, now))
     lines.extend(boot_budget_lines(root))
 
