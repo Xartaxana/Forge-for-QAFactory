@@ -1,0 +1,1 @@
+- Internal measurer cleanup: one `compare.requests_of` collects a transcript's unique usage-carrying requests; the scoreboard bar's private copy is gone.
