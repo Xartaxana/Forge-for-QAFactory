@@ -56,6 +56,10 @@ _OWNED_PATH = "Z:/factory-x/tools/x.py"
 _DOD_LINE = "DoD: `python -m pytest tools/test_dispatch_gate.py -q`"
 
 
+# FG7-95: a hand-built dispatch owes the readers line, else dispatch_manifest adds a READERS NOTE; rows that compare exact note text carry it
+_READERS = "\nreaders: unknown -- fixture"  # after a blank line, as dispatch_new prints it
+
+
 def _manifest(given="the whole repo", owns=_OWNED_PATH, non_goals="none", handoff="a short report",
               edges="none -- nothing to limit", dod=_DOD_LINE, prefix="", suffix="",
               siblings="none -- a test fixture", designer="skip -- a test fixture"):
@@ -611,7 +615,7 @@ def test_echo_json_blocks_builder_without_dod():
 def test_echo_json_passes_builder_with_dod():
     # premise kept (a passing builder dispatch); fixture in the full new form
     result = _run_hook(
-        _builder_payload(_manifest(prefix="Fix it."), description="builder: fix")
+        _builder_payload(_manifest(prefix="Fix it.", suffix=_READERS), description="builder: fix")
     )
     assert result.returncode == 0
     assert result.stderr == ""
@@ -1752,7 +1756,7 @@ def test_decide_writing_non_builder_is_checked():
 
 
 def test_main_full_manifest_builder_exit_0_silent():
-    result = _run_hook(_builder_payload(_manifest(prefix="Fix it."), description="builder: fix"))
+    result = _run_hook(_builder_payload(_manifest(prefix="Fix it.", suffix=_READERS), description="builder: fix"))
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""
     # FLIPPED (B-245): no cwd -> the pass carries the P11 note instead of silence
@@ -2676,7 +2680,7 @@ def test_P10_path_after_a_blank_line_in_given_is_not_read(tmp_path):
 
 
 def test_P11_no_cwd_is_a_note_not_a_check(tmp_path):
-    d = _pdecide(_root(tmp_path), given="tools/gone.py", cwd=False)
+    d = _pdecide(_root(tmp_path), given="tools/gone.py", cwd=False, suffix=_READERS)
     assert d.code == 0 and d.notes == ["PATH CHECK: paths unchecked: no cwd"]
 
 
@@ -2767,7 +2771,7 @@ def test_f626_an_owns_path_with_a_function_list_passes_the_path_check_by_the_pat
 
 def test_decide_keeps_the_pair_and_main_prints_the_path_lines(tmp_path, monkeypatch, capsys):
     root = _root(tmp_path)
-    payload = _builder_payload(_manifest(given="tools/have.py", owns=str(root / "tools" / "have.py")),
+    payload = _builder_payload(_manifest(given="tools/have.py", owns=str(root / "tools" / "have.py"), suffix=_READERS),
                                description="builder: x")
     payload["cwd"] = str(root)
     assert dispatch_gate.decide(payload) == (0, "")
