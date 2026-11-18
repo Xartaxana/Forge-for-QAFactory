@@ -73,9 +73,10 @@ def push_main(e, files):
     g(e.dev, "push", "-q", "origin", "HEAD:main")
 
 
-def go(e, name, node=None, ci=None, task="t-868", piles_skip=None):
+def go(e, name, node=None, ci=None, task="t-868", piles_skip=None, leftover_ok=None):
     out = []
-    w = wave.Wave(e.root, name, task, node, ci=ci or (lambda r, s: "success"), out=out.append, piles_skip=piles_skip)
+    w = wave.Wave(e.root, name, task, node, ci=ci or (lambda r, s: "success"), out=out.append, piles_skip=piles_skip,
+                  leftover_ok=leftover_ok)
     return w.run(), "\n".join(out), w
 
 
@@ -479,7 +480,7 @@ def test_branch_in_dirty_worktree_is_kept_E_C3_12(env):
     wt = env.tmp / "wt19"
     g(env.root, "worktree", "add", "-q", str(wt), "b19")
     (wt / "README").write_text("dirty\n")
-    rc, out, _ = go(env, "b19")
+    rc, out, _ = go(env, "b19", leftover_ok="test")      # a dirty worktree is a leftover now (FG7-67): the door is needed
     assert rc == 0 and "branch: kept, checked out in" in out and "(dirty)" in out and wt.exists()
     assert g(env.root, "branch", "--list", "b19") != "" and blob(env, "f.txt") == b"x\n"
     assert "remote kept: " in out and g(env.origin, "branch", "--list", "b19") != ""      # Q4
@@ -755,17 +756,24 @@ def test_test_volume_budget_and_door(env, t, p, door, merged, where):
         assert len(g(env.origin, "rev-list", "--merges", "main").split()) == 1
 
 
+FLAGS = ["--tests-over", "--leftover-ok"]
+
+
+@pytest.mark.parametrize("flag", FLAGS)
 @pytest.mark.parametrize("reason", ["", "  ", "a\nb", "x" * 301])
-def test_tests_over_refused_input_needs_no_git_world(tmp_path, reason, capsys):
-    rc = wave.main(["merge", "v2", "--task", "t-868", "--tests-over", reason, "--repo", str(tmp_path)])
-    assert rc == 2 and "refused: --tests-over" in capsys.readouterr().out
+def test_reason_flags_refused_input_needs_no_git_world(tmp_path, flag, reason, capsys):
+    rc = wave.main(["merge", "v2", "--task", "t-868", flag, reason, "--repo", str(tmp_path)])
+    assert rc == 2 and "refused: " + flag in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("flag", FLAGS)
 @pytest.mark.parametrize("reason", ["x", "x" * 300, " " + "x" * 300])
-def test_tests_over_accepted_input_merges(env, reason):
+def test_reason_flags_accepted_input_merges(env, flag, reason):
     vol_branch(env, "v2", 5, 2)
-    rc = wave.main(["merge", "v2", "--task", "t-868", "--tests-over", reason, "--repo", str(env.root)])
-    assert rc == 0 and g(env.origin, "log", "-1", "--format=%B", "main").splitlines()[-1] == "tests-over: " + reason.strip()
+    extra = ["--tests-over", "w"] if flag == "--leftover-ok" else []     # the volume door the branch needs anyway
+    rc = wave.main(["merge", "v2", "--task", "t-868", flag, reason, *extra, "--repo", str(env.root)])
+    assert rc == 0 and g(env.origin, "log", "-1", "--format=%B", "main").splitlines()[-1] == "tests-over: " + (
+        reason.strip() if flag == "--tests-over" else "w")
 
 
 def test_a_numstat_that_cannot_be_computed_is_one_line_and_the_merge_goes_on(env, monkeypatch):
@@ -790,3 +798,45 @@ def test_a_local_tip_that_is_not_the_pin_is_not_pushed_P4_Q2(env):
     out = []
     rc = wave.Wave(env.root, "p2", "t-868", None, ci=lambda r, s: "success", out=out.append, pin=accepted).run()
     assert rc == 2 and "!= accepted" in "\n".join(out) and g(env.origin, "rev-parse", "p2") == accepted
+
+
+def leftover_world(e, name, kind):
+    branch(e, name, {"f.txt": "x\n"})
+    if kind == "absent":
+        return None
+    g(e.root, "fetch", "-q", "origin")
+    g(e.root, "branch", name, "origin/" + name)
+    wt = e.tmp / ("wt-" + name)
+    g(e.root, "worktree", "add", "-q", str(wt), name)
+    if kind == "prunable":
+        shutil.rmtree(wt)
+    if kind == "nested":
+        g(e.tmp, "init", "-q", str(wt / "sub"))
+        (wt / "sub" / "a.txt").write_text("a")
+    dirty = {"junk": {"critic_snapshot.json": "{}"}, "cr": {"README": "a\r\n"}, "real": {"README": "mine\n"},
+             "untracked": {"new.txt": "n\n"}, "many": {"n%02d.txt" % i: "n" for i in range(25)}}
+    for rel, text in dirty.get(kind.split("+")[0], {}).items():
+        (wt / rel).write_bytes(text.encode())
+    return wt
+
+
+@pytest.mark.parametrize("kind, flag, rc, shows", [
+    ("clean", None, 0, "leftover: none"), ("absent", None, 0, "leftover: none"), ("junk", None, 0, "leftover: none"),
+    ("cr", None, 0, "leftover: none"), ("real", None, 2, "door 2: --leftover-ok"), ("untracked", None, 2, "  new.txt"),
+    ("many", None, 2, "+5 more"), ("prunable", None, 0, "leftover: none"), ("nested", None, 2, "nested repositor"),
+    ("nested", "why", 2, "does not pass it"), ("real", None, 2, "origin/main as last fetched"), ("clean", "why", 0, "no leftover; --leftover-ok unused"),
+    ("real", "why", 0, "leftover: salvaged refs/worktree-sweep/salvage/lo/"), ("real+fail", "why", 2, "could not be saved")])
+def test_leftover_of_the_branch_worktree_refuses_or_is_salvaged_FG7_67(env, monkeypatch, kind, flag, rc, shows):
+    wt = leftover_world(env, "lo", kind)
+    if kind.endswith("+fail"):
+        monkeypatch.setattr(ws, "salvage_leftover", lambda *a: (False, "boom"))
+    before = origin_main(env)
+    status = g(wt, "status", "--porcelain") if wt and wt.exists() else ""
+    got, out, _ = go(env, "lo", leftover_ok=flag)
+    assert got == rc and shows in out
+    if wt and wt.exists():
+        assert g(wt, "status", "--porcelain") == status                       # the worktree is never written
+    if rc:
+        assert origin_main(env) == before and "pushed:" not in out and out.count("\n  n") <= 20   # nothing before fetch/push
+    if flag and "salvaged" in out:
+        assert g(env.root, "for-each-ref", "refs/worktree-sweep/salvage/lo") != ""
