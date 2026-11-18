@@ -308,6 +308,8 @@ def layers_cli_cases(root: Path) -> None:
     for label, entries, bodies, fails, note in (          # FG7-81: the carrier of a named_by entry names the key (2.1, 2.2)
             ("carrier names only a longer name", [carrier], {"carrier.md": "xtest_det.py test_det_part.py\n"}, 1, False),
             ("a line number", [carrier + ":3"], {"carrier.md": "x\ntest_det.py\n"}, 1, False),
+            ("a line range", [carrier + ":3-4"], {"carrier.md": "x\ntest_det.py\n"}, 1, False),
+            ("a line anchor", [carrier + "#L3"], {"carrier.md": "x\ntest_det.py\n"}, 1, False),
             ("symbol in the file", [tdir + "test_det.py::MARK"], {"test_det.py": "MARK = 1\n"}, 0, False),
             ("symbol missing from the file", [tdir + "test_det.py::MARK"], {"test_det.py": "NO_MARK = 1\n"}, 1, False),
             ("symbol on a prose carrier", [carrier + "::MARK"], {"carrier.md": "MARK test_det.py\n"}, 1, False),

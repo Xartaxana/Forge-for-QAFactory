@@ -791,7 +791,7 @@ def _named_by_form(entry) -> str:
     if sep and not _NAMED_BY_SYMBOL.fullmatch(symbol):
         return "an empty or non-identifier symbol"
     if (not rel or rel.startswith("/") or "\\" in rel or re.match(r"[A-Za-z]:", rel) or ".." in rel.split("/")
-            or re.search(r":\d+$", rel)):
+            or ":" in rel or re.search(r"#L\d+", rel)):     # no package path holds a colon; `#L57` is a line anchor
         return "not a relative `/` path without a line number"
     if sep and not re.fullmatch(r"scripts/tests/test_[A-Za-z0-9_]+\.py", rel):
         return "a symbol is allowed on scripts/tests/test_*.py only"
