@@ -34,7 +34,9 @@ is an ancestor of origin/main and origin's journal is a byte-prefix of the root'
 try: git refuses on overlap and the line names its reason and up to 5 paths); under the journal lock
 the root's journal bytes are copied aside (sha256 H), the file is put to its HEAD state (or removed when HEAD lacks it),
 the merge runs, and WHATEVER its result the bytes are written back and checked against H. A mismatch keeps the copy and is
-exit 1. Exit codes: 0 done, 1 done but something named must be fixed by hand (piles refusal, journal restore mismatch),
+exit 1. One exception (FG7-85): when the write-back raises OSError and the copy equals origin's journal, wave itself stages
+the journal and runs the ff-only merge, only if the root is on main, has no other staged change and its journal's current
+bytes equal HEAD's or the copy; otherwise the copy stays and it is exit 1. Exit codes: 0 done, 1 done but something named must be fixed by hand (piles refusal, journal restore mismatch),
 2 refused before any push. A step-9 failure after the push never turns into "refused": the summary is printed and a
 restore mismatch is exit 1 after it."""
 from __future__ import annotations
@@ -551,7 +553,14 @@ class Wave:
             rc, staged, _e = git(root, "diff", "--cached", "--name-only")
             if rc != 0 or [p for p in staged.split() if p != rel]:
                 return "the root has other staged changes"
-            _atomic_write(root / rel, copy.read_bytes())
+            want = copy.read_bytes()
+            path = root / rel
+            now = path.read_bytes() if path.exists() else None
+            hrc, hb = git_bytes(root, "show", "HEAD:" + rel)
+            if now != want and now != (hb if hrc == 0 else None):
+                return "the journal changed inside the window"     # P1 t-1454: a line an unlocked writer added is never overwritten
+            if now != want:
+                _atomic_write(path, want)
             if git(root, "add", "--", rel)[0] != 0:
                 return "git add failed"
             rc, o, err = git(root, "merge", "--ff-only", "origin/" + MAIN)
