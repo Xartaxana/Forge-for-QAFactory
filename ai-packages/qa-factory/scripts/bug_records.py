@@ -64,8 +64,7 @@ def _natural_key(path: Path) -> tuple:
     return (0 if m else 1, int(m.group(1)) if m else 0, path.name)
 
 
-def _one_line(text) -> str:
-    return " ".join(str(text or "").split())
+_one_line = C.one_line   # FG7-1: the one survivor of the fold-and-cut class
 
 
 def _ref(value) -> str:

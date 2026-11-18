@@ -32,6 +32,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import base_slice as BS  # noqa: E402
+import contract as C  # noqa: E402
 import diff_pass as DP  # noqa: E402
 import grounding_table as GT  # noqa: E402
 import handoff_check as HC  # noqa: E402
@@ -72,8 +73,7 @@ def _text_sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _one_line(text) -> str:
-    return " ".join(str(text).split())
+_one_line = C.one_line   # FG7-1; None now gives "" (no caller passes None: `first` is "" or text, the others are str or an exception)
 
 
 # --- the bytes of the story: shared by the freshness check and the build ----------------------------------------------------------
