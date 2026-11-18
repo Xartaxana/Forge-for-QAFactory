@@ -92,7 +92,7 @@
   },
   "test_arch_check.py": {
    "layer": "data_join",
-   "why": "data join: the rows of references/detectors.json (keys sleep, locator) reach arch_check.check_files — shipped rows, missing keys, a broken file, custom rows (test_arch_check.py:163-188); its former forge carrier plans/builder-rules.md item 14 was dissolved (t-1133)",
+   "why": "data join: the rows of references/detectors.json (keys sleep, locator) reach arch_check.check_files \u2014 shipped rows, missing keys, a broken file, custom rows (test_arch_check.py:163-188); its former forge carrier plans/builder-rules.md item 14 was dissolved (t-1133)",
    "covers": [
     "arch_check.py",
     "references/detectors.json",
@@ -3697,7 +3697,15 @@
   },
   "test_probe_by_code.py": {
    "layer": "data_join",
-   "why": "AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here",
+   "why": "split shim: re-exports for importers; checks live in test_probe_by_code_bindings.py, test_probe_by_code_mutations.py, test_probe_by_code_receipts.py, test_probe_by_code_records.py, test_probe_by_code_two_profiles.py, test_probe_by_code_exit_order.py",
+   "covers": [
+    "tests/probe_by_code_common.py"
+   ],
+   "named_by": []
+  },
+  "test_probe_by_code_bindings.py": {
+   "layer": "data_join",
+   "why": "AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here (part of test_probe_by_code.py split, TD-11c)",
    "covers": [
     "acceptance.py",
     "assertion_detectors.py",
@@ -3711,7 +3719,108 @@
     "tests/probe_entries.py",
     "tests/test_manifest_from_tests.py",
     "tests/test_red_sandbox_probe.py",
-    "window_record.py"
+    "window_record.py",
+    "tests/probe_by_code_common.py"
+   ]
+  },
+  "test_probe_by_code_mutations.py": {
+   "layer": "data_join",
+   "why": "AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here (part of test_probe_by_code.py split, TD-11c)",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py",
+    "tests/probe_by_code_common.py"
+   ]
+  },
+  "test_probe_by_code_receipts.py": {
+   "layer": "data_join",
+   "why": "AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here (part of test_probe_by_code.py split, TD-11c)",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py",
+    "tests/probe_by_code_common.py"
+   ]
+  },
+  "test_probe_by_code_records.py": {
+   "layer": "data_join",
+   "why": "AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here (part of test_probe_by_code.py split, TD-11c)",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py",
+    "tests/probe_by_code_common.py"
+   ]
+  },
+  "test_probe_by_code_two_profiles.py": {
+   "layer": "data_join",
+   "why": "AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here (part of test_probe_by_code.py split, TD-11c)",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py",
+    "tests/probe_by_code_common.py"
+   ]
+  },
+  "test_probe_by_code_exit_order.py": {
+   "layer": "data_join",
+   "why": "AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here (part of test_probe_by_code.py split, TD-11c)",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py",
+    "tests/probe_by_code_common.py"
    ]
   },
   "test_probe_by_code_alternative.py": {
@@ -3728,6 +3837,7 @@
     "proof_level.py",
     "red_sandbox.py",
     "tests/harness.py",
+    "tests/probe_by_code_common.py",
     "tests/test_probe_by_code.py"
    ]
   },
@@ -3738,6 +3848,7 @@
     "install_paths.py",
     "probe_by_code.py",
     "tests/harness.py",
+    "tests/probe_by_code_common.py",
     "tests/test_probe_by_code.py"
    ]
   },
@@ -3753,6 +3864,7 @@
     "proof_level.py",
     "reporters.py",
     "tests/harness.py",
+    "tests/probe_by_code_common.py",
     "tests/probe_by_code_languages_common.py",
     "tests/probe_entries.py",
     "tests/test_probe_by_code.py"
@@ -3770,6 +3882,7 @@
     "proof_level.py",
     "reporters.py",
     "tests/harness.py",
+    "tests/probe_by_code_common.py",
     "tests/probe_by_code_languages_common.py",
     "tests/probe_entries.py",
     "tests/test_probe_by_code.py"
@@ -3787,6 +3900,7 @@
     "proof_level.py",
     "reporters.py",
     "tests/harness.py",
+    "tests/probe_by_code_common.py",
     "tests/probe_by_code_languages_common.py",
     "tests/probe_entries.py",
     "tests/test_probe_by_code.py"
@@ -6344,15 +6458,90 @@
     "tests/test_controller_state.py"
    ]
   },
-  "test_story_sides.py": {
+  "test_story_sides_driver_table.py": {
    "layer": "table",
-   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c) (part of test_story_sides_driver.py split, TD-11c)",
    "covers": [
     "contract.py",
     "stage_done.py",
     "references/side-realities.json",
     "tests/harness.py",
-    "tests/story_run_common.py"
+    "tests/story_run_common.py",
+    "tests/story_sides_common.py",
+    "tests/story_sides_driver_common.py"
+   ]
+  },
+  "test_story_sides_driver_answers.py": {
+   "layer": "table",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c) (part of test_story_sides_driver.py split, TD-11c)",
+   "covers": [
+    "contract.py",
+    "stage_done.py",
+    "references/side-realities.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/story_sides_common.py",
+    "tests/story_sides_driver_common.py"
+   ]
+  },
+  "test_story_sides_driver_unreadable.py": {
+   "layer": "table",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c) (part of test_story_sides_driver.py split, TD-11c)",
+   "covers": [
+    "contract.py",
+    "stage_done.py",
+    "references/side-realities.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/story_sides_common.py",
+    "tests/story_sides_driver_common.py"
+   ]
+  },
+  "test_story_sides_driver_reread.py": {
+   "layer": "table",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c) (part of test_story_sides_driver.py split, TD-11c)",
+   "covers": [
+    "contract.py",
+    "stage_done.py",
+    "references/side-realities.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/story_sides_common.py",
+    "tests/story_sides_driver_common.py"
+   ]
+  },
+  "test_story_sides_absent_side.py": {
+   "layer": "table",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c)",
+   "covers": [
+    "contract.py",
+    "stage_done.py",
+    "references/side-realities.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/story_sides_common.py"
+   ]
+  },
+  "test_story_sides_registry.py": {
+   "layer": "table",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c)",
+   "covers": [
+    "contract.py",
+    "stage_done.py",
+    "references/side-realities.json",
+    "tests/harness.py",
+    "tests/story_sides_common.py"
+   ]
+  },
+  "test_story_sides_readers.py": {
+   "layer": "table",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c)",
+   "covers": [
+    "contract.py",
+    "stage_done.py",
+    "references/side-realities.json",
+    "tests/harness.py",
+    "tests/story_sides_common.py"
    ]
   },
   "test_story_step.py": {
