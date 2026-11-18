@@ -3627,7 +3627,7 @@ class DriverMachine:
         # FR-7 block, never to a wrong one. `dispatch` is the one the s1_exit_gate branch may have reassigned (E4); the seam token
         # reaches `_file_words` (a token of a seam question is not words for a role).
         self._file_words(kind, dispatch, asked, words, qtext, seam_token)
-        self.record_answer_row(self.s0_normalize(words) if seam_token else "", dispatch)
+        self.record_answer(self.s0_normalize(words) if seam_token else "", dispatch)
         if asked.get("deferred_n") is not None:
             # RN1-24 (E10, E12): the answer to a DEFERRED question was read above by the original question's own executors. Its stage (S6)
             # is closed already, so a `retry` (the move `person_does`, read from `asked.options`, never from the word) found no step to
@@ -3760,7 +3760,7 @@ class DriverMachine:
         self.answer_row(f"{stage} first look, the code ({token}): ", words.strip(), what="your answer about the code")
         # F1: the row carries the token THIS executor read (the first line), never the whole normalized answer: `first_look_code_look`
         # and the date line of the next question read the row by that token, so `source` + a second line still prints the command
-        self.record_answer_row(token)
+        self.record_answer(token)
         if token == "continue":
             try:
                 self._first_look_continue(stage)
@@ -3781,7 +3781,7 @@ class DriverMachine:
                         lead=self.unread_lead(words), again=lambda said: self.held_question(said))
             return False
         self.answer_row(f"{stage} absent side ({token}): ", words.strip(), what="your answer about the missing part")
-        self.record_answer_row(token)
+        self.record_answer(token)
         name = str(self.state.get("absent_side") or "")
         if token == "not ours":
             try:
