@@ -7,12 +7,12 @@
     python -B scripts/tests/driver_golden.py --golden-dir <dir> probe reorder-resume-with
 
 A full record is minutes to an hour on a loaded machine; the slices (`record --only a.py,b.py`, repeated until every file
-is in) join ONE golden, which must come from one package state - record from a frozen copy (`--package <copy>`) while other
-work edits the tree. A golden that lacks a test file is incomplete: compare refuses it, naming the file.
+is in) join ONE golden, which must come from one package state (the driver files are fingerprinted one by one: a slice after a
+driver file changed is refused) - record from a frozen copy (`--package <copy>`) while other work edits the tree. A golden that lacks a test file is incomplete: compare refuses it, naming the file.
 
 (`--record`, `--compare`, `--stability`, `--probe NAME` are the same modes as flags.)
 
-What it does: runs each test file of the story-runner rig (the 12 `test_story_run_*.py` that use `run_scenarios`, plus the
+What it does: runs each test file of the story-runner rig (the files of `driver-golden-rules.json` `files.rig_glob` that make one `run_scenarios` call, plus the
 files of `driver-golden-rules.json` `files.outside`, each one unit `_main`) as `python -B <file>` with the recorder
 (`golden_sitecustomize`) on PYTHONPATH, so that every process of the test records one ORDERED TRACE per scenario (see
 `driver_trace.py`). `record` saves the traces under `--golden-dir`, which lives OUTSIDE the package (the release copy must
@@ -47,7 +47,7 @@ import driver_trace as T  # noqa: E402
 
 MODES = ("record", "compare", "stability", "probe")
 PROBES = ("reorder-resume-with",)
-SCHEMA = 1
+SCHEMA = 2                        # 2: MANIFEST `driver_sha256` (one sha per driver file) replaced the one-file fingerprint (FG7-78)
 
 
 class Refusal(Exception):
@@ -106,21 +106,48 @@ def layer_map(root: Path) -> dict:
         return {}
 
 
+MAP_REL = "scripts/tests/fixtures/driver-layers.json"
+
+
+def driver_files(root: Path) -> list:
+    """D1: the ONE list of the driver, [(rel path, Path)] in the order of the root map's `layers`. Read by the recorder's traced
+    modules, the provenance allowed set, the fingerprint and the coverage report. A missing or broken map, empty `layers`, or a
+    stem with no file is refused before any run (FG7-78 F4): a one-file set never passes for the whole driver."""
+    path = root / MAP_REL
+    try:
+        layers = json.loads(path.read_text(encoding="utf-8")).get("layers", [])
+    except (OSError, ValueError, AttributeError) as exc:
+        raise Refusal(f"the layer map {path} cannot be read ({exc.__class__.__name__}): expected the package's "
+                      f"driver-layers.json, the one list of the driver files.")
+    out = []
+    for layer in layers:
+        for stem in layer:
+            rel = f"scripts/{stem}.py"
+            if not (root / rel).is_file():
+                raise Refusal(f"driver-layers.json layers names {stem}, which has no {rel} in {root}: expected a file for every "
+                              f"stem (remove the stem from {path} or restore the file).")
+            out.append((rel, root / rel))
+    if not out:
+        raise Refusal(f"the layer map {path} has no `layers` stems: expected the driver's modules there, never a silent default.")
+    return out
+
+
 def driver_modules(root: Path) -> list:
-    """The module stems whose `print` the golden records (Q3): the map's modules, else `story_run` alone."""
-    stems = []
-    for layer in layer_map(root).get("layers", []):
-        stems.extend(layer)
-    return stems or ["story_run"]
+    """The module stems whose `print` the golden records (Q3): the stems of the D1 list."""
+    return [Path(rel).stem for rel, _path in driver_files(root)]
 
 
 def allowed_patterns(root: Path, rules: dict) -> list:
     patterns = list(rules.get("provenance_allowed", []))
-    for layer in layer_map(root).get("layers", []):               # the driver set: the map's own modules
-        patterns.extend(f"scripts/{module}.py" for module in layer)
+    patterns.extend(rel for rel, _path in driver_files(root))     # the driver set: the D1 list
     for row in layer_map(root).get("source_readers", []):
         patterns.append("scripts/tests/" + row["file"])
     return patterns
+
+
+def driver_sha256(root: Path) -> dict:
+    """{rel path: sha256 over the bytes as read} of the D1 list: the driver fingerprint of the MANIFEST (E10)."""
+    return {rel: sha_file(path) for rel, path in driver_files(root)}
 
 
 def changed_files(recorded: dict, now: dict) -> list:
@@ -201,8 +228,8 @@ def check_root(root: Path, manifest: dict) -> None:
     if recorded and not same_root(recorded, root):
         raise Refusal(f"the golden was recorded in the package root {recorded} (commit {manifest.get('package_commit') or 'unknown'}), "
                       f"this run is in {root} (commit {package_commit(root) or 'unknown'}): the same bytes in another directory "
-                      f"are another trace. Expected the same root: re-record here, or freeze the package at {recorded} "
-                      f"(experiments/driver-golden/freeze_package.sh).")
+                      f"are another trace. Expected the same root: re-record here, or record in the hand-run workflow "
+                      f"driver-golden.yml (.github/workflows/driver-golden.yml), which keeps one path for base and head.")
 
 
 def discover(root: Path, rules: dict) -> dict:
@@ -482,6 +509,11 @@ def slice_base(golden: Path, hashes: dict, whole: bool, root: Path, rules: dict)
         raise Refusal(f"the golden in {golden} was recorded with schema {data.get('schema')} / Python {data.get('python')}, "
                       f"this run is schema {SCHEMA} / Python {python_minor()}: a slice must join a golden of its own kind. "
                       f"Delete the directory to start over.")
+    moved = changed_files(data.get("driver_sha256", {}), driver_sha256(root))
+    if moved:
+        raise Refusal(f"the golden in {golden} was recorded on other driver bytes ({', '.join(moved[:8])}"
+                      f"{' ...' if len(moved) > 8 else ''} changed): lines and traces measured on two driver versions never join "
+                      f"one golden. Delete the directory to start over, or record from a frozen copy (--package <copy>).")
     patterns = allowed_patterns(root, rules)
     drift = [c for c in changed_files(data.get("package_files", {}), hashes) if not any(fnmatch.fnmatch(c, p) for p in patterns)]
     if drift:
@@ -523,7 +555,7 @@ def write_golden(golden: Path, runs: dict, found: dict, root: Path, rules: dict,
                 continue
             (folder / f"{scenario}.jsonl").write_bytes(("\n".join(lines) + "\n").encode("ascii"))
     manifest = {"schema": SCHEMA, "python": python_minor(), "hashseed": "0",
-                "story_run_sha256": sha_file(root / "scripts" / "story_run.py"),
+                "driver_sha256": driver_sha256(root),
                 "package_files": hashes, "recorder_sha256": recorder_hash(root), "package_root": str(root),
                 "package_commit": package_commit(root), "files": stems,
                 "excluded": [{"unit": f"{e['file']}::{e['scenario']}", "reason": e["reason"]}
@@ -586,9 +618,8 @@ def summary(recorded=0, compared=0, equal=0, untagged=0, excluded=0, extra="") -
 
 
 # --- coverage ---------------------------------------------------------------------------------------------------
-def coverage_report(root: Path, hits: dict, rules: dict) -> dict:
-    """C1: the lines of story_run.py no scenario ran, as maximal runs with their function, home and guard."""
-    path = root / "scripts" / "story_run.py"
+def file_coverage(path: Path, hit_lines: set, homes: dict) -> dict:
+    """C1 of ONE driver file: the lines no scenario ran, as maximal runs with their function, home and guard."""
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source)
     code = compile(source, str(path), "exec")
@@ -598,9 +629,8 @@ def coverage_report(root: Path, hits: dict, rules: dict) -> dict:
         co = stack.pop()
         executable.update(l for _s, _e, l in co.co_lines() if l)
         stack.extend(c for c in co.co_consts if hasattr(c, "co_code"))
-    covered = set(hits.get("story_run.py", set())) & executable
+    covered = set(hit_lines) & executable
     never = sorted(executable - covered)
-    homes = {row["name"]: row["home"] for row in layer_map(root).get("names", [])}
 
     spans = []                                         # (start, end, qualified name)
 
@@ -676,9 +706,21 @@ def coverage_report(root: Path, hits: dict, rules: dict) -> dict:
         func = function_of(start)
         items.append({"lines": [start, end], "function": func, "home": homes.get(func) or homes.get(
             func.split(".")[0], ""), "guard": guard_of(start)})
-    return {"schema": SCHEMA, "python": python_minor(), "story_run_sha256": sha_file(path),
-            "executable_lines": len(executable), "covered_lines": len(covered), "never_run_lines": len(never),
-            "never_run": items}
+    return {"sha256": sha_file(path), "executable_lines": len(executable), "covered_lines": len(covered),
+            "never_run_lines": len(never), "never_run": items}
+
+
+def coverage_report(root: Path, hits: dict, rules: dict) -> dict:
+    """D3: C1 over the D1 list: one block per driver file under `driver_files` (never `files`: crap_report reads that key as
+    coverage.py JSON) plus totals. A file with no executable line reads 0 of 0 (E8)."""
+    homes = {row["name"]: row["home"] for row in layer_map(root).get("names", [])}
+    listed = driver_files(root)
+    names = {Path(rel).name for rel, _path in listed}
+    for name in sorted(set(hits) - names):                      # E6: a line of a file outside the list never raises coverage
+        say(f"coverage: hits for {name} are no driver file of the list, not counted")
+    blocks = {Path(rel).name: file_coverage(path, hits.get(Path(rel).name, set()), homes) for rel, path in listed}
+    totals = {k: sum(b[k] for b in blocks.values()) for k in ("executable_lines", "covered_lines", "never_run_lines")}
+    return {"schema": SCHEMA, "python": python_minor(), **totals, "driver_files": blocks}
 
 
 # --- modes ------------------------------------------------------------------------------------------------------
@@ -753,8 +795,10 @@ def do_record(args, root: Path, rules: dict, found: dict, golden: Path, only=Non
         if len(data.encode("utf-8")) > int(rules["caps"]["coverage_bytes"]):
             raise Refusal(f"coverage-n0.json would be {len(data)} bytes, over caps.coverage_bytes.")
         (golden / "coverage-n0.json").write_text(data, encoding="utf-8", newline="\n")
-        say(f"coverage: story_run.py {report['covered_lines']} of {report['executable_lines']} executable lines ran; "
-            f"{report['never_run_lines']} never ran, in {len(report['never_run'])} runs -> {golden / 'coverage-n0.json'}")
+        say(f"coverage: driver {len(report['driver_files'])} files, {report['covered_lines']} of {report['executable_lines']} "
+            f"executable lines ran; {report['never_run_lines']} never ran -> {golden / 'coverage-n0.json'}")
+        for name, block in report["driver_files"].items():
+            say(f"coverage:   {name} {block['covered_lines']} of {block['executable_lines']}")
     slow = sorted(((t, f"{r.name}::{s}") for r in runs.values() for s, t in r.timing.items()), reverse=True)[:5]
     say("slowest scenarios (s): " + ", ".join(f"{n} {t:.1f}" for t, n in slow))
     say("record cost: " + ", ".join(f"{r.name[:-3]} {r.seconds:.0f}s" for r in runs.values()))
@@ -1068,8 +1112,9 @@ def main(argv=None) -> int:
         if args.jobs < 1:
             raise Refusal(f"--jobs {args.jobs}: expected 1 or more (1 runs the files one after another).")
         if not args.golden_dir:
-            raise Refusal("--golden-dir is required: the golden lives outside the package, for example "
-                          "--golden-dir <repo>/experiments/driver-golden.")
+            raise Refusal("--golden-dir is required: the golden lives outside the package; the door that records one "
+                          "is the hand-run workflow driver-golden.yml (.github/workflows/driver-golden.yml, a later node), "
+                          "or --golden-dir <an empty directory outside the package> with `record` on the parent commit.")
         if args.coverage and mode != "record":
             raise Refusal("--coverage goes with record: the coverage record is made by the recording run.")
         if args.debug_text:
@@ -1082,6 +1127,7 @@ def main(argv=None) -> int:
             os.environ[T.ENV_RULES] = str(Path(args.rules).resolve())
         rules = T.load_rules(args.rules)
         check_rules_file(root)
+        driver_files(root)                                  # D1: a missing map or a ghost stem is refused before any run (E2, E3)
         found = discover(root, rules)
         golden = Path(args.golden_dir).resolve()
         only = parse_only(args.only, found)
