@@ -458,6 +458,56 @@ def n15_a_gave_up_stop_files_the_free_answer_for_its_dispatch() -> None:
             harness.cleanup(root)
 
 
+FV316_WORDS, FV316_MORE = "please try the second window\r\n", "or use the other stand\r\n"
+FV316_GO = (("retry", "person_does"), ("go on", "go_on_as_is"), ("stop", "stop_here"))
+FV316_P1, FV316_P2 = "please try the second window", "or use the other stand"
+
+
+def fv316_unread_answer_row() -> None:
+    """FV3-16 card P (t-1244): the audit row of an answer the seam read and the conductor asked back (Person) is written BEFORE the
+    Person leaves `take_answer` - once per answer, one writer - and a halt's free words are filed for the role before the seam."""
+    def ask(kind, stage, dispatch):
+        def setup(driver):
+            driver.ask(story_run.Person(kind, "What now?", stage, dispatch))
+            if kind == "environment":
+                driver.state["stand_question"] = stage
+        return setup
+
+    def ticket(driver):
+        driver.ticket_changed_from_files = lambda lead="": story_run.Person("ticket_changed", lead + "The ticket changed.", "S0", "")
+        driver.ask(story_run.Person("ticket_changed", "The ticket changed.", "S0", ""))
+    halt = ask("halt", "S1", "S1-qa-x-1")
+    # (label, dispatch, setup, verdicts, turns) - a turn is (answer bytes, rows so far as (kind, token), pending_words of the dispatch)
+    cases = (
+        ("1 halt, free words, asked back", "S1-qa-x-1", halt, [], [(FV316_WORDS, [("halt", "")], FV316_P1)]),
+        ("2 stand, free words, asked back", "", ask("environment", "S5", ""), [], [(FV316_WORDS, [("environment", "")], None)]),
+        ("3 halt, asked back, then `go on` asked back again (the seam token road)", "S1-qa-x-1", halt, [verdict(FV316_GO), verdict(FV316_GO)],
+         [(FV316_WORDS, [("halt", "")], FV316_P1), ("go on\r\n", [("halt", ""), ("halt", "go on")], FV316_P1)]),
+        ("4 halt, asked back, then free words again", "S1-qa-x-1", halt, [verdict(FV316_GO)],
+         [(FV316_WORDS, [("halt", "")], FV316_P1), (FV316_MORE, [("halt", ""), ("halt", "")], FV316_P2)]),
+        ("5 a halt answered `stop`", "S1-qa-x-1", halt, [], [("stop\r\n", [("halt", "stop")], None)]),
+        ("6 a seam question answered `stop`", "S5-qa-x-1", lambda d: seam_asked(d), [], [("stop\r\n", [("conductor", "stop")], None)]),
+        ("7 `ticket_changed` unread: one row", "", ticket, [], [("something else entirely\r\n", [("ticket_changed", "")], None)]),
+        ("7b `ticket_changed` answered `stop`: the row carries `stop` (F-A2)", "", ticket, [], [("stop\r\n", [("ticket_changed", "stop")], None)]),
+        ("8 conductor `continue` (control)", "S1-qa-x-1", halt, [{"action": "continue", "did": "done"}], [(FV316_WORDS, [("halt", "")], FV316_P1)]),
+    )
+    for label, dispatch, setup, verdicts, turns in cases:
+        root, task_root, driver = logged_rig(answers=verdicts)
+        try:
+            setup(driver)
+            for n, (data, rows, pending) in enumerate(turns, 1):
+                person = take(driver, answer(task_root, f"a{n}.md", data.encode()))
+                if person is not None and n < len(turns):
+                    driver.ask(person)
+                got = jsonl(task_root / "state" / "driver-answers.jsonl")
+                check_eq(f"FV3-16 {label}: turn {n} rows (kind, token)", [(r["kind"], r["token"]) for r in got], rows)
+                check_eq(f"FV3-16 {label}: turn {n} pending_words", driver.state["pending_words"].get(dispatch), pending)
+            check_eq(f"FV3-16 {label}: the last row is the last answer's (file whole)", (task_root / got[-1]["words_file"]).read_bytes(),
+                     turns[-1][0].encode())
+        finally:
+            harness.cleanup(root)
+
+
 S4_CRITIC, S4_DESIGNER = "S4-qa-case-critic-1", "S4-qa-case-designer-1"
 S4_BUDGET = {"counted": 2, "cap": 2, "passes": {"qa-case-designer": "round pass 3 for qa-case-designer on S4:aaa",
                                                  "qa-case-critic": "round pass 3 for qa-case-critic on S4:bbb"}}
@@ -850,6 +900,7 @@ def main() -> None:
         n14_price_labels_that_cannot_be_read,
         n15_a_gave_up_stop_files_the_free_answer_for_its_dispatch,
         fv16_s4_review_limit,
+        fv316_unread_answer_row,
     ):
         scenario()
     harness.finish("no_move seam_n2b_n15")
