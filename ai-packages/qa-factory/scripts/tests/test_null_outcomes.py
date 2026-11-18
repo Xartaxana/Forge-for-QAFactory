@@ -600,8 +600,9 @@ def the_debt_row() -> None:
     row = rows[0] if rows else ""
     for needle in ("references/null-outcomes.json", "`pending[]`", "t-305", "B-253"):
         check_in(f"K0.15: the row names {needle}", needle, row)
-    check("K0.15 positive control: the same line filter finds the pilot's FR-23 row (one more row mentions FR-23 alone)",
-          len([ln for ln in debt.splitlines() if ln.startswith("|") and "FR-23" in ln]) >= 2)
+    # RD1-23 (S1b): the FR-23-alone row (R5) moved to "Fixed"; the control re-points to a row that stays, the same filter shape
+    check("K0.15 positive control: the same line filter finds the `| FR-21 |` row (a row that stays open)",
+          len([ln for ln in debt.splitlines() if ln.startswith("|") and "FR-21" in ln]) >= 1)
 
 
 # ------------------------------------------------------------------------------------------- K0.16

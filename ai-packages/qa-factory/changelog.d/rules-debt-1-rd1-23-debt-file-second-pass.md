@@ -1,0 +1,1 @@
+The rules-debt file moved the rows closed by the phase-2 cards to "Fixed since this walk" (thirteen rows stay open), FR-5 and FR-23 name `references/null-outcomes.json` and `scripts/tests/test_null_outcomes.py` in their Check lines, and the K0.15 control now counts the `| FR-21 |` row.
