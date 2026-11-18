@@ -1013,6 +1013,39 @@ def refresh_keeps_a_row_by_the_one_matching_rule() -> None:
              ([""], []))       # `first_id` is "" for a row with no instance_id: one row kept, none archived
 
 
+def an_unread_target_keeps_its_analysts_row() -> None:
+    """U7 7b-A (B1, B5): a `not_run` row coded `report_unread` is a failure the S7 form names (zero rows: refused by name), the
+    reducer says no "no product failures" over it and the refresh keeps the analyst's row; the coded field survives the reduction."""
+    import finalize_task as F
+    root = temp_dir("qa-s7-unread-")
+    try:
+        task = root / "qa-factory" / "artifacts" / "QA-UNREAD"
+        write_json(task / "work" / "run-blocks" / "b1.json", {
+            "block_id": "b1", "attempt_started_at": "2026-01-01T00:00:00Z", "execution_status": "not_executed",
+            "results": [{"instance_id": "u1", "test_id": "mod::u1", "status": "not_run", "reason_code": "report_unread",
+                         "attempt_id": "b1"}]})
+        report, triage = F.reduce(task)
+        check_eq("the coded field survives the reduction", [r.get("reason_code") for r in report["current_results"]], ["report_unread"])
+        check_not_in("no `reason: no product failures` over an unread target", "reason", triage)
+        row = instance_row("u1", "NOT_EXECUTED", attempt_id="b1", limitation=["the log reads as passed: 1 passed"])
+        for label, rows, want in (("zero rows", [], ["scope"]), ("the analyst's row", [row], [])):
+            held = a_task(rows, report=report)
+            try:
+                with _Reduced(report) as finalize:
+                    finalize.refresh(held)
+                kept = json.loads((held / "work" / "triage.json").read_text(encoding="utf-8"))["triage"] if rows else []
+                _doc, _fixed, problems, _d = verdict_of(a_form(nfr=nfr_of(rows)), held)
+                check_eq(f"7b-A: {label}: the form's refusals", [p.path for p in problems], want)
+                check_eq(f"7b-A: {label}: no row archived", (len(kept), archived_rows(held)), (len(rows), []))
+                if not rows:
+                    check_in("7b-A: zero rows: refused naming the unread target", "want your reading: u1,", text_of(problems))
+                    check_in("7b-A: ...and what it wants", "results the run could not read", text_of(problems))
+            finally:
+                cleanup(held)
+    finally:
+        cleanup(root)
+
+
 def one_definition_no_local_set_building() -> None:
     """The class sentinel (FR-17: grep for the problem, not for the helper). In the three places that decide
     "this failure needs triage" - `finalize_task.refresh`/`reduce`, `story_run.failures_to_triage` and the S7
@@ -1110,6 +1143,7 @@ def main() -> None:
     a_failure_with_no_row_is_refused()
     ambiguity_and_multiple_rows_are_refused_on_both_s7_paths()
     refresh_keeps_a_row_by_the_one_matching_rule()
+    an_unread_target_keeps_its_analysts_row()
     one_definition_no_local_set_building()
     the_cmp2r_shape_is_accepted()
     a_reorder_row_is_a_repair()

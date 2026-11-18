@@ -1037,9 +1037,10 @@ def no_run_target(draft, report) -> bool:
 
 
 def _walk_has_no_run(draft, report, *, no_run: bool) -> bool:
-    """Is a draft one with no `current_results` row by construction: a code-reading draft, a draft with no run target (`no_run`, the
-    value of `no_run_target` the caller computed once), or a triage key that names a failure of kind `manual` / `observation` (F6)?
-    An unreadable report or key is False (the red-now fact then stays on)."""
+    """Is a draft one the red-now fact does not apply to: a code-reading draft, a draft with no run target (`no_run`, the
+    value of `no_run_target` the caller computed once), or a triage key that names a failure of kind `manual` / `observation`
+    (F6, no `current_results` row by construction) or `unread` (U7 7b-A: it HAS a current row, `not_run` and coded, which is not
+    red by construction - the analyst read its log)? An unreadable report or key is False (the red-now fact then stays on)."""
     if is_code_reading(draft) or no_run:
         return True
     instance = draft_triage_key(draft)[0]
@@ -1049,7 +1050,7 @@ def _walk_has_no_run(draft, report, *, no_run: bool) -> bool:
         failures = C.triage_failures(report)[0]
     except Exception:  # noqa: BLE001
         return False
-    return any(kind in ("manual", "observation") and instance in (got.get("names") or [])
+    return any(kind in ("manual", "observation", "unread") and instance in (got.get("names") or [])
                for (kind, _name), got in failures.items())
 
 
@@ -1082,7 +1083,8 @@ def reproduction_problems(task, draft, rows, report) -> tuple:
     # The two draft-wide facts, per entry kind (t-1991 §3.3 POSITION). Every non-walk entry is judged by BOTH, exactly as before;
     # a `walk` entry skips the APP_BUG fact only for a code-reading draft (no triage row by construction) or a draft with no run
     # target (`no_run_target`: the analyst's own triage row of a place the runner never ran is archived by finalize), and the red-now
-    # fact only for a draft with no current result by construction (code-reading, no run target, or a manual check / observation).
+    # fact only for a draft with no current result by construction (code-reading, no run target, or a manual check / observation)
+    # or whose current row is a coded `unread` one (`_walk_has_no_run`: that row is `not_run`, never red by construction).
     wide = _app_bug_problem(draft, rows) or _current_red_problem(draft, report)
     has_walk = any(isinstance(e, dict) and str(e.get("kind") or "").strip() == "walk" for e in entries)
     if wide and not has_walk:

@@ -84,7 +84,7 @@ Optional (arguments: your brief's Commands card).
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per failing test triaged, then `work/triage.json`.
 <!-- /gen -->
-- NOT_EXECUTED is code's word, for a manual check that did not answer.
+- NOT_EXECUTED is code's word for a manual check that did not answer, and yours for a test whose results the run could not read (an unread target, named in your brief): read that run's log (the summary its run block names, its `log_tail`) and write one row - `NOT_EXECUTED` with `limitation` quoting what the log shows ("the log reads as passed: <quote>" or "cannot tell: <why>"), or the failure verdict the log shows, with the fields that verdict requires. Never call it passed.
 
 <!-- kind: process -->
 ## When to ask

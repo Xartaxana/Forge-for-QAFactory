@@ -230,6 +230,12 @@ def decide(report, manifest, rows) -> dict:
             out["left"].append(key)
             out["why"][key] = "a row of the triage names it together with another failure"
             continue
+        if key[0] == "unread":
+            # after the bound/competing checks above, before the manual branch: an answered unread target is never re-left, and
+            # `_code_row` (manual only) never writes a row for one - code never reads a log as passed (FR-58)
+            out["left"].append(key)
+            out["why"][key] = "the run's report could not be read by code; the analyst reads its log"
+            continue
         if key[0] != "manual":
             out["left"].append(key)
             out["why"][key] = "a red test is the analyst's to judge"
@@ -273,8 +279,11 @@ def brief(left: list, unnamed: list, contradicted: bool = False) -> str:
     parts = []
     results = [name for kind, name in left if kind == "result"]
     manual = [name for kind, name in left if kind == "manual"]
+    unread = [name for kind, name in left if kind == "unread"]
     if results:
         parts.append("failed results " + ", ".join(results))
+    if unread:
+        parts.append("results the run could not read " + ", ".join(unread))
     if manual:
         parts.append("manual " + ", ".join(manual))
     parts += [str(note) for note in unnamed]
@@ -344,10 +353,11 @@ def triageable_not_executed(task_root, *, awaiting: str = "") -> bool:
       2. S6 FINISHED: the controller's `stages.S6.status` is `completed` (read by `stage_status`), or `awaiting`
          is non-empty (S6's runner dispatch awaits its consumer; `stage_S7` already holds that word);
       3. every deciding automated row (`current_results`, join-failed ghosts excluded exactly as the reducer excludes them)
-         reads `passed`;
+         reads `passed`, or is `C.is_unread_row` (7b-A);
       4. every current manual check reads `passed` or is a manual triage target of `contract.triage_targets` (a failure
          result, an `inconclusive`, an `unprepared` walk);
-      5. at least one manual target or one observation exists - otherwise there is nothing for a role to triage.
+      5. at least one manual target, one observation or one `unread` target exists - otherwise there is nothing for a role
+         to triage.
     What this is NOT: a halted run, a mixed story whose automated half broke (`not_run`, `partial`, `skipped`), a manual row
     with no result and no `unprepared`, a report with no rows. `execution_status` is never rewritten, and code never turns an
     unread row into `passed` (FR-58).
@@ -365,14 +375,18 @@ def triageable_not_executed(task_root, *, awaiting: str = "") -> bool:
         automated, manual = report.get("current_results"), report.get("current_manual_checks")
         if not isinstance(automated, list) or not isinstance(manual, list):
             return False
+        target = False
         for row in automated:
             if not isinstance(row, dict):
                 return False
             if str(row.get("current_reason") or "") == finalize_task.JOIN_FAILED:
                 continue
             if C.result_status(row) != "passed":
-                return False
-        target = False
+                # 7b-A: a `not_run` row the producer coded `report_unread` is the analyst's to read, not a halt; a `not_run`
+                # without the code stays False. Only a NAMED one is a target (rule 5)
+                if not C.is_unread_row(row):
+                    return False
+            target = target or bool(C.triage_targets({"current_results": [row]})["unread"])
         for row in manual:
             if not isinstance(row, dict):
                 return False
@@ -393,13 +407,13 @@ def pretriage(task_root) -> dict:
     failures and writes nothing. The driver calls it only while no S7 dispatch is in flight (the analyst writes the same
     file). Returns
       `written`  names of the failures a row was written for now;   `kept`  names every code row answers (new and old);
-      `left`     {"results": [...], "manual": [...], "unnamed": [...]} - what the analyst is asked about;
+      `left`     {"results": [...], "manual": [...], "unread": [...], "unnamed": [...]} - what the analyst is asked about;
       `analyst`  names the analyst's own rows answer;   `failures`  how many failures the report holds;
       `closes`   True when every failure is answered by a code row and nothing is left (S7 may close by code);
       `refused`  "" or the sentence saying what code could not do, with its door - then nothing was written;
       `notes`    lines for the driver's log."""
     task = Path(task_root)
-    res = {"written": [], "kept": [], "left": {"results": [], "manual": [], "unnamed": []}, "analyst": [],
+    res = {"written": [], "kept": [], "left": {"results": [], "manual": [], "unread": [], "unnamed": []}, "analyst": [],
            "failures": 0, "closes": False, "contradicted": False, "refused": "", "notes": []}
     problem = report_problem(task)
     if problem:
@@ -438,6 +452,7 @@ def pretriage(task_root) -> dict:
     res["failures"] = decision["failures"]
     res["left"] = {"results": [n for k, n in decision["left"] if k == "result"],
                    "manual": [n for k, n in decision["left"] if k == "manual"],
+                   "unread": [n for k, n in decision["left"] if k == "unread"],
                    "unnamed": list(decision["unnamed"])}
     # a `contradicts_requirement` row anywhere in the manifest keeps the analyst, even for a case that is not failing now:
     # CASE_DEFECT is the analyst's alone, and the driver has always dispatched it for such a row (t-352 F1)

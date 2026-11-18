@@ -5,10 +5,10 @@ The table is closed variety (FR-13, AR-1); this file carries no platform name, n
 and a value the table lacks is a hint to a role, never a refusal (AR-2). A project that has a web or API surface never reads
 the table in `declared_surfaces` / `row_for_profile` (`profiles_driven_by` reads it, RN1-3) (`table_free` rows of manual-capture-steps.json `capture_surfaces`, the same words the capture reads): the web
 road does not change by a byte. A project with a `native`, `desktop` or `cli` surface, or a word the table does not know,
-reads it, and silence is unreachable for it (P22): `declared_surfaces` says what goes to a person, and a config that
+reads it, and silence is unreachable for it (P22): `declared_surfaces` says what the agent role tries by hand, and a config that
 declares no surface at all (`undeclared`).
 
-Error direction (D-0021): `unsupported` errs toward saying too much, never toward "supported"; an unreadable table is a
+Error direction (D-0021): `declared_surfaces` errs toward saying too much, never toward "supported"; an unreadable table is a
 `ValueError` (factory-owned, AR-28), never an empty answer; `row_of` refuses a surface name the table lacks, so a typo
 never becomes the web.
 """
@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 TABLE_PATH = Path(__file__).resolve().parents[1] / "references" / "surfaces.json"
-AGENT_HANDS = ("browser", "http", "driver")     # the hands of an agent; any other row's cases go to a person
+AGENT_HANDS = ("browser", "http", "driver")     # the factory's own drivers; any other row's cases are the agent role's by hand
 UNKNOWN = "unknown"
 UNDECLARED = "undeclared"
 
@@ -87,11 +87,14 @@ def stand_rows(cfg) -> list:
 
 
 def _who(row: dict) -> str:
-    return "agent" if row.get("hands") in AGENT_HANDS else "person"
+    # U7 a2D1: a surface the factory has no driver for is the agent role's to try by hand first; the person gets only what the
+    # role could not do (P19 step 3, "role first"). The old word was "person": cases of such a surface were handed over untried.
+    return "agent" if row.get("hands") in AGENT_HANDS else "role"
 
 
 def declared_surfaces(cfg) -> dict:
-    """{surface: {"hands": "agent"|"person", "stand": <name or None>, "words": str}} for what the project declares; {} when
+    """{surface: {"hands": "agent" (a driver the factory has) | "role" (none: the agent role tries it by hand first),
+    "stand": <name or None>, "words": str}} for what the project declares; {} when
     there is nothing to say (a web or API project, read without the table). `{"unknown": <text>}` when the profiles cannot
     be read; `{"undeclared": {...}}` when the config declares no surface at all (no capability word, no environment naming a
     surface; `profiles` absent included): the web road is taken as before, but said out loud (U7 r2, F-1 (a); FR-4: it informs
@@ -132,7 +135,7 @@ def declared_surfaces(cfg) -> dict:
     other_arm = bool(arms & set(AGENT_HANDS))
     known = {row["capability"] for row in table.values()} | _table_free_words() | set(_not_surfaces(data))
     for word in sorted(capabilities - known):       # a word nothing describes: silence is unreachable (t-524 9.2, F-4); no word of any language is named
-        found.setdefault(word, {"hands": "person", "stand": None, "words": str((data.get("words") or {}).get("unknown_word") or "")
+        found.setdefault(word, {"hands": "role", "stand": None, "words": str((data.get("words") or {}).get("unknown_word") or "")
                                 .replace("{word}", " ".join(word.split())[:40])})
     for word in sorted(capabilities):
         for name, row in table.items():
@@ -141,18 +144,12 @@ def declared_surfaces(cfg) -> dict:
             if row["hands"] == "none":
                 if row.get("words_only_alone") and other_arm:
                     continue
-                found[name] = {"hands": "person", "stand": None, "words": str(row.get("words") or "")}
+                found[name] = {"hands": "role", "stand": None, "words": str(row.get("words") or "")}
             elif row["hands"] == "driver" and not any(
                     table[s]["capability"] == word for s in found if s in table):
-                found.setdefault(word, {"hands": "person", "stand": None,
+                found.setdefault(word, {"hands": "role", "stand": None,
                                         "words": str((data.get("words") or {}).get("no_stand") or "")})
     return found
-
-
-def unsupported(cfg) -> dict:
-    """{surface: words} of the declared surfaces whose cases go to a person. Errs toward saying too much."""
-    return {name: entry["words"] for name, entry in declared_surfaces(cfg).items()
-            if isinstance(entry, dict) and entry.get("hands") == "person"}
 
 
 def stand_for(cfg, asked: str = ""):
@@ -218,6 +215,15 @@ def row_for_profile(cfg, profile: str):
         return None
     fits = [row for row in rows()["surfaces"].values() if row["capability"] in words]
     return fits[0] if fits and len({row["hands"] for row in fits}) == 1 else None
+
+
+def nobody_words(cfg, profile: str) -> str:
+    """The table row's words when `profile`'s surface is driven by nobody (`hands: none`), else "". The one reader of that
+    question (planning's conversion line and `manual_evidence.prepare_request` both ask it). A broken table is the module's ValueError."""
+    row = row_for_profile(cfg, profile)
+    if isinstance(row, dict) and row.get("hands") == "none":
+        return str(row.get("words") or "") or "nobody drives this surface"
+    return ""
 
 
 def is_device_row(row) -> bool:
