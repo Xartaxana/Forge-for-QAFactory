@@ -868,6 +868,32 @@ def stability_diffs(first: dict, second: dict, only) -> list:
     return out
 
 
+def _reorder_resume_with(text: str) -> str:
+    """The probe's mutation, pure: in `resume_with` of driver_dispatch.py EXCHANGE the state write of the result and the
+    progress line that follows it (the lines between stay). The window is the method only, def to the first non-blank line indented 4 or less;
+    the progress line is the first one AFTER the write (resume_with has another before the run). FG7-76: the method moved from
+    story_run.py in the driver split and the probe refused 'anchor not found' on every run."""
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, l in enumerate(lines) if l.startswith("    def resume_with(")), -1)
+    dedent = lambda l: l.strip() and len(l) - len(l.lstrip(" ")) <= 4      # the next method, a decorator, or module code ends the window
+    end = next((i for i in range(start + 1, len(lines)) if dedent(lines[i])), len(lines)) if start >= 0 else -1
+    window = range(start + 1, end) if start >= 0 else range(0)
+    writes = [i for i in window if lines[i].strip() == '_write_json(self.state_dir / "driver-runs" / f"{dispatch}.json", result)']
+    progress = [i for i in window if writes and i > writes[0] and lines[i].strip().startswith("self.progress_line()")]
+    if len(writes) != 1 or len(progress) != 1:
+        raise Refusal("the probe's anchor was not found exactly once in resume_with of driver_dispatch.py (the "
+                      "`_write_json(... driver-runs ...)` line and the `self.progress_line()` line after it): "
+                      "update the probe's snippet in driver_golden.py.")
+    w, g = writes[0], progress[0]
+    # the newline of each exchanged line stays with its place: a CRLF file stays CRLF, a last line may have none
+    def split(s):
+        body = s.rstrip("\r\n")
+        return body, s[len(body):]
+    (a, ea), (b, eb) = split(lines[w]), split(lines[g])
+    lines[w], lines[g] = b + ea, a + eb
+    return "".join(lines)
+
+
 def do_probe(args, root: Path, rules: dict, found: dict, golden: Path, name: str) -> int:
     if name not in PROBES:
         raise Refusal(f"unknown probe {name!r}: the probes are {', '.join(PROBES)}.")
@@ -875,9 +901,9 @@ def do_probe(args, root: Path, rules: dict, found: dict, golden: Path, name: str
     check_python(manifest)
     check_root(root, manifest)
     check_recorder(root, manifest)
-    live = root / "scripts" / "story_run.py"
+    live = root / "scripts" / "driver_dispatch.py"        # the file the probe mutates (a copy of it)
     before = sha_file(live)
-    say(f"probe {name}: the live story_run.py sha256 before: {before}")
+    say(f"probe {name}: the live driver_dispatch.py sha256 before: {before}")
     with tempfile.TemporaryDirectory(prefix="driver-golden-probe-") as tmp:
         copy = Path(tmp) / "pkg"
         shutil.copytree(root, copy, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git"))
@@ -899,20 +925,8 @@ def do_probe(args, root: Path, rules: dict, found: dict, golden: Path, name: str
             return 2
         say(f"probe {name}: the control ({file_name} unmutated, at {copy}) recorded: "
             f"{len(control_runs[file_name].finals)} scenario traces")
-        target = copy / "scripts" / "story_run.py"
-        text = target.read_bytes().decode("utf-8")
-        nl = "\r\n" if "\r\n" in text else "\n"            # a checkout with autocrlf has CRLF: the anchor follows the file
-        write_line = '        _write_json(self.state_dir / "driver-runs" / f"{dispatch}.json", result)' + nl
-        anchor_start = text.find("    def resume_with(")
-        position = text.find(write_line, anchor_start) if anchor_start >= 0 else -1
-        next_line = text.find("        self.progress_line()", position) if position >= 0 else -1
-        # the two lines must be adjacent: the swap is of the state write and the progress line right after it
-        if position < 0 or next_line != position + len(write_line):
-            raise Refusal("the probe's anchor was not found in resume_with (the `_write_json(... driver-runs ...)` line "
-                          "followed by `self.progress_line()`): update the probe's snippet in driver_golden.py.")
-        end = text.find(nl, next_line) + len(nl)
-        progress_line = text[next_line:end]
-        mutated = text[:position] + progress_line + write_line + text[end:]
+        target = copy / "scripts" / "driver_dispatch.py"        # resume_with lives here since the driver split (FG7-76)
+        mutated = _reorder_resume_with(target.read_bytes().decode("utf-8"))
         target.write_bytes(mutated.encode("utf-8"))
         with tempfile.TemporaryDirectory(prefix="driver-golden-") as work:
             mutant_runs = run_files(copy, rules, [file_name], found, 1, False, Path(work))
@@ -925,7 +939,7 @@ def do_probe(args, root: Path, rules: dict, found: dict, golden: Path, name: str
         control = {s: l for s, l in control_runs[file_name].finals.items() if s != "_untagged"}
         mutant = {s: l for s, l in mutant_runs[file_name].finals.items() if s != "_untagged"}
     after = sha_file(live)
-    say(f"probe {name}: the live story_run.py sha256 after:  {after} ({'equal' if after == before else 'DIFFERENT'})")
+    say(f"probe {name}: the live driver_dispatch.py sha256 after:  {after} ({'equal' if after == before else 'DIFFERENT'})")
     if after != before:
         say("REFUSED: the live file changed during the probe: the probe works on a copy only (command hygiene p.7).")
         return 2
@@ -961,23 +975,44 @@ def do_probe(args, root: Path, rules: dict, found: dict, golden: Path, name: str
 
 def is_the_swap(control: list, mutant: list, seq: int) -> tuple:
     """(True, '') when the FIRST difference of two streams at `seq` is exactly the probe's mutation: the control has the
-    `driver-runs` write then the `[progress]` line, the mutant has them the other way round, the write itself unchanged, and
-    the streams are as long as each other. Anything else - a fingerprint, a path, a drop - is named in the second member."""
+    `driver-runs` write at `seq`, then (the records between, e.g. save_state's write) the first `[progress]` line at k; the mutant
+    has that progress line at `seq`, the SAME write at k, the records between equal, and the streams are as long as each other
+    (FG7-76 B1: the exchange in resume_with is no longer adjacent). The write is one unit with its own publish records (the
+    temp write and its `rename`, event_store._publish): the unit moves with it. Anything else is named in the second member."""
     def rec(lines, i):
         return json.loads(lines[i]) if 0 <= i < len(lines) else None
 
     def bare(r):
         return {k: v for k, v in r.items() if k != "seq"} if r else None
-    a, a1, b, b1 = rec(control, seq), rec(control, seq + 1), rec(mutant, seq), rec(mutant, seq + 1)
-    if None in (a, a1, b, b1):
+    progress = lambda r: r["kind"] == "stdout" and str(r["payload"].get("text", "")).startswith("[progress]")
+    a, b = rec(control, seq), rec(mutant, seq)
+    if a is None or b is None:
         return False, "a stream ends here"
     if len(control) != len(mutant):
         return False, f"the streams are {len(control)} and {len(mutant)} records long"
-    progress = lambda r: r["kind"] == "stdout" and str(r["payload"].get("text", "")).startswith("[progress]")
-    if not (a["kind"] == "write" and "driver-runs" in str(a["payload"].get("path", "")) and progress(a1)):
-        return False, f"the control's pair is {a['kind']} then {a1['kind']}, not the driver-runs write then the progress line"
-    if not (progress(b) and bare(b1) == bare(a)):
-        return False, f"the mutant's pair is {b['kind']} then {b1['kind']}, not the progress line then the same write"
+    if not (a["kind"] == "write" and "driver-runs" in str(a["payload"].get("path", ""))):
+        return False, f"the control has {a['kind']} here, not the driver-runs write"
+    unit = 1                                                    # the write and the renames that publish that very file
+    while True:
+        r = rec(control, seq + unit)
+        if r is not None and r["kind"] == "rename" and r["payload"].get("src") == a["payload"].get("path"):
+            unit += 1
+        else:
+            break
+    k = next((n for n in range(seq + unit, len(control)) if progress(rec(control, n))), -1)
+    if k < 0:
+        return False, "the control has no progress line after the driver-runs write"
+    if not progress(b):
+        return False, f"the mutant has {b['kind']} here, not the progress line"
+    gap = k - seq - unit                                        # records between the write's unit and the progress line
+    c_bare = [bare(rec(control, n)) for n in range(len(control))]
+    m_bare = [bare(rec(mutant, n)) for n in range(len(mutant))]
+    if m_bare[seq] != c_bare[k]:
+        return False, "the mutant's progress line is not the control's"
+    if m_bare[seq + 1:seq + 1 + gap] != c_bare[seq + unit:k]:
+        return False, "the records between the write and the progress line differ"
+    if m_bare[seq + 1 + gap:seq + 1 + gap + unit] != c_bare[seq:seq + unit]:
+        return False, "the mutant does not carry the same write after the records between"
     return True, ""
 
 
