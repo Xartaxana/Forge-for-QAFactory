@@ -1098,9 +1098,8 @@ def annotate_override(task_root, stage, match, fields) -> str:
         data = json.loads(path.read_text(encoding="utf-8"))
         def live(o):
             return o.get("stage") == stage and o.get("match") == match and not o.get("revoked_at")
-        if not isinstance(fields, dict) and (fields is None or fields) and any(
-                isinstance(o, dict) and live(o) for o in data.get("stage_overrides") or []):
-            dict().update(fields)  # type guard: today update(non-dict) raised here, class_fields would give {}
+        if not isinstance(fields, dict) and any(isinstance(o, dict) and live(o) for o in data.get("stage_overrides") or []):
+            fields = dict(fields)  # dict(x) reads what update(x) read: a non-dict is stamped or raises as before, never dropped
         waiver._stamp(data.get("stage_overrides"), live, fields)
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     except Exception as exc:
