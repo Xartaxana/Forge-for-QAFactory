@@ -45,7 +45,7 @@ def realistic_persons(driver) -> dict:
             "verified_source_revisions": [HEAD]}), command_row),
         "mismatched_sources": make("mismatched_sources", sources_mismatched("e2e-ui", ["src/app/page.ts", "src/app/main.ts"])),
         "mismatched_sources, a script among them": make("mismatched_sources", sources_mismatched("e2e-ui", ["src/app/page.ts", "build.py"])),
-        "mismatched_sources, no file listed": make("mismatched_sources", sources_mismatched("e2e-ui", [])),
+        "mismatched_sources, no file listed": make("mismatched_sources", sources_mismatched("e2e-ui", ["  ", None])),
         "confirm": make("confirm", unknown("e2e-ui", asks="confirm"), confirms_row),
         "method_failed": make("how", unknown("e2e-ui", tried=tried, registry_method_failed=out["command.failed"].format(
             why="python3: can't open file 'print_build.py'")), command_row),

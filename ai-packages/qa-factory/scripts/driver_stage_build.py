@@ -454,7 +454,7 @@ class DriverStageBuild:
         listed = record.get("differing_files")   # only a list is read: `differing_files: 5` raised here (critic t-1372 F7)
         files = [str(name) for name in listed] if isinstance(listed, list) else []
         names = self.build_names(files, q)
-        if variant == "mismatched_sources" and not any(n.strip() for n in files):
+        if variant == "mismatched_sources" and not any(isinstance(f, str) and f.strip() for f in (listed if isinstance(listed, list) else [])):
             # RD1-42 (critic t-1381): a content mismatch that lists no file read " differ from..."; refusal_text's own words fill it
             import profile_contract
             names = profile_contract.CONTENT_FILES_FALLBACK
