@@ -2275,10 +2275,11 @@ def _unconfirmed_words(root: Path, case_id: str, fact: dict) -> str:
 
 
 def _row_of_nobody(root: Path, profile: str, config: dict, lines: list, where: str, label, rid: str) -> str:
-    """The table's words for a profile whose surface nobody drives (`hands: none`), or "" (EP1-41f N-17; t-599 F-14).
+    """The table's words for a profile whose surface nobody drives (`hands: none`), or "" (t-599 F-14; U7 a2D1 reversed N-17).
 
-    `config` is the caller's lazy cache (`cfg`, `read`): the project config is read once per pass. ERROR DIRECTION: any doubt
-    (no config, an unknown profile, a broken table) gives "" - the row is converted as before, never lost; a broken table is
+    `config` is the caller's lazy cache (`cfg`, `read`): the project config is read once per pass. U7 a2D1: the caller converts
+    such a row like any other and says the words (the agent role tries it by hand first). ERROR DIRECTION: any doubt (no
+    config, an unknown profile, a broken table) gives "" - no line, the old road, never a lost row; a broken table is
     said once in `lines` when the config itself was read. Writes nothing else."""
     try:
         if not config["read"]:
@@ -2287,9 +2288,7 @@ def _row_of_nobody(root: Path, profile: str, config: dict, lines: list, where: s
             config["cfg"] = manual_capture.load_config(root)[0]
         if config["cfg"] is not None:
             import surfaces
-            table_row = surfaces.row_for_profile(config["cfg"], profile)
-            if table_row is not None and table_row.get("hands") == "none":
-                return str(table_row.get("words") or "") or "nobody drives this surface"
+            return surfaces.nobody_words(config["cfg"], profile)
     except ValueError as exc:
         if config["cfg"] is not None:       # the table, not the config: a factory defect, said once
             lines.append(f"{where}: {label(rid)}: the factory's table of test surfaces could not be read "
@@ -2304,7 +2303,8 @@ def _manual_agent_pass(root: Path, rows, where: str, label, lines: list) -> bool
     that converted a row: the same words applied again change nothing and say nothing.
 
     Mutates `rows` in place (a row is replaced by its changed copy, never edited half-way) and appends the
-    lines the person reads: one per row that changed, one per obligation that stays as planned and why.
+    lines the person reads: one per row that changed (two for a converted `hands: none` row: the conversion and the surface's
+    words), one per obligation that stays as planned and why.
     Idempotent: an obligation that already says `manual-agent` is not touched, so the same words applied
     again change nothing. Reads the cases (`contract.case_index`) and the level table; writes nothing."""
     if not isinstance(rows, list):
@@ -2331,19 +2331,16 @@ def _manual_agent_pass(root: Path, rows, where: str, label, lines: list) -> bool
         row = rows[index]
         rid = str(row.get("id") or f"row[{index}]")
         obligations = row.get("coverage_obligations")
-        # EP1-41f (N-17): a row whose profile is a surface nobody drives (`hands: none`) is not made `manual-agent`: it stays as
-        # planned and the table's words say why (P19 step 4). ERROR DIRECTION: any doubt (no profile, no config, an unknown profile,
-        # a broken table) is the old road - the row is converted as before, never lost. Web: the table is not read.
+        # U7 a2D1 (reverses EP1-41f N-17; P19 step 3, role first): a row whose profile is a surface nobody drives (`hands: none`)
+        # is converted like any other and one line (said below, with the conversion) tells the person the agent tries it by
+        # hand first. Its attempt ends `unprepared` (no capture surface), never `passed`. ERROR DIRECTION: any doubt (no profile,
+        # no config, an unknown profile, a broken table, an empty obligation list) is the old road. Web: the table is not read.
         profile = str(row.get("execution_profile_id") or "").strip()
+        by_hand = ""
         if profile and isinstance(obligations, list) and obligations:
             if profile not in hands_of:
                 hands_of[profile] = _row_of_nobody(root, profile, config, lines, where, label, rid)
-            if hands_of[profile]:
-                for ob in obligations:
-                    if isinstance(ob, dict):
-                        lines.append(f"{where}: {label(rid)}: {str(ob.get('obligation_id') or '?')} stays as planned - "
-                                     f"{hands_of[profile]}")
-                continue
+            by_hand = hands_of[profile]
         if not isinstance(obligations, list) or not obligations:
             lines.append(f"{where}: {label(rid)} is checked by an agent by hand, but the plan lists nothing the "
                          "check must prove for it, so it is not made executable")
@@ -2428,6 +2425,9 @@ def _manual_agent_pass(root: Path, rows, where: str, label, lines: list) -> bool
             changed = True
             lines.append(f"{where}: {label(rid)}: made executable for the agent's check by hand - "
                          + ", ".join(f"{oid} (evidence: {policy})" for oid, policy in made) + ".")
+            if by_hand:
+                lines.append(f"{where}: {label(rid)}: {by_hand} What the agent cannot do is recorded `unprepared`, "
+                             "with what it tried.")
     if changed:     # a run that converted something names the obligations it could not; a repeat of the same words says nothing
         lines.extend(unsettled)
     return changed
