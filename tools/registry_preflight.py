@@ -336,11 +336,13 @@ def preflight(repo, base, head, out=print, runner=None):
 
 
 def _run_rows(repo, head, ids, entries, rep, say, runner):
-    tree = Path(repo) / ".claude" / "worktrees" / f"preflight-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
-    rc, _o, err = _git(repo, "worktree", "add", "--detach", str(tree), head)
+    tree = Path(repo) / ".claude" / "worktrees" / f"preflight-{time.strftime('%Y%m%d-%H%M%S')}"
+    # core.longpaths: a builder's worktree is already ~100 characters deep and the package has 176-character fixture paths
+    # (the checkout fails past 260 on Windows: "Could not reset index file")
+    rc, _o, err = _git(repo, "-c", "core.longpaths=true", "worktree", "add", "--detach", str(tree), head)
     if rc != 0:
         for rid in ids:
-            rep.rows.append((rid, "cannot", 0.0, row_lines(rid, "cannot", 0.0, f"worktree add: {err[:150]}")))
+            rep.rows.append((rid, "cannot", 0.0, row_lines(rid, "cannot", 0.0, f"worktree add: {err.splitlines()[-1][:150] if err else rc}")))
             say(rep.rows[-1][3][0])
         return
     try:
@@ -373,9 +375,9 @@ def _run_rows(repo, head, ids, entries, rep, say, runner):
 def _drop(repo, tree, say):
     """The order of wave.Wave.drop; a failure is one line, never a raise (the sweep cleans a leftover copy later)."""
     try:
-        _git(repo, "worktree", "remove", "--force", str(tree))
+        _git(repo, "-c", "core.longpaths=true", "worktree", "remove", "--force", str(tree))
         if tree.exists():
-            shutil.rmtree(tree, ignore_errors=True)
+            shutil.rmtree(("\\\\?\\" + str(tree)) if os.name == "nt" else tree, ignore_errors=True)   # the extended prefix: past 260 characters
         _git(repo, "worktree", "prune")
         if tree.exists():
             say(f"{MARK} the temporary tree {tree} was not removed; the worktree sweep cleans it later")
