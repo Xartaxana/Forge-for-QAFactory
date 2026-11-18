@@ -52,6 +52,8 @@
         {"file": "run_suite.py", "function": "probe_runtime", "role": "accept"},
         {"file": "gate_preflight.py", "function": "_observed_identity", "role": "accept"},
         {"file": "profile_contract.py", "function": "acceptable_provenance", "role": "accept"},
+        {"file": "profile_contract.py", "function": "provenance_word", "role": "produce"},
+        {"file": "profile_contract.py", "function": "local_source_request", "role": "validate"},
         {"file": "profile_contract.py", "function": "validate_runtime_provenance", "role": "validate"},
         {"file": "profile_contract.py", "function": "person_confirmed", "role": "validate"},
         {"file": "profile_contract.py", "function": "person_confirmed_problems", "role": "validate"},
@@ -69,13 +71,15 @@
         {"file": "gate_template.py", "function": "acceptable", "role": "library"}
       ],
       "field": "result",
-      "words": ["matched", "mismatched", "unknown", "not_applicable", "person_confirmed"],
+      "words": ["matched", "mismatched", "unknown", "not_applicable", "person_confirmed", "no_changed_file", "local_source"],
       "verdict_map": {
         "matched": {"class": "matched"},
         "mismatched": {"class": "mismatched"},
         "unknown": {"class": "unknown", "owner": "environment"},
         "not_applicable": {"class": "not_applicable"},
-        "person_confirmed": {"class": "person_confirmed"}
+        "person_confirmed": {"class": "person_confirmed"},
+        "no_changed_file": {"class": "not_applicable", "reason_code": "no_changed_file"},
+        "local_source": {"class": "not_applicable", "reason_code": "local_source"}
       },
       "accepts": {
         "provenance.automation": ["matched", "person_confirmed", "not_applicable:no_changed_file", "not_applicable:local_source"],
