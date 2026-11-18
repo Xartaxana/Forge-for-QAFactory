@@ -127,3 +127,7 @@ print("contracts compared:", len(names), "| differing:", diff)
 print("s7-automator-to-analyst diff lines:", sum(1 for _ in __import__("difflib").unified_diff(old_out["s7-automator-to-analyst"].split("\n"), new_out["s7-automator-to-analyst"].split("\n"), lineterm="")))
 print("rounds: [] present:", "\nrounds: []" in new_out["s7-automator-to-analyst"])
 ```
+
+# Round 4
+test_handoff_init_author.py::test_uniform_rule_every_contract: held = REQUIRED_LISTS minus rounds, nulled minus rounds, plus one assert that the s7-automator-to-analyst skeleton holds `rounds: []`. (A first edit left a broken string literal, a collection SyntaxError, fixed before the witness.)
+Witness: `python -m pytest .../test_handoff_init_author.py -q` -> `2 failed, 112 passed` (the two failures are the pre-existing test_s5_contracts_get_no_author_arg[s5-critic-to-automator|s5-critic-plan-to-automator], identical on main 5c9bd80b); driver `=== nodes: 43/43 ok ===`.

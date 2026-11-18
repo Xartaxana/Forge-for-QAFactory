@@ -143,10 +143,13 @@ def test_uniform_rule_every_contract(name):
     """E1-E3: only a top-level, non-required, non-null-outcome list is emptied; nested and required lists stay as written."""
     text = contract_text(name)
     out = handoff_init.empty_optional_lists(text, name)
-    nulled = handoff.null_outcomes(name)
+    nulled = set(handoff.null_outcomes(name)) - {"rounds"}        # FV3-30: `rounds` is judged by its sibling, its skeleton is unchanged
+    held = [p for p in handoff.REQUIRED_LISTS if p != "rounds"]
     before, after = handoff.parse(text).data, handoff.parse(out).data
+    if name == "s7-automator-to-analyst":
+        assert after.get("rounds") == [] and "\nrounds: []" in out, "rounds keeps its emptied skeleton"
     for path in handoff.list_paths(name):
-        if "." in path or path in handoff.REQUIRED_LISTS or path in nulled:
+        if "." in path or path in held or path in nulled:
             top = path.split(".")[0]
             assert after.get(top) == before.get(top), f"{path}: never rewritten"
         elif handoff.only_template(before.get(path)) and before.get(path):
