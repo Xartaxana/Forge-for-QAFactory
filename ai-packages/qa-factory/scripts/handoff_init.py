@@ -180,28 +180,18 @@ def fill_head(text: str, *, task: str, dispatch: str, role: str, stage: str, sco
     return doc.text()
 
 
-# F1 (b): the sections whose template rows are emptied in the role's copy, by contract. The contract files stay the schema.
-EMPTIED = {
-    "questions": ("s4-case-critic-to-designer",),
-    "findings": ("s4-case-critic-to-designer", "s5-critic-to-automator"),
-    "register_gaps": ("s4-case-critic-to-designer",),
-}
-
-
 def empty_optional_lists(text: str, contract: str) -> str:
-    """The role's copy with every optional list section of `EMPTIED` for this contract that still holds only template rows
+    """The role's copy with every optional top-level list section of this contract that still holds only template rows
     written as `<section>: []` followed by the sample rows as comment lines (F1 (b), B-11: a reader never meets a template row as
     data). Never touched: a `REQUIRED_LISTS` section, a `null_outcome` section, a section holding any real value (a carried or
     prefilled row). Runs LAST, after the carry and the prefill. A text that cannot be read is returned as it was."""
-    wanted = [name for name, contracts in EMPTIED.items() if contract in contracts]
-    if not wanted:
-        return text
-    try:
-        doc = handoff.parse(text)
+    try:                                                    # one uniform rule (critic t-1257 Q12), no contract named here
         nulled = handoff.null_outcomes(contract)
+        wanted = [p for p in handoff.list_paths(contract) if "." not in p and p not in handoff.REQUIRED_LISTS and p not in nulled]
+        if not wanted:
+            return text
+        doc = handoff.parse(text)
         for section in wanted:
-            if section in handoff.REQUIRED_LISTS or section in nulled:
-                continue
             if not isinstance(doc.data.get(section), list) or not doc.data.get(section):
                 continue
             if not handoff.only_template(doc.data.get(section)):
