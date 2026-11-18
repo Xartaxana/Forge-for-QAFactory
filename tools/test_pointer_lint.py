@@ -103,6 +103,7 @@ CASES = [
     *[("not stale: " + t, C(t), (), 0, ["ok ("]) for t in [
         "CLAUDE.md § 11", "rule 11 of CLAUDE.md", "toolkit/CLAUDE.md rule 10", "CLAUDE.md rule 11", "правило 11 `CLAUDE.md`",
         "COORDINATOR.md rule 3", "CLAUDE.md § Worker duties"]],
+    ("a tools file citing a retired rule (rule kind over the wide set)", {"tools/x.py": "# see CLAUDE.md rule 3\n"}, (), 1, ["tools/x.py:1: [R]"]),
     # numbers (E8, E9)
     ("more than 4 against 6", C("more than 4 WRITING workers"), PAIR, 1, ["[N] more than 4 WRITING", "tools/gate.py::CAP = 6"]),
     ("a word is the same as its digit", C("more than Six WRITING, then шесть"), PAIR, 0, ["ok ("]),

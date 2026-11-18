@@ -286,7 +286,7 @@ scan» разделён: храповики — уровень пачки, ск�
    стоит дороже, чем ловит. Запись — в `docs/tasks/test-diet.md`.
 4. Удаляя тестовый файл, убери его имя из реестров, которые его называют (`grep` по имени файла: `plans/features.json`,
    `slow_tests.json`, `CONTRACT_TESTS`/`TEST_TIMEOUTS` в `selftest.py`, `gate-registry.json`, `stage-joints.json`,
-   `driver-layers.json`, `judgment-census.json`); файл, который называет гейт, не удаляется — только
+   `driver-layers.json`, `.github/workflows/*.yml` (шаги — `FORGE_CHECK_RUNS`), `judgment-census.json`); файл, который называет гейт, не удаляется — только
    чистится.
 5. Правка не ослабляет проверку, которая остаётся: утверждение теста, которое переживает правку, не смягчается
    (формулировка старого брифа диеты тестов: «No weakening of an assertion that stays»).

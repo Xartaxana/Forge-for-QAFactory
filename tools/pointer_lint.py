@@ -39,6 +39,13 @@ SIBLING_MAP = "docs/SIBLING_MAP.md"
 EXEMPT_FILE = "tools/pointer-lint-exempt.json"
 CONTROL_DOCS = ("CLAUDE.md", "COORDINATOR.md", "docs/TESTING.md", ".claude/agents/critic.md")
 SKIP_CARRIERS = ("AGENTS.md", "ai-packages/")
+# The rule-reference kind alone runs over the old K-STALE file set (F11, Lead decision): every tracked text file outside these
+# records and quotations; the other kinds stay on the register. The two test files quote retired citations as their samples.
+WIDE_SUFFIXES = (".md", ".py", ".json", ".yaml", ".yml", ".txt")
+WIDE_EXCLUDED = SKIP_CARRIERS + ("DECISIONS.md", "docs/DECISIONS_ARCHIVE.md", "experiments/", "logs/", "kb/", "docs/tasks/specs/",
+                                 "docs/tasks/handoffs/", "docs/tasks/compact-snapshots/", "docs/task_reports/", "plans/piles/",
+                                 "tools/fixtures/", "docs/ADOPTION_LEDGER.md", "docs/PROJECT_FULL.md", "plans/BACKLOG.md",
+                                 "tools/test_pointer_lint.py", "tools/tests/test_role_carriers_one_owner.py")
 REPO_PREFIXES = ("C:/QAFactory/forge-repo/",)
 DOOR = 'fix the pointer, or add "%s|%s" with a why to ' + EXEMPT_FILE
 
@@ -47,7 +54,7 @@ P_HOME = ("docs/OWNER_PRINCIPLES.md", re.compile(r"^- \*\*P(\d+)\.\*\*"))
 COORD = "COORDINATOR.md"
 COORD_RULE_HEAD = re.compile(r"^### Rule (\d+)")
 ITEM_RE = re.compile(r"^\s*(\d+[a-z]?)\.\s")
-NOT_RULE_SECTIONS = ("command hygiene",)       # numbered points that are not rules: `CLAUDE.md rule 3` stays stale (K-STALE)
+NOT_RULE_SECTIONS = ("command hygiene",)       # numbered points that are not rules: a hygiene point cited as a rule of CLAUDE.md stays stale (K-STALE)
 
 # (the TOC file, the heading of its table, the column that holds the pointer)
 TOC_TABLES = [("COORDINATOR.md", "Contents", "Where"), ("PROJECT.md", "Оглавление", "Раздел")]
@@ -350,6 +357,7 @@ class Lint:
         self.finds = []                 # (carrier, line, kind, pointer, what, home, exempt key or None)
         self.pending = []               # (carrier, line, token): a path that failed D3 steps 1-4
         self.pointers = 0
+        self.wide = False
         self._homes = {}
 
     def home(self, rel):
@@ -360,24 +368,34 @@ class Lint:
     def add(self, carrier, line, kind, pointer, what, home="-", key=None):
         self.finds.append((carrier, line, kind, pointer, what, home, key))
 
-    def scan(self, carrier, text, fr_max, p_max):
+    def scan(self, carrier, text, fr_max, p_max, rules_only=False):
         for n, line in enumerate(text.splitlines(), 1):
+            self.wide = rules_only
+            if rules_only:
+                self.rule_forms(carrier, n, line)
+                continue
             for tok in path_tokens(line, self.tree):
                 self.pointers += 1
                 if resolve(tok, carrier, self.tree) is False:
                     self.pending.append((carrier, n, tok))
-            heading = line.startswith("#")
+            heading = line.startswith("#") and carrier.endswith(".md")
             for m in FR_RE.finditer(line):
                 self.range(carrier, n, m, "FR-", fr_max, FR_HOME[0], heading)
             if re.search(r"OWNER_PRINCIPLES|principle|принцип", line, re.I) and carrier != P_HOME[0]:
                 for m in P_RE.finditer(line):
                     self.range(carrier, n, m, "P", p_max, P_HOME[0], heading)
-            for m in RULE_RE.finditer(line):
-                self.rule(carrier, n, m.group("f"), m, heading)
-            for m in RULE_OF_RE.finditer(line):
-                a = m.group("a") or m.group("c") or m.group("d")
-                self.rule(carrier, n, m.group("f") or m.group("g"), None, heading, single=a)
-            for m in ANCHOR_RE.finditer(line):
+            self.rule_forms(carrier, n, line)
+
+    def rule_forms(self, carrier, n, line):
+        """`<file> rule N`, `rule N of <file>`, `<file> § N`: the forms of the retired K-STALE (a rule that left its file)."""
+        heading = line.startswith("#") and carrier.endswith(".md")
+        for m in RULE_RE.finditer(line):
+            self.rule(carrier, n, m.group("f"), m, heading)
+        for m in RULE_OF_RE.finditer(line):
+            a = m.group("a") or m.group("c") or m.group("d")
+            self.rule(carrier, n, m.group("f") or m.group("g"), None, heading, single=a)
+        for m in ANCHOR_RE.finditer(line):
+            if not self.wide or m.group("f").endswith("CLAUDE.md"):      # outside the register only the K-STALE forms: CLAUDE.md
                 self.anchor(carrier, n, m.group("f"), m.group("a"))
 
     def range(self, carrier, n, m, mark, home_max_, home_rel, heading):
@@ -406,7 +424,7 @@ class Lint:
         missing = [x for x in nums if not home.has_item(x)]
         if missing:
             self.add(carrier, n, "R", text, "item %s absent; the home holds rules up to %d" % (",".join(missing), home.max), home_rel)
-        elif full and max(lead(x) for x in nums) < home.max:
+        elif full and not self.wide and max(lead(x) for x in nums) < home.max:     # a from-1 claim is judged in the register only
             self.add(carrier, n, "R", text, "a range from 1 is a full-set claim; the home holds rules up to %d" % home.max, home_rel)
 
     def anchor(self, carrier, n, fname, anchor):
@@ -496,6 +514,9 @@ def run(root):
         lint.scan(rel, texts[rel], fr_max, p_max)
     for rel, text in texts.items():
         lint.toc(rel, text)
+    for rel in lint.tree.paths:
+        if rel.endswith(WIDE_SUFFIXES) and not rel.startswith(WIDE_EXCLUDED) and rel not in main and (root / rel).is_file():
+            lint.scan(rel, (root / rel).read_text(encoding="utf-8", errors="replace"), fr_max, p_max, rules_only=True)
     for path, n in absent:
         lint.add(SIBLING_MAP, n, "P", path, "the register row names a file that is not in the tree", "-", "%s|%s" % (SIBLING_MAP, path))
     lint.numbers()

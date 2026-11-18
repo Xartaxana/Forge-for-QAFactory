@@ -9,14 +9,13 @@
     ".claude/skills/boot-diet/SKILL.md|docs/task_reports/README.md": {"why": "e.g. example of an archive index, not a pointer"},
     "PROCESS/JUDGE_CALIBRATION_PROTOCOL.md|JUDGE_PAIRS_SET.md": {"why": "hypothetical file named in an example"},
     "CLAUDE.md|logs/routing-log.jsonl": {"why": "the refused target of hygiene point 5: the old journal path a worker must not write"},
-    "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|logs/routing-log.jsonl": {"why": "the retired journal (history before 08.10, read-only per PROJECT.md): the protocol names it where it reads older logs"},
+    "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|logs/routing-log.jsonl": {"why": "check (e) names the retired routing-log.jsonl on purpose: a line added to it after the switch is a finding"},
     "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|logs/journal-segments.json": {"why": "declared by the deployment (read by tools/journal_keys.py); not tracked"},
     "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|PROCESS/CRITIC_EXAM.md": {"why": "written by critic-exam-gen on its first run; absent until then"},
     "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|PROCESS/SCOUT_GOLDEN_SET.md": {"why": "written by scout-exam-gen on its first run; absent until then"},
     "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|settings.local.json": {"why": "a host settings file of the deployment, never tracked"},
     "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|tools/piles_gitlab.py": {"why": "the text itself says the file was deleted with the GitLab mirror (history of a retired detector)"},
-    "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|status.json": {"why": "a runtime state file of an onboarded project, not in this repository"},
-    "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|person_owned.json": {"why": "a runtime state file of an onboarded project, not in this repository"},
+    "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md|status.json": {"why": "the forge's own <common .git>/worktree-sweep/status.json written by tools/worktree_sweep.py; not a tracked file"},
     "docs/RUNBOOK.md|scripts/tests/test_story_run.py": {"why": "the text describes the split of this file into story_run_common.py and test_story_run_*.py; the old name is history"},
     "docs/RUNBOOK.md|references/release-fingerprint.json": {"why": "committed to the release repository only (the text says so)"},
     "docs/RUNBOOK.md|qa-factory/records/journal.jsonl": {"why": "a runtime file of an onboarded test project, not in this repository"},
@@ -39,7 +38,7 @@
     "docs/SIBLING_MAP.md|experiments/driver-golden/coverage-n0.json": {"why": "a record inside the driver golden, which lives outside the repository"},
     "docs/SIBLING_MAP.md|freeze_package.sh": {"why": "a recording script of the history bundle that holds the driver golden; not tracked"},
     "docs/SIBLING_MAP.md|references/release-fingerprint.json": {"why": "committed to the release repository only (RUNBOOK.md says so)"},
-    "docs/SIBLING_MAP.md|self.py": {"why": "a script of the factory run in a project, named as the factory-script example"},
+    "docs/SIBLING_MAP.md|self.py": {"why": "driver method names in SIBLING_MAP:128 (`self.py`/`py_stdout`), not a file: a false positive of the tool's bare-suffix class"},
     "docs/SIBLING_MAP.md|qa-factory/state/created-accounts/<ticket>.json": {"why": "a runtime path of an onboarded test project"},
     "docs/SIBLING_MAP.md|tests/ui/pageobject/login_page.py": {"why": "a file of an onboarded test project, named as an example"},
     "docs/SIBLING_MAP.md|qa-factory/state/reporter-rehearsals.json": {"why": "a runtime path of an onboarded test project"},
@@ -48,6 +47,7 @@
     "docs/SIBLING_MAP.md|driver-timings.jsonl": {"why": "a runtime state file of an onboarded project"},
     "docs/SIBLING_MAP.md|state/.../bindings/*.json": {"why": "a runtime path pattern of an onboarded project"},
     "docs/SIBLING_MAP.md|conductor.jsonl": {"why": "a runtime state file of an onboarded project"},
-    "docs/SIBLING_MAP.md|state/brief-sizes.jsonl": {"why": "a runtime state file of an onboarded project"}
+    "docs/SIBLING_MAP.md|state/brief-sizes.jsonl": {"why": "a runtime state file of an onboarded project"},
+    "docs/SIBLING_MAP.md|logs/routing-log.jsonl": {"why": "SIBLING_MAP:171 says forge_metrics also reads the retired routing-log.jsonl first"}
   }
 }
