@@ -1553,7 +1553,8 @@ def _reading_texts(row) -> list:
 
 
 def _squeeze(text) -> str:
-    return " ".join(str(text or "").split())
+    import contract as C
+    return C.one_line(text)
 
 
 def _may_reword(role: str, row: dict, deps: dict, own: dict) -> bool:

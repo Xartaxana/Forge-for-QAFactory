@@ -45,28 +45,18 @@ def cut_at(name: str, ticket: str) -> datetime:
 def scan_until(path: Path, rate: dict, cut: datetime) -> tuple:
     """(role, requests, cost, unpriced requests) of one transcript, counting only what happened at or
     before `cut`. A request the catalogue cannot price is counted, not turned into $0 (FR-41)."""
-    seen, role = {}, None
-    for line in path.open(encoding="utf-8"):
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        message = row.get("message") or {}
-        if row.get("type") == "user" and role is None:
-            content = message.get("content")
-            text = content if isinstance(content, str) else " ".join(
-                part.get("text", "") for part in content if isinstance(part, dict))
-            found = re.search(r"qa-[a-z\-]+", text or "")
-            role = found.group(0) if found else "?"
+    if cut.tzinfo is None:  # an aware stamp cannot be compared with it: refuse once, not a silent zero (FR-41)
+        raise ValueError(f"scan_until: the cut {cut.isoformat()} has no timezone")
+
+    def in_time(row) -> bool:  # before the dedupe: a copy of an id past the cut must not displace the earlier one
         stamp = row.get("timestamp")
-        if not stamp:
-            continue
-        when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-        if when > cut:
-            continue
-        if (row.get("type") == "assistant" and message.get("usage")
-                and not compare.is_empty_marker(message.get("model"), message["usage"])):
-            seen[message.get("id") or row.get("uuid")] = (message.get("model"), message["usage"])
+        try:
+            return bool(stamp) and datetime.fromisoformat(stamp.replace("Z", "+00:00")) <= cut
+        except (ValueError, AttributeError):  # a bad stamp on one line; a naive cut is refused above, never every line
+            return False
+
+    seen = {key: (model, usage) for key, (model, usage, _stamp) in compare.requests_of(path, keep=in_time).items()}
+    role = compare.role_of(path)  # the first user line, whatever its stamp
     cost, unpriced = compare.price_seen(rate, seen)
     return role, len(seen), cost, unpriced
 

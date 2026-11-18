@@ -232,8 +232,7 @@ def sha256(data: bytes) -> str:
 
 
 def fold(text: str, limit: int = 160) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
+    return C.one_line(text, limit)
 
 
 # --- the test ----------------------------------------------------------------------------------
@@ -4363,6 +4362,8 @@ def _judge_rows(root: Path, record: dict, rows: list, reporter: str, spec: dict,
             site = reporters.assertion_site(row, reporter, root, oracle_path, pytest_command=pytest_command,
                                             runtime=detail["language"], frames=frames, skip_frames=skip,
                                             frame_path=frame_path)
+            site = reporters.pinned_site(site, row, reporter, root, record["expected_location"], record["expected_reason"],
+                                         failure_problem(row).get("message", ""), pytest_command=pytest_command, runtime=detail["language"])
         else:
             site = {"site_unread": f"{reporter}/{detail['language']}",
                     "reason": f"the run's reporter is {reporter!r}; stack frames are read only from the readers {', '.join(reporters.READERS)}"}
@@ -6213,6 +6214,7 @@ def _walk_run_once(ctx: ProbeCtx, target: Path, left: float, flags: list, number
                     "reason": f"the run's reporter is {reporter!r}; stack frames are read only from the readers {', '.join(reporters.READERS)}"}
         out["sites"].append(site)
     out["rows"] = matched
+    out["reporter"] = reporter
     return out
 
 
@@ -6278,6 +6280,19 @@ def _walk_attempt(ctx: ProbeCtx, plan: dict, group: list, picked: list, flags: l
                       f"runs): `probe_by_code.py --release-copy {_rel_project(target, ctx.root)}` shows it and releases it; this "
                       "run's result is not used")
     rows, sites = ran["rows"], ran["sites"]
+    if ran.get("reporter") in reporters.READERS and ran["request"]:     # RD1-38: the one pinned read; a confirmed pin is a key of this run (P10)
+        import execution_request as ER
+        argv = (ran["request"].get("command") or {}).get("argv")
+        for at, (one, site) in enumerate(zip(rows, sites)):
+            for key in group:       # each key pins its own `<file>:<line>` and token; the first read wins
+                detail = next((d for d in details if d.get("key") == key), None) or {}
+                if "site_unread" not in sites[at] or not tokens.get(key) or not detail.get("file") or not detail.get("line"):
+                    continue
+                read = reporters.pinned_site(site, one, ran["reporter"], ctx.root, f"{detail['file']}:{detail['line']}", tokens[key],
+                                             failure_problem(one).get("message", ""), pytest_command=ER.is_pytest_command(argv),
+                                             runtime=ctx.spec["language"])
+                if "site_unread" not in read:
+                    sites[at] = read
     got["timed_out"] = ran["timed_out"]
     got["evidence"] = ran["evidence"]
     fingerprint = None

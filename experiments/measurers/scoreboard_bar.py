@@ -55,22 +55,6 @@ DECISIONS = ("keep", "lift")
 
 # --------------------------------------------------------------------------------------- the bar's price
 
-def _requests(path: Path) -> dict:
-    """{message id: (model, usage, timestamp)} of one transcript: the unique requests that carry a `usage` block, the same collection
-    `compare.scan` makes (it does not expose it). Lines that are not JSON are skipped as there. Raises OSError / UnicodeDecodeError."""
-    seen = {}
-    with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            try:
-                item = json.loads(line)
-            except ValueError:
-                continue
-            message = item.get("message") if isinstance(item, dict) else None
-            message = message if isinstance(message, dict) else {}
-            if item.get("type") == "assistant" and isinstance(message.get("usage"), dict) and not CMP.is_empty_marker(message.get("model"), message["usage"]):
-                seen[message.get("id") or item.get("uuid")] = (message.get("model"), message["usage"], item.get("timestamp"))
-    return seen
-
 
 def _result_sum(results, key: str) -> float | None:
     """The number `key` of the free arm's result file(s), summed; None when there is no result file, one cannot be read, or one holds no such
@@ -116,7 +100,7 @@ def bar_price(transcripts, cfg=None, results=()) -> dict:
     total, requests, catalogue = Decimal("0"), 0, CC.load_catalogue()
     for path in paths_:
         try:
-            seen = _requests(path)
+            seen = CMP.requests_of(path)
         except FileNotFoundError:
             out["why"] = f"the transcript {path.name} is absent (not recomputed)"
             return out
@@ -192,11 +176,11 @@ def _event_times(path: Path, when) -> list:
 
 def _read_free(path: Path, FR) -> dict:
     """One free-arm transcript: {name, ok, why, models, times, spans}. `ok` only when the package's `call_spans` finds a readable record;
-    the model ids are the transcript's `message.model` values (through `_requests`, the same request collection the price uses)."""
+    the model ids are the transcript's `message.model` values (through `CMP.requests_of`, the same request collection the price uses)."""
     out = {"name": path.name, "ok": False, "why": "", "models": set(), "times": [], "spans": None}
     try:
         spans = FR.call_spans(path)
-        out["models"] = {m for m, _usage, _stamp in _requests(path).values() if isinstance(m, str)}
+        out["models"] = {m for m, _usage, _stamp in CMP.requests_of(path).values() if isinstance(m, str)}
         out["times"] = _event_times(path, FR._when)
     except FileNotFoundError:
         out["why"] = f"the transcript {path.name} is absent"

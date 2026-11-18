@@ -209,6 +209,7 @@ today (the two required hook names are ASCII).
 """
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -220,6 +221,8 @@ try:
     import gitcmd
 except Exception:  # absent, or broken at import: the observer of enforcement_probe must not die here (F6-39)
     gitcmd = None
+
+import ascii_line  # noqa: E402  the one ASCII line helper (FG7-56), a stdlib leaf; plain sibling import (card F2 b)
 
 _GITHOOKS_DIRNAME = ".githooks"
 _REQUIRED_GITHOOKS = ("pre-commit", "commit-msg", "pre-merge-commit")
@@ -258,21 +261,15 @@ _HOOK_COMMAND_RE = re.compile(
 )
 
 
-def _ascii_safe(value) -> str:
-    """Renders `value` (via `str()`) as plain ASCII, escaping any
-    non-ASCII character to a readable `\\xNN`/`\\uNNNN` form instead of
-    passing it through raw -- see the module docstring's EXTERNAL-VALUE
-    SANITIZATION section. Identity on already-ASCII input (regression
-    pin: test_ascii_safe_is_identity_on_ascii_input): apply this
-    unconditionally at every issue-string site that interpolates a
-    value this module did not itself author (git output, JSON/ledger
-    file content, on-disk filenames, CLI path arguments) with no risk
-    of changing already-ASCII output. Not a replacement for `!r`
-    formatting -- callers that were using `!r` for quoting use the
-    `ascii()` builtin instead (repr() plus the same escaping), since
-    wrapping this function's unquoted output in `!r` would double-
-    escape any backslash the escaping itself introduced."""
-    return str(value).encode("ascii", "backslashreplace").decode("ascii")
+# Renders `value` (via `str()`) as plain ASCII, escaping any non-ASCII character to a readable `\xNN`/`\uNNNN`
+# form instead of passing it through raw -- see the module docstring's EXTERNAL-VALUE SANITIZATION section.
+# Identity on already-ASCII input (regression pin: test_ascii_safe_is_identity_on_ascii_input): apply this
+# unconditionally at every issue-string site that interpolates a value this module did not itself author (git
+# output, JSON/ledger file content, on-disk filenames, CLI path arguments). Not a replacement for `!r`
+# formatting -- callers that were using `!r` for quoting use the `ascii()` builtin instead, since wrapping
+# this output in `!r` would double-escape any backslash the escaping itself introduced.
+# The escape profile of the one helper tools/ascii_line.py: uncapped, control chars kept.
+_ascii_safe = functools.partial(ascii_line.clip, max_len=None, errors="backslashreplace", control=None, strip=False)
 
 
 def repo_root() -> Path:

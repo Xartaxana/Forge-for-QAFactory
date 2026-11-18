@@ -49,7 +49,8 @@ def template(tmp_path_factory):
 
 
 @pytest.fixture
-def repo(template, tmp_path):
+def repo(template, tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess1234-abcd")   # FG7-71: `next` binds an id to the env session; same as payload()
     dst = tmp_path / "r"
     shutil.copytree(template, dst)
     return dst

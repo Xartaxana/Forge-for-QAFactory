@@ -29,6 +29,10 @@ def _fixture(name: str) -> str:
     return (FIXTURES / (name + ".txt")).read_bytes().decode("utf-8")
 
 
+# FG7-73: the fixtures carry a prose `Task t-NNN`, so a dispatch built on them owes this line (moved pins: K1-K3, K5-K8, designer-skip)
+FEATURE = "feature: F19\n"
+
+
 def payload(prompt, type_="builder"):
     return {"tool_name": "Task", "tool_input": {"subagent_type": type_, "prompt": prompt}}
 
@@ -77,7 +81,7 @@ def missing_text(message):
 
 
 def test_K1_t083_attempt1_is_blocked_with_five_items():
-    code, msg, note = run(_fixture("K1"))
+    code, msg, note = run(FEATURE + _fixture("K1"))
     assert code == 2 and note == ""
     # K1 carries 3+ numbered spec items and no designer line: the designer check names itself too
     assert missing_names(msg) == ["given", "owns", "non-goals", "handoff", "edges", "siblings", "designer"]
@@ -87,7 +91,7 @@ def test_K1_t083_attempt1_is_blocked_with_five_items():
 
 @pytest.mark.parametrize("name", ["K2", "K3"])
 def test_K2_K3_relative_owns_paths_are_blocked_on_owns_only(name):
-    code, msg, note = run(_fixture(name))
+    code, msg, note = run(FEATURE + _fixture(name))
     assert code == 2 and note == ""
     assert "owns" in missing_names(msg)
     # neither carries a siblings line; K3's prose bullet "- neighbours once at the end: ..." is NOT a header
@@ -101,7 +105,7 @@ def test_K4_scout_is_not_checked():
 
 
 def test_K5_K1_plus_a_valid_skip_line_goes_out_with_a_skip_note():
-    prompt = (_fixture("K1") + "\nmanifest-skip: given, owns, non-goals, handoff, edges, siblings, designer "
+    prompt = (FEATURE + _fixture("K1") +"\nmanifest-skip: given, owns, non-goals, handoff, edges, siblings, designer "
               "-- old-form dispatch, sent on purpose\n")
     code, msg, note = run(prompt)
     assert (code, msg) == (0, "")
@@ -113,7 +117,7 @@ def test_K5_K1_plus_a_valid_skip_line_goes_out_with_a_skip_note():
 
 
 def test_K6_unknown_skip_item_is_refused():
-    prompt = _fixture("K1") + "\nmanifest-skip: given, colour -- because\n"
+    prompt = FEATURE + _fixture("K1") + "\nmanifest-skip: given, colour -- because\n"
     code, msg, note = run(prompt)
     assert code == 2 and note == ""
     assert msg == (
@@ -125,7 +129,7 @@ def test_K6_unknown_skip_item_is_refused():
 
 def test_K6_empty_reason_is_refused():
     for tail in ("--", "--   ", "— "):
-        prompt = _fixture("K1") + "\nmanifest-skip: given, owns " + tail + "\n"
+        prompt = FEATURE + _fixture("K1") + "\nmanifest-skip: given, owns " + tail + "\n"
         code, msg, note = run(prompt)
         assert code == 2 and msg.startswith("MANIFEST-SKIP REFUSED:") and "-- no reason after --." in msg, tail
 
@@ -133,13 +137,13 @@ def test_K6_empty_reason_is_refused():
 def test_K7_t091_written_in_the_form_passes_unchanged():
     # K7 predates the siblings line: it is refused for that line alone, and passes with one appended
     # (K7 also carries 3+ numbered items, so the designer line is owed too)
-    assert missing_names(run(_fixture("K7"))[1]) == ["siblings", "designer"]
-    assert run(_fixture("K7") + "\nsiblings: none -- a standalone tool\ndesigner: resubmission t-091\n") == (0, "", "")
+    assert missing_names(run(FEATURE + _fixture("K7"))[1]) == ["siblings", "designer"]
+    assert run(FEATURE + _fixture("K7") +"\nsiblings: none -- a standalone tool\ndesigner: resubmission t-091\n") == (0, "", "")
 
 
 def test_K8_critic_prompt_with_numbered_owns_overlap_is_not_checked():
     assert "6. Owns overlap:" in _fixture("K8")
-    assert run(_fixture("K8"), "critic") == (0, "", "")
+    assert run(FEATURE + _fixture("K8"), "critic") == (0, "", "")
 
 
 # =========================================================================
@@ -1165,7 +1169,7 @@ def test_non_writing_dispatches_get_neither_check():
 
 @pytest.mark.parametrize("head", ["task: t-123\n", ""], ids=["with-task-line", "no-task-line"])
 def test_designer_skip_note_says_the_hook_writes_the_event(head):
-    code, msg, note = run(head + build(owns=OWNS3, designer="designer: skip -- tiny edit"))
+    code, msg, note = run(head + FEATURE + build(owns=OWNS3, designer="designer: skip -- tiny edit"))
     assert (code, msg) == (0, "")
     assert note.startswith("DESIGNER-SKIP: over the designer threshold; the hook writes dispatch_skipped(agent=designer)")
     assert note.endswith("nothing is owed unless a `JOURNAL: ... NOT written` line follows")
@@ -1361,3 +1365,20 @@ def test_dod_run_check_comes_after_the_completeness_verdict(monkeypatch):
     monkeypatch.setattr(dm, "_canon_class", lambda *a: _CLASS)
     bad = build(dod="DoD: `%s`" % _PT.format("tools/test_canon_x.py"), siblings=None)
     assert run(bad)[1] == run(build(siblings=None))[1] and "DISPATCH INCOMPLETE" in run(bad)[1]
+
+
+# FG7-73: a dispatch with a task: header needs a well-formed feature: Fnn header, for every dispatch kind (the live
+# hook's rows, None cut included: test_dispatch_gate.py test_feature_refusal_on_the_live_hook)
+@pytest.mark.parametrize("prompt, type_, refused", [
+    ("task: t-123\n" + build(), "builder", True),
+    ("task: t-123\nhandoff: a report\n", "critic", True),
+    ("task: t-123\nfeature: f19\n" + build(), "builder", True),
+    ("task: t-123\nmanifest-skip: feature -- legacy\n" + build(), "builder", False),
+    ("task: t-123\nmanifest-skip: feature -- legacy\n", "scout", False),
+    ("no id here\n" + build(), "builder", False),
+    ("task: t-123\nfeature: F19\n" + build(), "builder", False),
+])
+def test_feature_header_is_required_with_a_task_header(prompt, type_, refused):
+    code, message, _note = run(prompt, type_)
+    assert (code == 2 and "feature: Fnn" in message and "--feature" in message) == refused
+    assert code == (2 if refused else 0)

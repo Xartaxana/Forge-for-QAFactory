@@ -830,7 +830,12 @@ def decide_full(payload: dict) -> Decision:
     try:
         dm = _load_manifest_module()
         is_builder, cut = dm.cut_payload(payload)
-        check_exit, check_message, note, checked = dm.check_cut(cut, is_builder)
+        # FG7-73: the feature refusal first, on a None cut too (critic t-1372 B2): one helper with dispatch_manifest.check()
+        feature_message = dm.feature_refusal(payload, cut)
+        if feature_message:
+            check_exit, check_message, note, checked = 2, feature_message, "", True
+        else:
+            check_exit, check_message, note, checked = dm.check_cut(cut, is_builder)
         if note:
             notes.append(note)
     except Exception as exc:  # not checked -- fail-open; main() shows the note on stderr too

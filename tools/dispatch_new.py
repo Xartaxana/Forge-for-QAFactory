@@ -1,6 +1,6 @@
 """dispatch_new.py -- print the header lines of a dispatch in the form tools/dispatch_manifest.py reads (offload C1, M7).
 
-    python -B tools/dispatch_new.py --kind builder --task t-862 [--feature F19] [--node slug/N/id]
+    python -B tools/dispatch_new.py --kind builder --task t-862 --feature F19 [--node slug/N/id]
         --given <p>... --owns <abs>... --non-goals "<t>" --handoff <abs .md> --edges "<t>" --dod "<cmd>"
         --siblings "<t>" [--names <n>...] [--designer <abs> | "skip -- <why>" | "resubmission t-NNN"]
         [--facts "<claim> | <command> | <result>"... | "none -- <why>"]
@@ -11,7 +11,8 @@ blank line, after the last header; only for a dispatch that owns paths), and ask
 (dispatch_gate.decide_full: completeness, handoff folder, paths; no description, so no label check) on headers + block, and the
 one id reader (header_ids). Whatever the hook refuses, this refuses (exit 2, the hook's message with its doors on stderr,
 nothing on stdout); a degraded read is refused too. A `--task`, `--node` or `--feature` that header_ids does not read back is
-refused the same way. A block the hook refuses is replaced by `readers: unknown -- the manifest check refused the block (...)`
+refused the same way. `--feature` is required with `--task` (FG7-73: the hook refuses a task: line with no feature:).
+A block the hook refuses is replaced by `readers: unknown -- the manifest check refused the block (...)`
 (one stderr line says so); a tool that raises gives `readers: unknown -- <ExcType>: <first line>`: a failing helper never
 blocks or hides a dispatch and never prints a count it did not measure. Stdout only, no file. An argument holding a newline
 or a backtick, and an empty `--given`/`--owns` item, are refused before anything is printed (they could forge a header,
@@ -44,7 +45,7 @@ def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="dispatch_new.py", description=__doc__.splitlines()[0])
     ap.add_argument("--kind", required=True, choices=KINDS)
     ap.add_argument("--task", required=True)
-    ap.add_argument("--feature")
+    ap.add_argument("--feature", required=True)  # FG7-73: with --task (always given) the hook refuses a dispatch without it
     ap.add_argument("--node")
     ap.add_argument("--given", nargs="*", default=[])
     ap.add_argument("--owns", nargs="*", default=[])

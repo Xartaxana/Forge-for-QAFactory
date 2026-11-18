@@ -855,6 +855,13 @@
     "tests/test_launcher_argv.py"
    ]
   },
+  "test_contract_one_line.py": {
+   "layer": "table",
+   "why": "table: contract.one_line, the one fold-and-cut one-liner (FG7-1), rows per edge",
+   "covers": [
+    "contract.py"
+   ]
+  },
   "test_contract_slices.py": {
    "layer": "table",
    "why": "table (B.2 criterion 5): contract slices generator",

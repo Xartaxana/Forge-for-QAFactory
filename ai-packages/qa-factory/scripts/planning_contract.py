@@ -2239,8 +2239,7 @@ def manual_policy_table() -> dict:
                  or (isinstance(entry.get("refused"), str) and entry["refused"].strip()))}
 
 
-def _plain(text) -> str:
-    return " ".join(str(text).split())
+_plain = contract.one_line   # callers pass an exception (truthy) or a validation message string, never None/0
 
 
 def _manual_cases_by_row(root: Path):

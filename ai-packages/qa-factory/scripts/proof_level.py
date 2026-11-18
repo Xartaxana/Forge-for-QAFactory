@@ -1096,8 +1096,8 @@ def tooling_gap_key(task_root, identity: str, current_hash: str) -> str:
 
     A key only for a record that says `cause: tooling`, whose verdict is `not_executed` or `incomplete`, that names a
     `language` (one token), and whose `test_file_sha256` EQUALS the current hash of the test (both non-empty: a record of
-    other bytes says nothing about these). A record that judged the test (`intended_failure`, `no_failure`,
-    `wrong_location`), no record, an unreadable one, a stand that did not run (no `cause`) and a call that was refused with
+    other bytes says nothing about these). A record that judged the test (`probe_judged`: `intended_failure`,
+    `no_failure`, `wrong_location`, `survived`), no record, an unreadable one, a stand that did not run (no `cause`) and a call that was refused with
     no record give "": the class never covers what it was not asked about. Error direction: "" - the instance then needs the
     word of its own, as before. Never raises."""
     try:
@@ -1111,9 +1111,6 @@ def tooling_gap_key(task_root, identity: str, current_hash: str) -> str:
         return TOOLING_GAP_PREFIX + language
     except Exception:
         return ""
-
-
-PROBE_JUDGED_VERDICTS = ("intended_failure", "no_failure", "wrong_location")   # a record that JUDGED the test (E8)
 
 
 def probe_fired(record) -> bool:
@@ -1131,13 +1128,23 @@ def probe_found_defect(record) -> bool:
     return isinstance(record, dict) and record.get("verdict") in ("no_failure", "wrong_location", "survived")
 
 
+def probe_judged(record) -> bool:
+    """A record that JUDGED the test (`intended_failure`, `no_failure`, `wrong_location`, `survived`: every word of the row
+    `probe_verdict` whose class is matched or mismatched) - a probe that caught something is not one that could not run. The one
+    reader of that set (RD1-33 F1). It accepts nothing and reads no registry. Error direction: False - a non-dict, a missing or
+    non-str verdict, a case or padding variant and every unknown or non-row word (`not_executed`, `incomplete`, `probe_defect`,
+    `not_reached`) are never judged."""
+    return isinstance(record, dict) and record.get("verdict") in ("intended_failure", "no_failure", "wrong_location", "survived")
+
+
 def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
     """`{"state", "record", "why", "refused"}` - what the probe's own record of THIS instance says about THESE bytes. The ONE
     reader (AR-13) of that fact: the window (`window_record.probe_gap_block`) and the class word (`probe_could_not_run`) ask it.
 
     `state` is one of `not_run` (no record, an unreadable one, one of other bytes - `input_hash` or `test_file_sha256` empty or
     different - or one with no verdict), `not_executed`, `incomplete` (the verdict as it stands), `judged` (`intended_failure`,
-    `no_failure`, `wrong_location`: a probe that caught something is not one that could not run). `cause` is the record's own
+    `no_failure`, `wrong_location`, `survived` - the set `probe_judged` defines: a probe that ran to a verdict is not one that
+    could not run). `cause` is the record's own
     `cause` word for `not_executed` and `incomplete` ("" otherwise): `tooling` (the tool could not read the test), `judgment`
     (the run failed at the mutated line on a text the tool cannot read; the code critic judges it, t-1968). `judgment` is the
     verdict word of that critic's `judgment` block (`fires` / `other_failure` / `cannot_judge`) or "" when none is written.
@@ -1167,7 +1174,7 @@ def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
         state, why = "plan_unfinished", notes[-1] if notes else "the plan is not finished: the same call again continues it"
     elif verdict in ("not_executed", "incomplete"):
         state, why = verdict, notes[-1] if notes else "the probe did not run"
-    elif verdict in PROBE_JUDGED_VERDICTS:
+    elif probe_judged(record):
         state, why = "judged", ""
     else:
         state, why = "not_run", "the probe record has no verdict"

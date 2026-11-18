@@ -85,6 +85,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import functools
 import hashlib
 import json
 import posixpath
@@ -98,6 +99,7 @@ sys.path.insert(0, str(TOOLS))
 from dup_report import (DEFAULT_PATHS, RECURSION_LIMIT, REPO, UsageError, describe_error,  # noqa: E402
                         normalise_patterns, physical_lines, resolve_files)
 import streams  # noqa: E402
+import ascii_line  # noqa: E402  the one ASCII line helper (FG7-56), a stdlib leaf; plain sibling import (card F2 b)
 
 DEFAULT_TOP = 40
 HITS_DIR = "coverage-hits"
@@ -586,8 +588,8 @@ def analyse(repo: Path, patterns, source, hashes, top, measured_only=False, meas
 
 # ---------------------------------------------------------------- output
 
-def ascii_text(text) -> str:
-    return str(text).encode("ascii", "backslashreplace").decode("ascii")
+# the escape profile of the one helper: uncapped, control chars kept, non-ASCII as backslash escapes
+ascii_text = functools.partial(ascii_line.clip, max_len=None, errors="backslashreplace", control=None, strip=False)
 
 
 def source_lines(cov: dict) -> list:

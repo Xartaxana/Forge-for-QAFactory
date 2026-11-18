@@ -47,7 +47,7 @@ ASKED = "<the question as it was put>"
 
 
 def _line(text) -> str:
-    """A value as one line of text."""
+    """A value as one line of text. Not `contract.one_line`: this folds `str(text)` (None -> "None"), that one `str(text or "")`."""
     return " ".join(str(text).split())
 
 

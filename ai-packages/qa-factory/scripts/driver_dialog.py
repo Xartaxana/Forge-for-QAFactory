@@ -702,9 +702,8 @@ class DriverDialog:
         `window_record` kept) and the reviewer's reason (at most 160); at most `PROBE_JUDGMENT_LEAD_LIMIT` tests are listed, then `, and <k> more`.
         An entry's missing datum is said plainly, never invented and never a crash. Pure."""
 
-        def cut(text, limit):
-            one = " ".join(str(text or "").split())
-            return one if len(one) <= limit else one[:limit - 1] + "…"
+        import contract as C
+        cut = C.one_line
 
         entries = [(str(case), item) for case, items in pairs for item in items or [] if isinstance(item, dict)]
         shown = []

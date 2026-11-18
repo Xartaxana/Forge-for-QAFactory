@@ -426,7 +426,8 @@ class DriverStageBuild:
                             method=SI.method_words(row)), None
             return line("unread", error=str(record.get("error") or q["no_error"])), None
         if result == "mismatched":
-            sources = bool(record.get("differing_files")) or prov.get("deployed_source_revision") == "content_mismatch"
+            import profile_contract   # the import above runs only on the matched branch; a local name needs it here too
+            sources = profile_contract.content_differs(record)   # one predicate with refusal_text (critic t-1381 F2)
             return "", self.build_person(stage, kind, stand, profile, record, row, "mismatched_sources" if sources else "mismatched")
         return line("probe_unrecognised"), None
 
@@ -450,8 +451,13 @@ class DriverStageBuild:
             image = seen if re.fullmatch(r"image:sha256:[0-9a-f]{64}", seen) else ""
         voided = record.get("voided") if isinstance(record.get("voided"), dict) else {}
         failed = str(record.get("registry_method_failed") or "")
-        files = [str(name) for name in record.get("differing_files") or []]
+        listed = record.get("differing_files")   # only a list is read: `differing_files: 5` raised here (critic t-1372 F7)
+        files = [str(name) for name in listed] if isinstance(listed, list) else []
         names = self.build_names(files, q)
+        if variant == "mismatched_sources" and not any(isinstance(f, str) and f.strip() for f in (listed if isinstance(listed, list) else [])):
+            # RD1-42 (critic t-1381): a content mismatch that lists no file read " differ from..."; refusal_text's own words fill it
+            import profile_contract
+            names = profile_contract.CONTENT_FILES_FALLBACK
         docker = ""
         if variant == "no_container":
             # EP1-28 (H-7): what docker runs on this machine, so the person can say the application is in one of them. No

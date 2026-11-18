@@ -270,7 +270,8 @@ def fail(code: int, message: str, owner: str | None = None, file: str | None = N
 
 
 def one_sentence(text) -> str:
-    return " ".join(str(text or "").split())
+    import contract
+    return contract.one_line(text)
 
 
 def error_object(owner: str, message: str, *, status=None, retry_at=None, file=None) -> dict:

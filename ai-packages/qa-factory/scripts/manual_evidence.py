@@ -134,7 +134,8 @@ def _other_profile_errors(record, root) -> list:
 
 
 def _squash(text) -> str:
-    """`text` with every run of whitespace (Unicode ones too) as one space, the ends cut: how a quote and a capture are compared."""
+    """`text` with every run of whitespace (Unicode ones too) as one space, the ends cut: how a quote and a capture are compared.
+    Not `contract.one_line`: this folds `str(text)` (None -> "None"), that folds `str(text or "")` (None -> "")."""
     return " ".join(str(text).split())
 
 

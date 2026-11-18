@@ -478,6 +478,19 @@ def fidelity(root: Path) -> None:
              (lambda r: (r[0], r[1], round(r[2], 2), r[3]))(
                  report_to_gate.scan_until(pair_transcript(path), compare.rates(), cut)),
              ("qa-scout", 2, 2.0, 1))
+    dup = root / "dup-past-cut.jsonl"  # id d in time, its later copy past the cut: the earlier copy stays (cut before dedupe)
+    dup.write_text("\n".join(json.dumps({"type": "assistant", "timestamp": stamp, "uuid": "u" + stamp, "message": {
+        "id": "d", "model": "claude-sonnet-5-5", "usage": {"input_tokens": tokens}}}) for stamp, tokens in (
+        ("2026-09-27T00:01:00Z", 1_000_000), ("2026-10-02T00:00:00Z", 5_000_000))) + "\n", encoding="utf-8")
+    got = report_to_gate.scan_until(dup, compare.rates(), datetime(2026, 10, 1, tzinfo=timezone.utc))
+    check_eq("scan_until: a later copy past the cut leaves the earlier copy: 1 request, its cost 2.0",
+             (got[1], round(got[2], 2)), (1, 2.0))
+    try:
+        report_to_gate.scan_until(dup, compare.rates(), datetime(2026, 10, 1))
+        naive = "no error"
+    except ValueError as err:
+        naive = "2026-10-01" in str(err)
+    check_eq("scan_until: a naive cut is refused with an error naming it, not zero requests", naive, True)
     check_eq("scan_until: a <synthetic> turn with usage is unpriced there too",
              report_to_gate.scan_until(pair_transcript(path, [("t3", "<synthetic>", {"input_tokens": 5})]),
                                        compare.rates(), cut)[3], 2)
@@ -2269,6 +2282,26 @@ def sb_bar_case(tmp: Path, case) -> None:
     elif name == "a model the catalogue does not know: unknown, the unpriced request is counted":
         got = bar.bar_price([bar_transcript(tmp / "x.jsonl", [("m1", BAR_USAGE_A)], model="claude-unheard-9")], None)
         assert got["state"] == "unknown" and got["value"] is None and got["unpriced"] == 1, got
+    elif name.startswith("requests_of and scan count the same requests"):
+        import compare
+        us = {"input_tokens": 5}
+        rows = [{"type": "assistant", "uuid": "u1", "message": {"id": "d", "model": BAR_MODEL, "usage": us}},
+                {"type": "assistant", "uuid": "u2", "message": {"id": "d", "model": BAR_MODEL, "usage": us}},
+                {"type": "assistant", "uuid": "u3", "message": {"id": "e", "model": "<synthetic>", "usage": {"input_tokens": 0}}},
+                {"type": "assistant", "uuid": "u4", "message": {"id": "f", "model": BAR_MODEL, "usage": {}}},
+                {"type": "assistant", "uuid": "u5", "message": {"model": BAR_MODEL, "usage": us}}]
+        (tmp / "r.jsonl").write_text("not json\n" +"\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+        (tmp / "empty.jsonl").write_text("", encoding="utf-8")
+        got = compare.requests_of(tmp / "r.jsonl")
+        (tmp / "o.jsonl").write_text("[1]\n" + (tmp / "r.jsonl").read_text(encoding="utf-8"), encoding="utf-8")  # scan itself raises on a non-object line
+        assert compare.requests_of(tmp / "o.jsonl") == got
+        assert sorted(got) == ["d", "u5"] and compare.scan(tmp / "r.jsonl", {})["requests"] == len(got) == 2, got
+        assert compare.requests_of(tmp / "empty.jsonl") == {}
+        late = [dict(r, timestamp=t) for r, t in ((rows[0], "2026-01-01T00:00:00Z"), (rows[1], "2026-01-02T00:00:00Z"))]
+        (tmp / "k.jsonl").write_text("\n".join(json.dumps(r) for r in late) + "\n", encoding="utf-8")
+        cut = compare.requests_of(tmp / "k.jsonl", keep=lambda o: o["timestamp"] < "2026-01-02")
+        assert cut["d"][2] == "2026-01-01T00:00:00Z", cut  # the later copy past the cut leaves the earlier one
+        assert compare.requests_of(tmp / "k.jsonl")["d"][2] == "2026-01-02T00:00:00Z"  # keep=None: the last copy wins, as before
     elif name == "a transcript with no usage block: unknown":
         (tmp / "n.jsonl").write_text(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\nnot json at all\n", encoding="utf-8")
         got = bar.bar_price([tmp / "n.jsonl"], None)
@@ -2322,6 +2355,7 @@ SB_BAR_CASES = [(n,) for n in (
     "one of two sessions missing: unknown, not the other session's sum",
     "a model the catalogue does not know: unknown, the unpriced request is counted", "a transcript with no usage block: unknown",
     "the same message id twice in one transcript is one request",
+    "requests_of and scan count the same requests: a duplicate id once, an empty marker, a non-JSON line, a non-object line and usage {} skipped; an empty file {}",
     "cfg rate_overrides price the model before the catalogue (B1-E6): every rate 1 gives 3.5 usd",
     "a result file with no total_cost_usd: the host figure is not given, the value is untouched",
     "the line of an unknown value names the reason and still prints the host figure",

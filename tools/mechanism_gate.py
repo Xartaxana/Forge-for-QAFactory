@@ -273,6 +273,7 @@ MECHANISM_PREFIXES = (
     "tools/preflight_quota.py",     # imported by tools/session_context.py
     "tools/test_quarantine.py",     # imported by tools/session_context.py (the TEST QUARANTINE line, TD-15.7)
     "tools/wiring_check.py",        # imported by tools/session_context.py
+    "tools/ascii_line.py",          # the one ASCII line helper (FG7-56): imported by coordinator_rules, tier_echo, wiring_check, wait_reaper, session_context, journal_echo
     "tools/md_regions.py",          # imported by THIS file (region scanner)
     "tools/md_table.py",            # imported by tools/piles.py (the table reader, t-797 F5-2 N3) - live wiring closure
     "tools/dispatch_manifest.py",   # imported by tools/dispatch_gate.py (completeness check)
