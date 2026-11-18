@@ -6458,16 +6458,56 @@
     "tests/test_controller_state.py"
    ]
   },
-  "test_story_sides_driver.py": {
+  "test_story_sides_driver_table.py": {
    "layer": "table",
-   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c)",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c) (part of test_story_sides_driver.py split, TD-11c)",
    "covers": [
     "contract.py",
     "stage_done.py",
     "references/side-realities.json",
     "tests/harness.py",
     "tests/story_run_common.py",
-    "tests/story_sides_common.py"
+    "tests/story_sides_common.py",
+    "tests/story_sides_driver_common.py"
+   ]
+  },
+  "test_story_sides_driver_answers.py": {
+   "layer": "table",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c) (part of test_story_sides_driver.py split, TD-11c)",
+   "covers": [
+    "contract.py",
+    "stage_done.py",
+    "references/side-realities.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/story_sides_common.py",
+    "tests/story_sides_driver_common.py"
+   ]
+  },
+  "test_story_sides_driver_unreadable.py": {
+   "layer": "table",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c) (part of test_story_sides_driver.py split, TD-11c)",
+   "covers": [
+    "contract.py",
+    "stage_done.py",
+    "references/side-realities.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/story_sides_common.py",
+    "tests/story_sides_driver_common.py"
+   ]
+  },
+  "test_story_sides_driver_reread.py": {
+   "layer": "table",
+   "why": "PC-1a: story sides read from side-realities.json (AR-1) and the stage_done sides door (part of test_story_sides.py split, TD-11c) (part of test_story_sides_driver.py split, TD-11c)",
+   "covers": [
+    "contract.py",
+    "stage_done.py",
+    "references/side-realities.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/story_sides_common.py",
+    "tests/story_sides_driver_common.py"
    ]
   },
   "test_story_sides_absent_side.py": {
