@@ -18,6 +18,8 @@ the owns-shaped headers inside quoted lines and the block. Every reader of a
 dispatch's sections reads the cut, never a private line scan:
  * `check_cut(cut, is_builder)` -- the completeness check (`check(payload)` is
    its payload wrapper and keeps the pinned 3-tuple);
+ * `feature_refusal(payload, cut)` -- the FG7-73 feature-header refusal, asked BEFORE check_cut by check() and
+   dispatch_gate.decide_full alike (one road);
  * `owned_paths(cut)` -- the one reader of owned paths (union of the owns
    sections; owns_gate registers exactly these);
  * `has_owned_paths(text, include_quoted=False)` -- the one yes/no "does this dispatch text declare an
@@ -1042,10 +1044,26 @@ def _dod_run_check(cut: DispatchCut, waiver):
     return DOD_RUN_REFUSED_TEMPLATE.format(why="; ".join(why)), ""
 
 
-def _feature_missing(cut) -> bool:
-    """FG7-73: a `task:` header with no well-formed `feature:` header and no `manifest-skip: feature` waiver."""
-    ids = header_ids(cut)
-    return "task" in ids and "feature" not in ids and "feature" not in waivers(cut)
+def feature_refusal(payload, cut) -> str:
+    """FG7-73: FEATURE_REFUSED_TEXT for a dispatch with a task id and no well-formed `feature:` header nor a
+    `manifest-skip: feature` waiver, else "". The ONE road: check() and dispatch_gate.decide_full (the live hook) call it
+    with cut_payload's cut BEFORE check_cut, so a critic or scout dispatch is judged too (critic t-1372 B2: the fallback
+    lived in check() alone and the hook never reached it). On cut_payload's None cut (no owns/handoff word) it reads
+    section_cut of the prompt, the cut journal_hooks journals. Invariant: a hook-written `delegated` copies feature only
+    from this header, and a featureless line blocks every merge (forge_metrics check (c)). Fail-open: a non-str prompt,
+    a raise, or a None or degraded cut refuses nothing."""
+    try:
+        if cut is None:
+            prompt = payload["tool_input"].get("prompt")
+            cut = section_cut(prompt) if isinstance(prompt, str) else None
+        if cut is None or cut.degraded:
+            return ""
+        ids = header_ids(cut)
+        if "task" in ids and "feature" not in ids and "feature" not in waivers(cut):
+            return FEATURE_REFUSED_TEXT
+    except Exception:  # noqa: BLE001 -- an unreadable dispatch is the other checks' business, never this refusal
+        pass
+    return ""
 
 
 def check_cut(cut, is_builder: bool):
@@ -1056,11 +1074,6 @@ def check_cut(cut, is_builder: bool):
         return 0, "", "", False
     if cut.degraded:
         return 0, "", _unchecked(WHAT_DEGRADED), False
-    # FG7-73: BEFORE the early return below, so a critic or scout dispatch is checked too. Invariant: a hook-written `delegated`
-    # copies feature only from this header, and a featureless line blocks every merge (forge_metrics check (c)); a dispatch
-    # with no task id stays unrefused, and a degraded cut returned above.
-    if _feature_missing(cut):
-        return 2, FEATURE_REFUSED_TEXT, "", True
     sections = cut.sections
     has_owned_path = bool(owned_paths(cut))
     if not is_builder and not has_owned_path:
@@ -1135,17 +1148,10 @@ def check(payload):
     a payload that is not a dict, a `tool_input` that is not a dict, an
     internal error or a failed sibling import (piece B guards those)."""
     is_builder, cut = cut_payload(payload)
+    refusal = feature_refusal(payload, cut)  # FG7-73: the same helper, at the same place, as dispatch_gate.decide_full
+    if refusal:
+        return 2, refusal, ""
     if cut is None:
-        # FG7-73: cut_payload's cheap exit (no `owns`/`handoff` word); journal_hooks cuts the same prompt with section_cut and
-        # journals it, so the feature check reads that cut too. Fail-open: no prompt, a raise or a degraded cut refuses nothing.
-        try:
-            prompt = payload["tool_input"].get("prompt")
-            fcut = section_cut(prompt) if isinstance(prompt, str) else None
-            if fcut is not None and not fcut.degraded:
-                if _feature_missing(fcut):
-                    return 2, FEATURE_REFUSED_TEXT, ""
-        except Exception:  # noqa: BLE001
-            pass
         return 0, "", ""
     code, message, note, _checked = check_cut(cut, is_builder)
     return code, message, note

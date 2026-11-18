@@ -242,6 +242,19 @@ def test_decide_full_handoff_refusal_keeps_the_label_check_behind_it():
     assert "worker's tier" in dispatch_gate.decide(payload)[1]  # a valid handoff reaches the label check as before
 
 
+# FG7-73 (critic t-1372 B2): no owns/handoff word gives cut_payload's None cut, and the live hook still refuses a task
+# dispatch with no feature: (the hook journals it all the same); scout rows, as a None-cut critic is refused for its handoff
+@pytest.mark.parametrize("prompt, kind, refused", [
+    ("task: t-123\nfind X\n", "scout", True),
+    ("task: t-123\nfeature: F19\nfind X\n", "scout", False),
+    ("task: t-123\nmanifest-skip: feature -- legacy\nfind X\n", "scout", False),
+    ("find X\n", "Explore", False),
+])
+def test_feature_refusal_on_the_live_hook(prompt, kind, refused):
+    decision = dispatch_gate.decide_full(_kind_payload(kind, prompt))
+    assert (decision.code, "DISPATCH FEATURE MISSING" in decision.message) == ((2, True) if refused else (0, False))
+
+
 # ---------------------------------------------------------------------
 # Not Task/Agent -- always passes.
 # ---------------------------------------------------------------------

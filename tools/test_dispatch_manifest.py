@@ -1367,25 +1367,16 @@ def test_dod_run_check_comes_after_the_completeness_verdict(monkeypatch):
     assert run(bad)[1] == run(build(siblings=None))[1] and "DISPATCH INCOMPLETE" in run(bad)[1]
 
 
-# FG7-73: a dispatch with a task: header needs a well-formed feature: Fnn header, for every dispatch kind
+# FG7-73: a dispatch with a task: header needs a well-formed feature: Fnn header, for every dispatch kind (the live
+# hook's rows, None cut included: test_dispatch_gate.py test_feature_refusal_on_the_live_hook)
 @pytest.mark.parametrize("prompt, type_, refused", [
     ("task: t-123\n" + build(), "builder", True),
     ("task: t-123\nhandoff: a report\n", "critic", True),
     ("task: t-123\nfeature: f19\n" + build(), "builder", True),
-    ("task: t-123\nfeature: F\n" + build(), "builder", True),
-    ("task: t-123\nfeature: Fx\n" + build(), "builder", True),
-    ("task: t-123\n" + fence("feature: F19") + build(), "builder", True),
     ("task: t-123\nmanifest-skip: feature -- legacy\n" + build(), "builder", False),
     ("task: t-123\nmanifest-skip: feature -- legacy\n", "scout", False),
     ("no id here\n" + build(), "builder", False),
-    ("just a scout question\n", "scout", False),
     ("task: t-123\nfeature: F19\n" + build(), "builder", False),
-    ("task: t-123\nfeature: F19\n", "scout", False),
-    # a None cut (no owns/handoff word): the hook journals it all the same
-    ("task: t-123\nsurvey the code\n", "critic", True),
-    ("task: t-123\nfeature: F19\nsurvey the code\n", "critic", False),
-    ("task: t-123\nmanifest-skip: feature -- legacy\nsurvey the code\n", "scout", False),
-    ("survey the code\n", "Explore", False),
 ])
 def test_feature_header_is_required_with_a_task_header(prompt, type_, refused):
     code, message, _note = run(prompt, type_)
