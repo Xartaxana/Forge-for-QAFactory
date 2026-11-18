@@ -312,7 +312,34 @@ def test_jobs_path_and_output(net, capsys):
                                     {"id": 12, "name": "lint", "status": "queued", "conclusion": None}]})
     assert ci_read.main(["jobs", "555"]) == 0
     assert net.requests[0].full_url == BASE + "/actions/runs/555/jobs?per_page=100"
-    assert capsys.readouterr().out == "11 package-full failure\n12 lint queued\n"
+    # job 11 is red with no steps in the answer: FG7-90 E8 says so instead of printing it as if nothing failed
+    assert capsys.readouterr().out == "11 package-full failure\n  no failed step recorded (job failure)\n12 lint queued\n"
+
+
+def _st(n, name, conclusion):
+    return {"number": n, "name": name, "conclusion": conclusion}
+
+
+@pytest.mark.parametrize("job_row, lines", [
+    ({"status": "completed", "conclusion": "failure", "steps": [_st(1, "a", "success"), _st(2, "lint", "failure"),
+                                                                 _st(3, "t", "skipped"), _st(4, "pytest", "timed_out")]},
+     ["  step 2 lint failure", "  step 4 pytest timed_out"]),
+    ({"status": "completed", "conclusion": "success", "steps": [_st(1, "a", "success")]}, []),
+    ({"status": "in_progress", "conclusion": None, "steps": [_st(1, "a", "failure"), _st(2, "b", None)]},
+     ["  step 1 a failure"]),
+    ({"status": "completed", "conclusion": "timed_out", "steps": [_st(1, "a", "cancelled")]},
+     ["  no failed step recorded (job timed_out)"]),
+    ({"status": "completed", "conclusion": "success", "steps": None}, []),
+    ({"status": "completed", "conclusion": "success", "steps": "boom"}, []),
+    ({"status": "completed", "conclusion": "success", "steps": [None, "x", 3]}, []),
+    ({"status": "completed", "conclusion": "failure", "steps": [_st(1, "x\x07##[error]y", "failure")]},
+     ["  step 1 x???[error]y failure"]),
+], ids=["two-failed", "green", "in-progress", "timed-out-none", "none", "string", "non-dict", "sanitized"])
+def test_jobs_lists_every_failed_step_under_its_job(job_row, lines, net, capsys):
+    net.body = json.dumps({"jobs": [dict(job_row, id=7, name="j")]})
+    assert ci_read.main(["jobs", "555"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "7 j %s" % (job_row.get("conclusion") or job_row["status"]) and out[1:] == lines
 
 
 def test_log_default_grep_keeps_only_matching_lines(net, capsys):
