@@ -128,10 +128,6 @@ TEST_TIMEOUTS = {
     # split is queued (B-297, the B-155 class); the ceiling only keeps a green file green.
     "test_story_run_s0.py": 600,
     "test_story_run_gate_repair.py": 600,
-    # 05.10: 313 checks, 329 s alone on the second developer's machine (177 s before the merge of 0.8.1;
-    # 25 min 46 s under the shared load of a verification window): over the default 300 s, so a full
-    # run killed it. The split is queued (B-381, the B-155 class); the ceiling only keeps a green file green.
-    "test_words_doors.py": 600,
     # 21.10: G1-2, 285.6 s in the builder's run against the default 300 s (it builds temp git repos, B21 alone 300 files twice); it
     # runs only in the nightly package-full, where a loaded runner would turn it red (FR-31). The cost cut is queued (the B-155 class);
     # the ceiling only keeps a green file green.
@@ -145,13 +141,6 @@ TEST_TIMEOUTS = {
     # 28303050; every file in those shards ran 1.3-1.6x slower). FR-31: the ceiling only keeps a green file green; the split of the
     # file (the B-155 class) is queued.
     "test_story_run_s7_live.py": 600,
-    # 10.11: t-2202, the same class: 258.6 s seen on a loaded GKE node (shard 2) against 129-146 s normal. FR-31: the ceiling only keeps
-    # a green file green; the cost cut is queued (the B-155 class).
-    "test_story_run_refusals.py": 600,
-    # 12.11: t-189, the same class: 191-255 s green on earlier canons (slow tier already, slow_tests.json 218.8 s), timed out at 300 s
-    # on canon 43316274780 shard 1 and 43316279939 shard 1, where every sibling ran 1.2-1.6x slower (test_story_run_refusals.py 288.8 s,
-    # test_story_run_s0.py 277.1 s): load, not a hang. FR-31: the ceiling only keeps a green file green; the cost cut is queued (B-155 class).
-    "test_story_run_s6.py": 600,
 }
 
 # A child that imports the package writes __pycache__ into it, and what lies in the package

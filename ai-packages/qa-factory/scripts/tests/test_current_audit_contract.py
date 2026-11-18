@@ -76,8 +76,8 @@ class AuditContractTests(unittest.TestCase):
             seen[Path(args[0]).name]=timeout
             return types.SimpleNamespace(returncode=0,stdout='=== x: 1/1 ok ===',stderr='')
         tests=Path(S.TESTS_DIR)
-        names=('test_infra_failure.py','test_words_doors.py','test_story_run_words.py','test_audit_rules.py',
-               'test_story_run_s7_live.py','test_no_move_seam.py','test_story_run_refusals.py')
+        names=('test_infra_failure.py','test_words_doors_flight_launcher.py','test_story_run_words.py','test_audit_rules.py',
+               'test_story_run_s7_live.py','test_no_move_seam.py','test_story_run_refusals_core.py')
         with patch.object(S,'run_subprocess',fake):
             for name in names:
                 S._test_outcome(tests/name)
@@ -85,10 +85,10 @@ class AuditContractTests(unittest.TestCase):
             self.assertEqual(seen[name],S.TEST_TIMEOUTS.get(name,300),name)
         self.assertEqual(seen['test_infra_failure.py'],600)   # a row that exists upstream
         self.assertEqual(seen['test_audit_rules.py'],300)
-        for name in ('test_story_run_s7_live.py','test_no_move_seam.py','test_story_run_refusals.py'):
+        for name in ('test_story_run_s7_live.py','test_no_move_seam.py'):
             self.assertEqual(seen[name],600,name)             # t-2202: slow files that timed out or neared 300 s on a loaded runner
         self.assertFalse(hasattr(S,'SLOW_TEST_TIMEOUT_S'))    # no second table
-        self.assertTrue({'test_words_doors.py','test_story_run_words.py'}<=set(S.slow_tests()["files"]))
+        self.assertTrue({'test_words_doors_flight_launcher.py','test_story_run_words.py'}<=set(S.slow_tests()["files"]))
         # the two files this wave deletes hold no registration
         self.assertFalse({'test_story_run.py','test_reporter_limited_window.py'}&set(S.slow_tests()["files"]))
 

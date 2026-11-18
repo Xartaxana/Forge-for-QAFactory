@@ -268,7 +268,7 @@
       "count": 2
     },
     {
-      "path": "ai-packages/qa-factory/scripts/tests/test_story_run_s6.py",
+      "path": "ai-packages/qa-factory/scripts/tests/test_story_run_s6_c16b.py",
       "class": "HandReaderInput",
       "args": "RR-plan-row",
       "count": 2
