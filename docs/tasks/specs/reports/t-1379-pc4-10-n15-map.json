@@ -1,0 +1,479 @@
+{
+ "source": "test_words_doors.py",
+ "common": "words_doors_common",
+ "shim": true,
+ "parts": [
+  "test_words_doors_detector",
+  "test_words_doors_doors",
+  "test_words_doors_controller",
+  "test_words_doors_flight_launcher"
+ ],
+ "names": [
+  {
+   "name": "WIN",
+   "kind": "assign",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "LAUNCHER",
+   "kind": "assign",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "FLAG",
+   "kind": "assign",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "WORDS",
+   "kind": "assign",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "INLINE_DOOR",
+   "kind": "assign",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "PENDING_REASON",
+   "kind": "assign",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "DRIVER_KEY",
+   "kind": "assign",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "PENDING",
+   "kind": "assign",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "PENDING_PINNED",
+   "kind": "assign",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "PENDING_PINNED_REASON",
+   "kind": "assign",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "EXEMPT",
+   "kind": "assign",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "DOC_DIRS",
+   "kind": "assign",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "DOC_SUFFIXES",
+   "kind": "assign",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "BARE_DOOR",
+   "kind": "assign",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "normalised",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "hits_in",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "SCRIPT_NAME",
+   "kind": "assign",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "_placeholder",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "_render",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "_strings",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "python_texts",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "script_units",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "scan",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "unlisted_of",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "_is_door_call",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "converted_doors",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "driver_inline_calls",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "part_detector",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "part_renderer",
+   "kind": "def",
+   "home": "test_words_doors_detector"
+  },
+  {
+   "name": "SPAN",
+   "kind": "assign",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "project_env",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "door_of",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "part_doors_hold_the_whole_words_clause",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "whole_cut",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "open_door",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "overrides_of",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "recorded",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "captured",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "row_13_rehearsal",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "row_14_still_running",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "row_15_16_controller_stage",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "story_with",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "row_17_stage_guard_hint",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "detector_row",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "critic_story",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "plan_story",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "s5_story",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "row_19_20_21_detectors",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "row_22_manifest_put",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "row_23_24_story_budget",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "row_block_names",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "row_25_readiness_and_tracker_route",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "registry_texts",
+   "kind": "def",
+   "home": "test_words_doors_doors"
+  },
+  {
+   "name": "TICKET",
+   "kind": "assign",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "ctrl_project",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "refused_text",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "critic_review",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "story_pipeline",
+   "kind": "def",
+   "home": "words_doors_common"
+  },
+  {
+   "name": "waiver_door",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "span_with",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "run_printed",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "row_1_2_design_review",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "row_3_empty_scope_at_gate_a",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "settle",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "rows_4_5_11_dispatch_doors",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "rows_6_7_repair_rounds",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "row_round_pass_keys",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "row_pass_key_counting_and_life",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "row_pass_life_end_to_end",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "row_person_rework_round_pass",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "door_spans",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "pass_blocks",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "row_8_not_receipted",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "row_9_mechanical_round",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "row_10_derived_scope",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "rows_12_30_release",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "row_31_source_preflight",
+   "kind": "def",
+   "home": "test_words_doors_controller"
+  },
+  {
+   "name": "OLD_KEYWORDS",
+   "kind": "assign",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "part_in_flight",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "part_launcher",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_settle_order",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_leave_unlaunched",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_words_carry",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_repo_words_cli",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "_committed",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "_s5_completion",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_fv130a_the_controller_records_what_the_word_passed",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_fv130a_no_second_question",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_fv130b_the_journal_line_carries_the_subjects",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_fv130b_person_passes",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_fv130b_the_one_reader",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_fv130b_the_two_survivors",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  },
+  {
+   "name": "row_fv130b_n1_the_not_run_section_and_the_field_rows",
+   "kind": "def",
+   "home": "test_words_doors_flight_launcher"
+  }
+ ],
+ "statements": []
+}
