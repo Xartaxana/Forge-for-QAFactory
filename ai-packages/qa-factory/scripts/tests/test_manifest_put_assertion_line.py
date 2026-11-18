@@ -398,18 +398,19 @@ CARRIERS = [
 @pytest.mark.parametrize("label,held,sent,seeded,after", CARRIERS, ids=[r[0][:8] for r in CARRIERS])
 def test_the_carriers_of_a_renamed_row_follow_its_collected_spelling(stand, label, held, sent, seeded, after):
     """Kill: `_rewrite_instance_ids` skipping `unresolved[]` or `obligation_bindings[]` (E13: a carrier keeping the spelling its row
-    lost), a name two rows claim rewritten to either or to null, a row that was not renamed touched (RD1-40, critic t-1360 R3)."""
+    lost, the singular `unresolved[].instance_id` included), a name two rows claim rewritten to either or to null, a row that was not renamed touched (RD1-40, critic t-1360 R3)."""
     with_pytest(stand)
     if seeded:
         claim = {"status": "verified", "note": "n", "asked": held}
-        stand.append_projected({"tests": [{"instance_id": f"test_par[{k}-2]", "file": MOD, "covers": [CASE], "status": "green",
-                                           "node_id_check": claim} for k in "xz"]}, "seed")
-    unresolved = {"case": CASE, "reason": "impossible", "detail": "d", "instance_ids": [held]}
+        stand.append_projected({"fragment": {"tests": [{"instance_id": f"test_par[{k}-2]", "file": MOD, "covers": [CASE], "status": "green",
+                                           "node_id_check": claim} for k in "xz"]}}, "seed")
+    unresolved = {"case": CASE, "reason": "impossible", "detail": "d", "instance_id": held, "instance_ids": [held]}
     binding = {"obligation_id": "OB-1", "instance_ids": [held]}
     code, out, err = stand.put({"tests": [node_row(sent)], "unresolved": [unresolved], "obligation_bindings": [binding]})
     assert code == 0, (label, out, err)
     stored = stand.manifest()
     assert stored["unresolved"][0]["instance_ids"] == [after], (label, stored["unresolved"])
+    assert stored["unresolved"][0]["instance_id"] == after, (label, stored["unresolved"])
     assert stored["obligation_bindings"][0]["instance_ids"] == [after], (label, stored["obligation_bindings"])
 
 
