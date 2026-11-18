@@ -1,0 +1,71 @@
+# The driver golden, recorded and compared in CI (FG7-78 node B3, spec docs/tasks/specs/20261118-fg7-78-driver-golden-coverage-card.md D5).
+# PROPOSED: the Lead moves this file to .github/workflows/driver-golden.yml at acceptance (check_root in driver_golden.py names that path).
+# A MEASUREMENT on demand: workflow_dispatch ONLY (no push, pull_request or schedule trigger: F2), read-only, no secrets.
+#   inputs  base_ref  branch or sha to RECORD the golden on (required)
+#           head_ref  branch or sha to COMPARE against it (empty: main)
+# One runner path for both runs: the repo is checked out once, the base is recorded, then the SAME directory is moved to the head
+# and compared (check_root: a golden is the trace of one package directory). Python 3.12 (--coverage needs it).
+# Exit codes of driver_golden.py: 0 no difference (the only green); 1 a difference (diff uploaded, red); 2 a refusal (job red,
+# compare never runs, the log is still uploaded). Read the result: artifact driver-golden = golden/ (MANIFEST, coverage-n0.json),
+# record.log, compare.log. A recording run is minutes to an hour (estimate, not measured): timeout 180 for the two runs.
+name: driver-golden
+run-name: driver-golden ${{ inputs.base_ref }} -> ${{ inputs.head_ref || 'main' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "branch or sha to record the golden on"
+        required: true
+      head_ref:
+        description: "branch or sha to compare against the golden (empty: main)"
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  driver-golden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ inputs.base_ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: record the golden on the base
+        env:
+          TOOL: ai-packages/qa-factory/scripts/tests/driver_golden.py
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/ci-out/golden"
+          python -B "$GITHUB_WORKSPACE/$TOOL" --package "$GITHUB_WORKSPACE/ai-packages/qa-factory" \
+            --golden-dir "$GITHUB_WORKSPACE/ci-out/golden" --coverage record 2>&1 | tee "$GITHUB_WORKSPACE/ci-out/record.log"
+      - name: move the same directory to the head
+        env:
+          HEAD_REF: ${{ inputs.head_ref || 'main' }}
+        run: |
+          git fetch --quiet origin "$HEAD_REF" || true
+          git checkout --quiet --detach "$(git rev-parse --verify --quiet "origin/$HEAD_REF" || git rev-parse --verify "$HEAD_REF")"
+          git log -1 --format='head: %H'
+      - name: compare the head with the golden
+        env:
+          TOOL: ai-packages/qa-factory/scripts/tests/driver_golden.py
+        run: |
+          python -B "$GITHUB_WORKSPACE/$TOOL" --package "$GITHUB_WORKSPACE/ai-packages/qa-factory" \
+            --golden-dir "$GITHUB_WORKSPACE/ci-out/golden" compare 2>&1 | tee "$GITHUB_WORKSPACE/ci-out/compare.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: driver-golden
+          path: ci-out/
+          retention-days: 14
+          if-no-files-found: warn
