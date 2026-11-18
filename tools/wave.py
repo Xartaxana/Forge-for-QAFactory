@@ -129,8 +129,8 @@ class Wave:
         self.branch, self.task, self.node, self.ci, self.out = branch, task, node, ci, out
         self.pin = pin
         self.tests_over = tests_over      # the validated reason, or None
-        self.over_line = None             # set by check_volume: the reason, only when the branch is over the budget
-        self.volume_done = False
+        self.over_line = None             # set by check_volume: the reason, whenever --tests-over is given and a merge is due
+        self.volume_tip = None            # the last tip judged (memo by tip, not by flag)
         self.piles_skip = piles_skip      # the validated text after "piles-skip:", or None
         self.root = jl.common_dir(repo).parent
         self.sha = None
@@ -224,14 +224,16 @@ class Wave:
     def check_volume(self, tip):
         """Test lines of the branch vs product lines (tools/test_volume.py's classifier and summer). Over the budget and
         no --tests-over: refused before any push. Cannot be computed: one line, the merge goes on."""
-        if self.volume_done or self.branch == MAIN:
+        if self.volume_tip == tip or self.branch == MAIN:      # a tip is judged once; the local and the origin tip may differ
             return
+        self.volume_tip = tip
         root = self.root
         if git(root, "merge-base", "--is-ancestor", tip, "origin/" + MAIN)[0] == 0:
-            return                                                  # nothing to merge: no check
-        rc, text, err = git(root, "diff", "--numstat", "-M", "origin/%s...%s" % (MAIN, tip))
+            return                                                  # nothing to merge: no check, no merge commit
+        self.over_line = self.tests_over                            # the Lead's reason is written whenever a merge commit is made
+        # quotepath off: a non-ASCII path stays a path (octal-quoted it would read as excluded; tools/gitcmd.py does the same)
+        rc, text, err = git(root, "-c", "core.quotepath=false", "diff", "--numstat", "-M", "origin/%s...%s" % (MAIN, tip))
         if rc != 0:
-            self.volume_done = True
             self.say("test volume: not checked (git diff --numstat failed: %s)" % (err[:200] or "no message"))
             return
 
@@ -241,13 +243,9 @@ class Wave:
         try:
             t, p = tv.sum_numstat(text, has_tests)
         except Exception as exc:
-            self.volume_done = True
             self.say("test volume: not checked (%s: %s)" % (type(exc).__name__, exc))
             return
-        self.volume_done = True
         if t <= p:
-            if self.tests_over is not None:
-                self.say("test volume: within the budget (+%d test vs +%d product lines); --tests-over was not needed" % (t, p))
             return
         if self.tests_over is None:
             raise Refuse(
@@ -255,7 +253,6 @@ class Wave:
                 'Way on: the builder cuts rows to the budget, weakest first, and reports them as "tests not written: '
                 '<row> -- over budget"; or the Lead names the reason: --tests-over "<reason>" (written into the merge '
                 "commit)." % (t, p))
-        self.over_line = self.tests_over
 
     def publish_branch(self):
         """Step 3a: the accepted branch reaches origin by this road. Nothing local -> step 3 judges; origin equal to or

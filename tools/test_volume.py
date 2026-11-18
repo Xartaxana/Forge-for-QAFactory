@@ -132,7 +132,7 @@ def _git(*args):
 
 def run(msg_file):
     try:
-        r = _git("diff", "--cached", "--numstat", "-M")
+        r = _git("-c", "core.quotepath=false", "diff", "--cached", "--numstat", "-M")
         if r.returncode != 0:
             print("test_volume: not measured -- git diff failed: " + r.stderr.strip()[:200], file=sys.stderr)
             return
