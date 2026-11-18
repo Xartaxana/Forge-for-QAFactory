@@ -82,6 +82,24 @@ def test_the_template_carries_every_card_heading():
     assert [h for h in CARD_HEADINGS if h not in lines] == [], "plans/piles/_template/README.md lacks headings"
 
 
+def template_batch_heading_problems(text):
+    """Problems of a batch template: a missing heading (the gate's reader, one road), then each BATCH_HEADINGS heading exactly
+    once and in order (a heading twice or out of order is not what a batch is born with)."""
+    problems = piles.batch_heading_problems(text)
+    seen = [l.rstrip() for l in text.split("\n") if l.rstrip() in BATCH_HEADINGS]
+    if not problems and seen != BATCH_HEADINGS:
+        problems.append("headings %s, expected %s" % (seen, BATCH_HEADINGS))
+    return problems
+
+
+def test_the_template_carries_every_batch_heading():
+    """FG7-17: _template/batch.md was born without «## Бриф» while batches are checked for it."""
+    text = (PILES_DIR / "_template" / "batch.md").read_text(encoding="utf-8")
+    assert template_batch_heading_problems(text) == [], "plans/piles/_template/batch.md"
+    assert template_batch_heading_problems(text + "\n## Бриф\n") != []                       # negative control: twice
+    assert template_batch_heading_problems("## Узлы\n\n## Бриф\n") != []                     # negative control: out of order
+
+
 @pytest.mark.parametrize("slug", SLUGS)
 def test_zachem_names_no_id(slug):
     why = (section_text((PILES_DIR / slug / "README.md").read_text(encoding="utf-8"), "## Зачем") or "").strip()
