@@ -23,6 +23,7 @@ Before the first `record` the file does not exist; every reader treats an absent
                           [--settles-by-file F] | --reference) --words-file F
   project_knowledge.py lesson --task T --subject S [--stand N] [--wait-s SECONDS] --words-file F
   project_knowledge.py lessons [--stand N] [--task T]
+  project_knowledge.py instance --task T --allowed yes|no [--stand N] [--need another_instance] --words-file F
 
 A LESSON is what a person taught about how a stand behaves (what takes long, how to narrow it): the subject is free words compared
 exactly, the person's words are stored whole and are the payload, `wait_s` is an optional number kept for display. Code never
@@ -65,6 +66,11 @@ LESSON_WAIT_MAX_S = 86400
 # the `why` is the row's words). The ONE writer is `first_look.record_sign_in` through `record`; the ONE reader is `sign_in`.
 SIGN_IN_KEY = "environments.sign_in"
 SIGN_IN_NOT_KEPT = ("evidence", "quote", "req", "why")
+# E7: may the factory start another instance of the stand or device when a check needs it. Stand scope; the element is the NEED word
+# (`INSTANCE_NEEDS`, the one home); `value` is exactly `{"authorized": True|False}` (the stored key; every text a person reads says
+# "allowed"). The ONE writer is `record`, the ONE reader is `instance_answer`: no row, a revoked row or an unreadable registry is no answer.
+EXTRA_INSTANCE_KEY = "environments.extra_instance"
+INSTANCE_NEEDS = ("another_instance",)
 # THE ORDER in which the ways in a stand has are tried (the ONE statement; amendment 11): "recorded" - the way a first look found
 # and recorded on this stand (`sign_in`); then "project" - the project's config (`environment.access` for an http reader,
 # `manual_capture.login.ui` for a ui reader); then "factory_default". A role-recorded way ranks above the onboarding config ON
@@ -489,6 +495,53 @@ def lessons(root, stand) -> dict:
     return out
 
 
+def instance_answer(root, stand, need) -> dict:
+    """`{"authorized": True | False | None, "row": row | None, "problem": str, "no_stand": bool}`: the person's answer, for the stand
+    `stand` (EXACT name), to "may the factory start another instance when a check needs it". PURE: writes nothing, never raises.
+    `None` is no answer - no row, a revoked row, no stand chosen, a need outside `INSTANCE_NEEDS`, a row whose value is not a typed
+    yes/no - and it asks; it is never read as a yes or a no. An absent registry file has no problem; an unreadable registry or a
+    catalogue without the row has one (never a "no": FR-59)."""
+    out = {"authorized": None, "row": None, "problem": "", "no_stand": False}
+    try:
+        stand = str(stand or "")
+        if not stand.strip() or stand == PLACEHOLDER_STAND:
+            out["no_stand"] = True
+            return out
+        if EXTRA_INSTANCE_KEY not in KEYS:
+            out["problem"] = CATALOGUE_PROBLEM or _cut(f"the catalogue has no row for {EXTRA_INSTANCE_KEY}")
+            return out
+        rows, problem = load(root)
+        if problem:
+            out["problem"] = problem
+            return out
+        row = _newest_answer(rows, stand, need) if need in INSTANCE_NEEDS else None
+        if row is not None and _instance_value_ok(row.get("value")):
+            out["authorized"], out["row"] = row["value"]["authorized"], copy.deepcopy(row)
+    except Exception as exc:    # a reader never stops a gate: what it could not read is a problem, not a "no"
+        out.update(authorized=None, row=None, problem=f"the record of project knowledge could not be read ({type(exc).__name__})")
+    return out
+
+
+def _newest_answer(rows, stand, need):
+    """The row that decides the answer: the NEWEST row of the subject, revoked rows counted (the `_latest` order), and only a live
+    `known` row is an answer. A revoked or not-`known` newest row is no answer - never a fall back to an older row: after `revoke`
+    the next need asks the person again (review t-1311 F1, F4)."""
+    form = _form(EXTRA_INSTANCE_KEY, need)
+    best, best_order = None, None
+    for index, row in enumerate(rows or []):
+        if (not isinstance(row, dict) or not form or not _usable(dict(row, revoked_at=None)) or row["key"] != EXTRA_INSTANCE_KEY
+                or row["environment"] != stand or _form(EXTRA_INSTANCE_KEY, row["element"]) != form):
+            continue
+        order = (ER._moment(row.get("at")), index)
+        if best_order is None or order >= best_order:
+            best, best_order = row, order
+    return best if best is not None and not best.get("revoked_at") and best.get("state") == KNOWN else None
+
+
+def _instance_value_ok(value) -> bool:
+    return isinstance(value, dict) and list(value) == ["authorized"] and isinstance(value["authorized"], bool)
+
+
 def sign_in(root, stand) -> dict:
     """`{"ways": [{"surface", "value", "story", "at", "id"}], "precedence": SIGN_IN_PRECEDENCE, "problem": str, "no_stand": bool}`: the
     way in a first look recorded on the stand `stand` (EXACT name), the newest live row per surface, sorted by surface. PURE: writes
@@ -733,6 +786,11 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
                        "of the story's record (`sides.<name>.<attribute>=<value>`); nothing was recorded")
     elif key == LESSONS_KEY:     # BEFORE the role rules: a lesson subject never meets them, and a role key never skips them
         out += _lesson_value_faults(element, value)
+    elif key == EXTRA_INSTANCE_KEY:     # BEFORE the role rules: a need word never meets them; only a typed yes/no is ever read
+        if text not in INSTANCE_NEEDS:
+            out.append(f"the need {text[:60]!r} is not one of {', '.join(INSTANCE_NEEDS)}; nothing was recorded")
+        if not _instance_value_ok(value):
+            out.append("the value of the answer about another instance is exactly {\"authorized\": true|false}; nothing was recorded")
     elif key == SIGN_IN_KEY:     # BEFORE the role rules: a surface word never meets them, and a role key never skips them
         try:
             out += _sign_in_value_faults(element, value)
@@ -756,6 +814,7 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
     if source == "person" and not str(words or "").strip():
         import person_words
         door = ("project_knowledge.py lesson --task <T> --subject <words> [--wait-s N]" if key == LESSONS_KEY
+                else "project_knowledge.py instance --task <T> --allowed yes|no" if key == EXTRA_INSTANCE_KEY
                 else "project_knowledge.py role --task <T> --role <role> --state <state>")
         out.append("the person's words are empty; record the answer with their own words in a file: " + person_words.door(door))
     if load_problem:
@@ -1022,7 +1081,7 @@ def cmd_revoke(ns) -> int:
     row, problem = revoke(root, ns.id, words)
     if row is None:
         return _fail(problem)
-    if row.get("key") in (ROLES_KEY, ACCOUNTS_KEY):
+    if row.get("key") in (ROLES_KEY, ACCOUNTS_KEY, EXTRA_INSTANCE_KEY):
         print(f"{row['id']} is taken back ({row.get('key')} {row.get('element')}): it is asked again where it is needed; an account "
               "value in the project's settings stays until it is changed with `account --replace` or by hand.")
     else:
@@ -1037,10 +1096,10 @@ def _story_stand(ns, task_root, cfg) -> tuple:
     if not stand:
         import stand_gaps
         stand = stand_gaps.stand_name(task_root)
-        if stand == PLACEHOLDER_STAND:
-            names = ", ".join(f"`{e.get('name')}`" for e in _stands(cfg))
-            return "", ("no stand is named and the story has none chosen; pass --stand <name>"
-                        + (f" (the stands: {names})" if names else "") + "; nothing was recorded")
+    if stand == PLACEHOLDER_STAND:      # also when passed explicitly (review t-1311 F3): a stand no config has
+        names = ", ".join(f"`{e.get('name')}`" for e in _stands(cfg))
+        return "", ("no stand is named and the story has none chosen; pass --stand <name>"
+                    + (f" (the stands: {names})" if names else "") + "; nothing was recorded")
     return stand, ""
 
 
@@ -1069,6 +1128,26 @@ def cmd_lesson(ns) -> int:
     if row is None:
         return _fail(problem)
     print(f"{ns.subject} on {stand}: {LESSONS_KEY} " + _verb(row, created))
+    return 0
+
+
+def cmd_instance(ns) -> int:
+    """The person's answer about another instance of the stand or device, on their words: `--allowed yes|no` for the stand (`--stand`,
+    else the story's chosen stand), for the need `--need`. The same answer again is `already recorded`; the other one is a new row
+    that wins. A story that leaves no trace refuses it with the door."""
+    got, refusal = _write_prologue(ns, "instance --task <T> --allowed yes|no [--stand <name>] --words-file <file>")
+    if refusal:
+        return _fail(refusal)
+    words, root, task_root, cfg, story = got
+    stand, refusal = _story_stand(ns, task_root, cfg)
+    if refusal:
+        return _fail(refusal)
+    row, problem, created = record(root, key=EXTRA_INSTANCE_KEY, environment=stand, element=ns.need, state=KNOWN, scope="stand",
+                                   value={"authorized": ns.allowed == "yes"}, words=words, source="person", story=story,
+                                   by="conductor", task_root=task_root)
+    if row is None:
+        return _fail(problem)
+    print(f"{ns.need} on {stand}: {EXTRA_INSTANCE_KEY} " + _verb(row, created))
     return 0
 
 
@@ -1198,6 +1277,13 @@ def main(argv=None) -> int:
     lesson.add_argument("--wait-s", dest="wait_s", default=None)      # parsed by the verb: whole seconds only, refused with its door
     lesson.add_argument("--words-file", dest="words_file", default=None)
     lesson.set_defaults(fn=cmd_lesson)
+    inst = sub.add_parser("instance")
+    inst.add_argument("--task", required=True)
+    inst.add_argument("--allowed", required=True, choices=("yes", "no"))
+    inst.add_argument("--stand", default=None)
+    inst.add_argument("--need", choices=INSTANCE_NEEDS, default=INSTANCE_NEEDS[0])
+    inst.add_argument("--words-file", dest="words_file", default=None)
+    inst.set_defaults(fn=cmd_instance)
     seen = sub.add_parser("lessons")
     seen.add_argument("--stand", default=None)
     seen.add_argument("--task", default=None)

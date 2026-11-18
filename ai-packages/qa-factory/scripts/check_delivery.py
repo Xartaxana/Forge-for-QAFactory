@@ -1481,12 +1481,12 @@ def triage_reasons(artifacts: Path) -> list:
     matched, ambiguous = _bind_triage(failures, C.triage_rows(triage))
     competing = {key for _names, keys in ambiguous for key in keys}
     for (kind, name), rows in matched.items():
-        if kind == "result" and len(rows) > 1:
+        if kind in ("result", "unread") and len(rows) > 1:     # U7 7b-B (B6): an unread target is judged like a failed result
             # t-323 F1: more than one row for ONE failure is its own refusal (it used to read "no verdict", the wrong
             # reason): the same words S7 uses
             reasons.append(f"triage: {len(rows)} rows answer the failure {name} in triage.json; keep one")
             continue
-        if (kind == "result" and len(rows) != 1) or (kind == "manual" and not rows):
+        if (kind in ("result", "unread") and len(rows) != 1) or (kind == "manual" and not rows):
             if not rows and (kind, name) in competing:
                 continue   # the row that names it twice speaks below; this failure is not "unjudged", it is unassigned
             # t-319 (t-311 Q1): a manual check nobody judged is the review's to settle, not the factory's own
@@ -1496,7 +1496,7 @@ def triage_reasons(artifacts: Path) -> list:
                            + f" the failure {name} has no verdict in triage.json"
                            + (" (a row answers it when it names it exactly, or the same id with or without its "
                               "`[param]` group, and carries its attempt - a row with no attempt answers only the "
-                              "latest attempt of the instance, never an older one)" if kind == "result" else ""))
+                              "latest attempt of the instance, never an older one)" if kind in ("result", "unread") else ""))
     # P26 / RN1-10 (AR-28): an observation of a manual check (`<case>#obs<n>`, whatever its check's result) with no verdict is a
     # factory-side gap of its own - never a pass, and never the person's to settle; the analyst answers it with a row
     for (kind, name), rows in matched.items():
@@ -1777,8 +1777,48 @@ def handed_plan_rows(artifacts: Path) -> frozenset:
         return frozenset()
 
 
-def coverage_reasons(doc: dict, handed_rows_of_plan: frozenset = frozenset()) -> list:
+UNREAD_GAP = "current sufficient evidence incomplete"   # the coverage projection's gap text for an obligation with no verified run
+
+
+NOT_A_READ_FAILURE = ("NOT_EXECUTED", "ENV_ISSUE", "FLAKY")   # verdicts that are no failure of the product: their ledger rows own them
+
+
+def unread_obligations(doc: dict, facts: dict) -> tuple:
+    """`(excused, red)`: frozensets of obligation ids whose every instance is an unread target (`contract.unread_readings`, the
+    ONE join) the failure analyst answered (U7 7b-B, D3). The per-obligation rule is `contract._reading_of` (N7) and only the coverage
+    guards are added here: `excused` = every instance read NOT_EXECUTED AND the oracle closed AND the design sufficient AND the
+    gap the plain "evidence incomplete" text (the item is the ledger's `run_unread`); `red` = a failure verdict on an instance (not only NOT_EXECUTED, ENV_ISSUE, FLAKY).
+    An unanswered instance, a failed execution, an open oracle, another gap text, an empty `instance_ids`: in neither set, so the
+    coverage reason stands as today. Error direction: toward the gap. Never raises."""
+    try:
+        readings = C.unread_readings(facts["report"], facts["triage"])
+        excused, red = set(), set()
+        for ob in doc.get("coverage", {}).get("obligations", []):
+            oid = ob.get("obligation_id")
+            if not isinstance(oid, str) or not oid:     # an id-less row is in neither set: `coverage_reasons` treats it as before
+                continue
+            ids = ob.get("instance_ids") or []
+            if not readings or not ids or ob.get("execution_state") != "inconclusive" or any(i not in readings for i in ids):
+                continue
+            verdicts = [readings[i] for i in ids]
+            word = C._reading_of(verdicts)
+            if word == "red":
+                if any(v and v not in NOT_A_READ_FAILURE for v in verdicts):    # only NOT_EXECUTED/ENV_ISSUE/FLAKY: keep `coverage:`
+                    red.add(oid)
+            elif (word == "read" and ob.get("oracle_open") is False and ob.get("design_assessment") == "sufficient"
+                  and str(ob.get("gap") or "").strip() == UNREAD_GAP):
+                excused.add(oid)
+        return frozenset(excused), frozenset(red)
+    except Exception:  # noqa: BLE001
+        return frozenset(), frozenset()
+
+
+def coverage_reasons(doc: dict, handed_rows_of_plan: frozenset = frozenset(), excused: frozenset = frozenset(),
+                     red: frozenset = frozenset()) -> list:
     """One reason per current-task obligation the coverage projection does not verify.
+
+    U7 7b-B (D3): an id in `excused` (`unread_obligations`) is skipped - its item is the ledger's `run_unread`; an id in `red` reads
+    `coverage red: <id> - the failure analyst read a failure in the run log` (product), said only for a failure verdict. `coverage_contract.py` is untouched.
 
     `person_debt`: the only test that covers it is one the critic could not verify (D-0013) -
     shown in the coverage report in words, listed in "Left with you", never a delivery reason.
@@ -1793,6 +1833,11 @@ def coverage_reasons(doc: dict, handed_rows_of_plan: frozenset = frozenset()) ->
                 or obligation.get("person_debt")):
             continue
         if obligation.get("plan_row") in handed_rows_of_plan and obligation.get("execution_state", "failed") != "failed":
+            continue
+        if obligation.get("obligation_id") in excused:
+            continue
+        if obligation.get("obligation_id") in red:
+            out.append("coverage red: " + obligation["obligation_id"] + " - the failure analyst read a failure in the run log")
             continue
         # RN1-23 (3): an obligation that carries NO cause at all - neither state field and a `gap` that is empty or exactly
         # `none` - is the coverage projection's own gap, not a behaviour in question (LOCAL-1 printed `coverage red: OB-n -
@@ -2033,8 +2078,15 @@ def not_executed_findings(artifacts: Path, facts: dict | None = None) -> list:
     `_code_row_ok` failed. A row that holds all three has no finding."""
     facts = facts or gather(artifacts)
     out = []
+    # U7 7b-B (B4): the analyst's own NOT_EXECUTED on a test whose results the run could not read is the reading it was asked for -
+    # a row the binding gives a key of kind `unread` has no finding. An unbound row (another attempt) keeps `_code_row_ok`.
+    try:
+        failures, _unnamed = C.triage_failures(facts["report"])
+        unread_bound = [r for k, rows in C.bind_triage(failures, facts["triage"])["matched"].items() if k[0] == "unread" for r in rows]
+    except Exception:  # noqa: BLE001
+        unread_bound = []
     for row in facts["triage"]:
-        if str(row.get("verdict") or "") != "NOT_EXECUTED":
+        if str(row.get("verdict") or "") != "NOT_EXECUTED" or any(row is r for r in unread_bound):
             continue
         name = str(row.get("instance_id") or row.get("test") or row.get("case") or "?")
         ok, why = _code_row_ok(str(row.get("case") or row.get("instance_id") or row.get("test") or ""), facts)
@@ -2276,6 +2328,8 @@ def build_left_items(records: list, facts: dict, doc: dict | None = None) -> lis
                     " ".join(str(clauses.get(n) or f"Then {n}").split())
                     + (f" - the part: {parts[n]}" if parts.get(n) else "")
                     for n in numbers)
+        elif "run_unread" in item["kinds"]:
+            item["to_check"] = _run_unread_to_check(key, facts)
         elif meta.get("path") and not (item["to_check"] and "unprepared_walk" in item["kinds"]):
             try:
                 import traceability as T
@@ -2295,6 +2349,29 @@ def _behind_red(facts: dict, case: str) -> tuple:
         return L.behind_red(facts["manifest"], facts["report"], case, facts["cfg"] or None)
     except Exception:
         return [], []
+
+
+def _run_unread_to_check(case: str, facts: dict) -> str:
+    """The `to_check` of a `run_unread` item (U7 7b-B, D6): the run's results could not be read by code, what the analyst's rows for
+    this case's unread targets quote from the log (`limitation`, N8: `bind_triage` over keys of kind `unread`, mapped to cases by
+    `_failure_cases` - no new matcher), and the road that makes the result count (`run.reporter`, `run.report_path`, read by
+    `run_suite.report_path`). One item per case: the rows of every instance are joined, duplicates collapsed."""
+    said: list = []
+    try:
+        failures, _unnamed = C.triage_failures(facts["report"])
+        for key, rows in C.bind_triage(failures, facts["triage"])["matched"].items():
+            if key[0] != "unread" or case not in _failure_cases(key, failures[key], facts):
+                continue
+            for row in rows:
+                lim = row.get("limitation")
+                for x in lim if isinstance(lim, list) else [lim]:
+                    text = " ".join(str(x or "").split())
+                    if text and text not in said:
+                        said.append(text)
+    except Exception:  # noqa: BLE001
+        said = []
+    return ("the run's results could not be read by code" + (f"; what the failure analyst read in the log: {' | '.join(said)}" if said else "")
+            + "; to make it count, set run.reporter and run.report_path in qa-factory/config.json")
 
 
 def _person_thens(kinds: list, blocked: list, taken: list, whole_handed: bool) -> list | None:
@@ -2661,7 +2738,8 @@ def assess(artifacts: Path, finalized_delivery: bool = False) -> dict:
                       if not (rec["kind"] == "handed" and not rec.get("then") and _bare(rec.get("case") or "") in red)]
         own(["manual evidence export: " + str(issue) for issue in doc.get("manual_evidence", {}).get("errors", [])],
             "factory_record")
-        own(coverage_reasons(doc, handed_plan_rows(artifacts)), "coverage_gap")
+        excused, unread_red = unread_obligations(doc, facts)
+        own(coverage_reasons(doc, handed_plan_rows(artifacts), excused, unread_red), "coverage_gap")
         # TQ1-20: POSITION after the filter above (it must not drop a branch) and before `decide` (which must see it).
         records += branch_records(artifacts)
         # G2-3 (FR-22): the bug candidates; same position as the branches (after the filter, which must not drop one; before `decide`)
