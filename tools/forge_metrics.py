@@ -1249,11 +1249,15 @@ def _nc_moves(tasks, found, win_day, transcripts):
         if aid is not None:
             owner.setdefault(aid, k)
     sends_of = {}     # main transcript path -> sends, None = unreadable
+    refused, failed = [], 0      # FG7-86: the refused Agent calls of the readable sessions, joined by _nc_refused
     for p in found.values():
         m = transcripts.main_transcript_of(p) if p is not None else None
         if m is not None and m not in sends_of:
-            res = transcripts.send_targets(m)
+            res = transcripts.lead_calls(m)
             sends_of[m] = None if res["error"] else res["sends"]
+            if not res["error"]:
+                refused += res["refused"]
+                failed += res["failed"]
     ok_aids = {a for a, p in found.items()
                if p is not None and sends_of.get(transcripts.main_transcript_of(p)) is not None}
     resumes, no_node = {}, 0
@@ -1266,21 +1270,57 @@ def _nc_moves(tasks, found, win_day, transcripts):
             elif not isinstance(s["ts"], str) or _nc_new_day(s["ts"], win_day):
                 no_node += 1
     bad = sum(1 for v in sends_of.values() if v is None)
-    return resumes, ok_aids, no_node, {"scanned": len(sends_of) - bad, "unreadable": bad}
+    return resumes, ok_aids, no_node, {"scanned": len(sends_of) - bad, "unreadable": bad}, (refused, failed)
 
 
-def _nc_unscanned(tasks, ks, ok_aids, transcripts) -> int:
-    """Agents of the tasks `ks` whose sends were not read: a non-agent ref, no transcript found, an unreadable session."""
-    n, seen = 0, set()
+def _nc_refused(items, ctx, win_day, dispatch_manifest):
+    """FG7-86: the refused Agent calls joined to a row, task first (never time or prose): -> {"rows": {row: n},
+    "shared": {task key: n}, "no_task": n, "outside": n}. The ids of a prompt are read by dispatch_manifest.header_ids
+    (the reader the `delegated` line uses); no id -> no_task, an id naming no row of the window -> outside; a refusal
+    never creates a row. A no-row refusal counts only when dated in the window (day-granular); a mapped one always."""
+    tasks, rows_in, shared_in, journal, segs = ctx
+    row_of = {k: name for name, ks in rows_in.items() for k in ks}
+    out = {"rows": {}, "shared": {}, "no_task": 0, "outside": 0}
+    for it in items:
+        ids = {}
+        if isinstance(it["prompt"], str):
+            try:
+                ids = dispatch_manifest.header_ids(dispatch_manifest.section_cut(it["prompt"]))
+            except Exception:
+                ids = {}
+        key = _jk.ref_key(ids["task"], {}, segs, journal.label_ids, journal.aliases) if "task" in ids else None
+        bucket = "outside" if ids else "no_task"
+        if key in tasks:
+            if key in row_of:
+                out["rows"][row_of[key]] = out["rows"].get(row_of[key], 0) + 1
+                continue
+            if key in shared_in:
+                out["shared"][key] = out["shared"].get(key, 0) + 1
+                continue
+            bucket = "outside"
+        elif ids.get("node") in rows_in:
+            out["rows"][ids["node"]] = out["rows"].get(ids["node"], 0) + 1
+            continue
+        if _nc_new_day(it["ts"], win_day) or not isinstance(it["ts"], str):
+            out[bucket] += 1
+    return out
+
+
+def _nc_unscanned(tasks, ks, ok_aids, transcripts):
+    """-> (unscanned, agents): the agents of the tasks `ks` whose sends were not read (a non-agent ref, no transcript
+    found, an unreadable session) and all of them."""
+    n, total, seen = 0, 0, set()
     for k in ks:
         for ev in tasks[k]["delegated"]:
             aid = _agent_id(ev["obj"], transcripts)
             if aid is None:
                 n += 1
-            elif aid not in ok_aids and aid not in seen:
+                total += 1
+            elif aid not in seen:
                 seen.add(aid)
-                n += 1
-    return n
+                total += 1
+                n += aid not in ok_aids
+    return n, total
 
 
 def _nc_roles(disp_list, priced_of):
@@ -1314,17 +1354,21 @@ def _nc_journal(root):
 
 def _nc_assemble(tasks, rows_in, shared_in, priced_of, defect_count, moves, disp_list, no_node_src):
     """The rows, the shared entries and the totals of node_costs. `moves` = (resumes, ok_aids, no_node_sends,
-    sessions, transcripts); `no_node_src` = (task_id-less delegated objs, window day)."""
-    resumes, ok_aids, no_node_sends, sessions, transcripts = moves
+    sessions, transcripts, refs, failed) with refs = _nc_refused's dict; `no_node_src` = (task_id-less delegated
+    objs, window day)."""
+    resumes, ok_aids, no_node_sends, sessions, transcripts, refs, failed = moves
     nokey, win_day = no_node_src
 
-    def moves_of(ks):
-        """resumes, unscanned agents and moves of the tasks `ks` (moves may err HIGH, never silently LOW)."""
+    def moves_of(ks, n_refused):
+        """resumes, refused, unscanned agents and moves of the tasks `ks` (moves may err HIGH, never silently LOW).
+        refused is None (cannot judge, FR-41) when no session was read or the row's agents were all unscanned."""
         res = sum(resumes.get(k, 0) for k in ks)
-        return {"resumes": res, "resumes_unscanned": _nc_unscanned(tasks, ks, ok_aids, transcripts),
-                "moves": res + _nc_counts(tasks, ks)[2]}
+        un, agents = _nc_unscanned(tasks, ks, ok_aids, transcripts)
+        blind = not sessions["scanned"] or (agents > 0 and un == agents)
+        return {"resumes": res, "resumes_unscanned": un, "refused": None if blind else n_refused,
+                "moves": res + _nc_counts(tasks, ks)[2] + n_refused}
 
-    rows = [dict(_nc_row(name, ks, tasks, priced_of, defect_count, shared_in), **moves_of(ks))
+    rows = [dict(_nc_row(name, ks, tasks, priced_of, defect_count, shared_in), **moves_of(ks, refs["rows"].get(name, 0)))
             for name, ks in rows_in.items()]
     rows.sort(key=lambda r: (r["cost"] is None, -(r["cost"] or 0.0), r["row"]))
     shared = []
@@ -1332,7 +1376,7 @@ def _nc_assemble(tasks, rows_in, shared_in, priced_of, defect_count, moves, disp
         tokens, cost, n, um, elsewhere = _nc_money(tasks, priced_of, [k])
         shared.append(dict({"task": tasks[k]["disp"], "cited_by": sorted(n_ for n_ in shared_in[k] if n_ in rows_in),
                             "tokens": tokens, "cost": cost, "partial": bool(um), "dispatches": n, "unmeasured": um,
-                            "priced_elsewhere": elsewhere}, **moves_of([k])))
+                            "priced_elsewhere": elsewhere}, **moves_of([k], refs["shared"].get(k, 0))))
     n_disp = sum(r["dispatches"] for r in rows) + sum(s["dispatches"] for s in shared)
     n_um = sum(len(r["unmeasured"]) for r in rows) + sum(len(s["unmeasured"]) for s in shared)
     costs = [x["cost"] for x in rows + shared if x["cost"] is not None]
@@ -1344,7 +1388,10 @@ def _nc_assemble(tasks, rows_in, shared_in, priced_of, defect_count, moves, disp
               "tokens": sum(x["tokens"] for x in rows + shared),
               "cost": sum(costs) if costs else None, "partial": n_um > 0,
               "moves": sum(x["moves"] for x in rows + shared),
-              "no_node": {"sends": no_node_sends, "delegated": n_nokey},
+              "refused": ({"rows": sum(refs["rows"].values()), "shared": sum(refs["shared"].values())}
+                          if sessions["scanned"] else None), "failed": failed,
+              "no_node": {"sends": no_node_sends, "delegated": n_nokey,
+                          "refused": {"no_task": refs["no_task"], "outside": refs["outside"]}},
               "sessions": sessions, "roles": _nc_roles(disp_list, priced_of)}
     return rows, shared, totals
 
@@ -1388,7 +1435,10 @@ def node_costs(root, window, projects=None, prices=None) -> dict:
     disp_list += [ev for k in shared_in for ev in tasks[k]["delegated"]]
     disp_list.sort(key=lambda e: e["seq"])
     priced_of, found = _nc_price_all(disp_list, projects, prices, usage_report, transcripts)
-    moves = _nc_moves(tasks, found, win_day, transcripts) + (transcripts,)
+    import dispatch_manifest        # lazy (I-2): already in the hook closure through dispatch_gate
+    resumes, ok_aids, no_node, sessions, (refused, failed) = _nc_moves(tasks, found, win_day, transcripts)
+    refs = _nc_refused(refused, (tasks, rows_in, shared_in, journal, segs), win_day, dispatch_manifest)
+    moves = (resumes, ok_aids, no_node, sessions, transcripts, refs, failed)
 
     rows, shared, totals = _nc_assemble(tasks, rows_in, shared_in, priced_of, defect_count, moves, disp_list,
                                         (nokey, win_day))
@@ -1407,10 +1457,12 @@ def _cost_cell(cost, partial) -> str:
 
 
 def _moves_cell(r) -> str:
-    """`N (resumes R)`; `>= N (resumes R, unscanned U)` when an agent of the row could not be scanned (FR-41)."""
-    if r["resumes_unscanned"]:
-        return ">= %d (resumes %d, unscanned %d)" % (r["moves"], r["resumes"], r["resumes_unscanned"])
-    return "%d (resumes %d)" % (r["moves"], r["resumes"])
+    """`N (resumes R, refused F)`; `>= N (resumes R, refused F, unscanned U)` when an agent of the row could not be
+    scanned, `refused cannot judge` in place of F when refusals could not be read at all (FR-41)."""
+    f = "cannot judge" if r["refused"] is None else str(r["refused"])
+    if r["resumes_unscanned"] or r["refused"] is None:
+        return ">= %d (resumes %d, refused %s, unscanned %d)" % (r["moves"], r["resumes"], f, r["resumes_unscanned"])
+    return "%d (resumes %d, refused %s)" % (r["moves"], r["resumes"], f)
 
 
 def _rejects_text(rej: dict) -> str:
@@ -1426,7 +1478,8 @@ def render_node_costs(d: dict) -> str:
          "window: since %s; source: %s (tools/transcripts.py); prices: %s as_of %s -- API list "
          "price of the tokens, an estimate, not a bill" % (d["window"], d["source"], d["prices_file"],
                                                            d["prices_as_of"])]
-    if not d["rows"] and not d["shared"] and not t["no_node"]["sends"] + t["no_node"]["delegated"]:
+    nn = t["no_node"]
+    if not d["rows"] and not d["shared"] and not nn["sends"] + nn["delegated"] + sum(nn["refused"].values()):
         L.append("rows 0; dispatches 0 -- no nodes in the window")
         L += ["", "Top %d accepted nodes by cost: none in the window" % TOP_NODES]
         return "\n".join(L) + "\n"
@@ -1435,11 +1488,15 @@ def render_node_costs(d: dict) -> str:
              "unmeasured %d; total %s, tokens %d" % (t["rows"], t["accepted"], t["open"], t["unlinked"],
                                                      t["dispatches"], t["measured"], t["unmeasured"], total,
                                                      t["tokens"]))
-    nn, ss = t["no_node"], t["sessions"]
-    L.append("coordinator moves: redelegations + resumes (SendMessage in the parent sessions of the window's "
-             "workers: scanned %d, unreadable %d); no node: %d (SendMessage to an agent with no delegated line %d; "
-             "delegated lines with no task_id %d)" % (ss["scanned"], ss["unreadable"], nn["sends"] + nn["delegated"],
-                                                      nn["sends"], nn["delegated"]))
+    ss, rf = t["sessions"], nn["refused"]
+    L.append("coordinator moves: redelegations + resumes + refused dispatches (SendMessage and PreToolUse refusals of "
+             "Agent calls in the parent sessions of the window's workers: scanned %d, unreadable %d); no node: %d "
+             "(SendMessage to an agent with no delegated line %d; delegated lines with no task_id %d; refused with no "
+             "task or node line %d; refused for a task or node with no row in the window %d)%s%s" % (
+                 ss["scanned"], ss["unreadable"], nn["sends"] + nn["delegated"] + sum(rf.values()), nn["sends"],
+                 nn["delegated"], rf["no_task"], rf["outside"],
+                 "; refused dispatches: cannot judge (no parent session read)" if not ss["scanned"] else "",
+                 "; other failed Agent calls %d" % t["failed"] if t["failed"] else ""))
     L.append("| row | status | dispatches | unmeasured | tokens | cost | moves | rejects | critic | redelegations | "
              "escalations | defects after acceptance |")
     L.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
