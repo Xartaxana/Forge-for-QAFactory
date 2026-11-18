@@ -868,6 +868,31 @@ def stability_diffs(first: dict, second: dict, only) -> list:
     return out
 
 
+def _reorder_resume_with(text: str) -> str:
+    """The probe's mutation, pure: in `resume_with` of driver_dispatch.py EXCHANGE the state write of the result and the
+    progress line that follows it (the lines between stay). The window is the method only, def to the next def at its indent;
+    the progress line is the first one AFTER the write (resume_with has another before the run). FG7-76: the method moved from
+    story_run.py in the driver split and the probe refused 'anchor not found' on every run."""
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, l in enumerate(lines) if l.startswith("    def resume_with(")), -1)
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("    def ")), len(lines)) if start >= 0 else -1
+    window = range(start + 1, end) if start >= 0 else range(0)
+    writes = [i for i in window if lines[i].strip() == '_write_json(self.state_dir / "driver-runs" / f"{dispatch}.json", result)']
+    progress = [i for i in window if writes and i > writes[0] and lines[i].strip().startswith("self.progress_line()")]
+    if len(writes) != 1 or len(progress) != 1:
+        raise Refusal("the probe's anchor was not found exactly once in resume_with of driver_dispatch.py (the "
+                      "`_write_json(... driver-runs ...)` line and the `self.progress_line()` line after it): "
+                      "update the probe's snippet in driver_golden.py.")
+    w, g = writes[0], progress[0]
+    # the newline of each exchanged line stays with its place: a CRLF file stays CRLF, a last line may have none
+    def split(s):
+        body = s.rstrip("\r\n")
+        return body, s[len(body):]
+    (a, ea), (b, eb) = split(lines[w]), split(lines[g])
+    lines[w], lines[g] = b + ea, a + eb
+    return "".join(lines)
+
+
 def do_probe(args, root: Path, rules: dict, found: dict, golden: Path, name: str) -> int:
     if name not in PROBES:
         raise Refusal(f"unknown probe {name!r}: the probes are {', '.join(PROBES)}.")
@@ -875,9 +900,9 @@ def do_probe(args, root: Path, rules: dict, found: dict, golden: Path, name: str
     check_python(manifest)
     check_root(root, manifest)
     check_recorder(root, manifest)
-    live = root / "scripts" / "story_run.py"
+    live = root / "scripts" / "driver_dispatch.py"        # the file the probe mutates (a copy of it)
     before = sha_file(live)
-    say(f"probe {name}: the live story_run.py sha256 before: {before}")
+    say(f"probe {name}: the live driver_dispatch.py sha256 before: {before}")
     with tempfile.TemporaryDirectory(prefix="driver-golden-probe-") as tmp:
         copy = Path(tmp) / "pkg"
         shutil.copytree(root, copy, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git"))
@@ -899,20 +924,8 @@ def do_probe(args, root: Path, rules: dict, found: dict, golden: Path, name: str
             return 2
         say(f"probe {name}: the control ({file_name} unmutated, at {copy}) recorded: "
             f"{len(control_runs[file_name].finals)} scenario traces")
-        target = copy / "scripts" / "story_run.py"
-        text = target.read_bytes().decode("utf-8")
-        nl = "\r\n" if "\r\n" in text else "\n"            # a checkout with autocrlf has CRLF: the anchor follows the file
-        write_line = '        _write_json(self.state_dir / "driver-runs" / f"{dispatch}.json", result)' + nl
-        anchor_start = text.find("    def resume_with(")
-        position = text.find(write_line, anchor_start) if anchor_start >= 0 else -1
-        next_line = text.find("        self.progress_line()", position) if position >= 0 else -1
-        # the two lines must be adjacent: the swap is of the state write and the progress line right after it
-        if position < 0 or next_line != position + len(write_line):
-            raise Refusal("the probe's anchor was not found in resume_with (the `_write_json(... driver-runs ...)` line "
-                          "followed by `self.progress_line()`): update the probe's snippet in driver_golden.py.")
-        end = text.find(nl, next_line) + len(nl)
-        progress_line = text[next_line:end]
-        mutated = text[:position] + progress_line + write_line + text[end:]
+        target = copy / "scripts" / "driver_dispatch.py"        # resume_with lives here since the driver split (FG7-76)
+        mutated = _reorder_resume_with(target.read_bytes().decode("utf-8"))
         target.write_bytes(mutated.encode("utf-8"))
         with tempfile.TemporaryDirectory(prefix="driver-golden-") as work:
             mutant_runs = run_files(copy, rules, [file_name], found, 1, False, Path(work))
@@ -925,7 +938,7 @@ def do_probe(args, root: Path, rules: dict, found: dict, golden: Path, name: str
         control = {s: l for s, l in control_runs[file_name].finals.items() if s != "_untagged"}
         mutant = {s: l for s, l in mutant_runs[file_name].finals.items() if s != "_untagged"}
     after = sha_file(live)
-    say(f"probe {name}: the live story_run.py sha256 after:  {after} ({'equal' if after == before else 'DIFFERENT'})")
+    say(f"probe {name}: the live driver_dispatch.py sha256 after:  {after} ({'equal' if after == before else 'DIFFERENT'})")
     if after != before:
         say("REFUSED: the live file changed during the probe: the probe works on a copy only (command hygiene p.7).")
         return 2
