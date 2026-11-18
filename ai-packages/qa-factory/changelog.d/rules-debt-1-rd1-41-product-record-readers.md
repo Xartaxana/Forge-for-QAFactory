@@ -1,0 +1,1 @@
+The probe record readers now read the product probe's record (`work/probes/product/`) when no live record exists: a product record that owes the code critic's judgment reads as unjudged, one that could not be judged opens the person's `probe not proved` door; a record of other bytes or a broken one reads as not run.

@@ -25,6 +25,7 @@ Exit: 0 printed (hook notes: one stderr line each); 2 refused.
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 from pathlib import Path
 
@@ -87,7 +88,47 @@ def _path(p: str) -> str:
     return ("`%s`" % p if any(c.isspace() for c in p) else p) + mark
 
 
-def build_text(args) -> str:
+NOT_APPENDED = "registry preflight: not appended (the manifest check refused the longer DoD)"
+
+
+def _refusal_text(decision) -> str:
+    """The text to print when `decision` is a refusal (a string from _decide, or a non-zero code), else ''."""
+    return decision if isinstance(decision, str) else (decision.message or "DISPATCH REFUSED") if decision.code != 0 else ""
+
+
+def _without_tests(cmd: str) -> str:
+    """`cmd` (a command_for call) minus the test_*.py names of its `--paths` list: the DOD-RUN check counts such a name as a test
+    run (R3 max 3, R2 canon-only), and this is a lint call. No path left: the `lint` id goes too; no id left: ''."""
+    head, sep, tail = cmd.partition(" --paths ")
+    if not sep:
+        return cmd
+    keep = [p for p in shlex.split(tail) if not (Path(p).name.startswith("test_") and p.endswith(".py"))]
+    ids = head.split(" check ", 1)[1].split()
+    if not keep:
+        ids = [i for i in ids if i != "lint"]
+    out = "python -B tools/registry_preflight.py check " + " ".join(ids) if ids else ""
+    if keep and ids:
+        out += " --paths " + " ".join(shlex.quote(p) if any(c in p for c in " '\"") else p for p in keep)
+    return out
+
+
+def _dod(args) -> str:
+    """The DoD command; for a builder whose owns touch a registry_preflight table row the row's `check` call is appended after
+    ' ; then ' so the one witness run includes it (FG7-93). No owns, no row, a non-builder, an empty DoD or a DoD that already
+    names registry_preflight.py: the DoD is returned as typed. A selector that cannot run leaves a visible gap, never a silent skip."""
+    if args.kind != "builder" or not args.owns or not args.dod or "registry_preflight.py check" in args.dod:
+        return args.dod
+    try:
+        import registry_preflight  # noqa: E402
+        # command_for reads the absolute `<path> (new)` form itself (a new file keeps its A status, which some rows need)
+        cmd = registry_preflight.command_for(list(args.owns), _TOOLS_DIR.parent)
+        cmd = _without_tests(cmd) if cmd else cmd
+    except Exception as exc:  # a failing selector never blocks a dispatch
+        return "%s ; then registry preflight: not computed (%s)" % (args.dod, type(exc).__name__)
+    return "%s ; then %s" % (args.dod, cmd) if cmd else args.dod
+
+
+def build_text(args, augment: bool = True, dod: str = None) -> str:
     """The header lines. Layout only: one header per line; paths one per line under `given:` / `owns:`."""
     lines = ["task: %s" % args.task]
     if args.node:
@@ -101,7 +142,9 @@ def build_text(args) -> str:
     lines.append("non-goals: %s" % args.non_goals)
     lines.append("handoff: %s" % _path(args.handoff) if args.handoff else "handoff:")
     lines.append("edges: %s" % args.edges)
-    lines.append("DoD: `%s`" % args.dod if args.dod else "DoD:")
+    if dod is None:
+        dod = _dod(args) if augment else args.dod
+    lines.append("DoD: `%s`" % dod if dod else "DoD:")
     lines.append("siblings: %s" % args.siblings)
     if args.designer is not None:
         # the checker's own two forms stay as typed; anything else is a path
@@ -165,7 +208,7 @@ def main(argv=None) -> int:
         print("DISPATCH ARGUMENT REFUSED: --%s holds an empty item; a blank line would end the section. "
               "Drop the empty value." % name, file=sys.stderr)
         return 2
-    headers = build_text(args)
+    headers = build_text(args, augment=False)
     refusal = _ids_refusal(args, headers)
     if refusal:
         print(refusal, file=sys.stderr)
@@ -173,12 +216,26 @@ def main(argv=None) -> int:
     # the launch hook's own decision on the headers first: a refused dispatch never runs the readers tool (the same refusal
     # step 4 would end in)
     decision = _decide(args.kind, headers)
-    if isinstance(decision, str):
-        print(decision, file=sys.stderr)
+    if _refusal_text(decision):
+        print(_refusal_text(decision), file=sys.stderr)
         return 2
-    if decision.code != 0:
-        print(decision.message, file=sys.stderr)
-        return 2
+    # FG7-93: the typed DoD passed alone (a bad one is refused exactly as before); now the same DoD with the preflight call.
+    # The call lists owned test_*.py files, which the DOD-RUN check counts as runs (it is a lint call, not a run): a refusal of
+    # the longer span never blocks a dispatch that the typed DoD passes -- the typed DoD is printed with a visible gap text
+    longer = build_text(args)
+    if longer != headers:
+        got = _decide(args.kind, longer)
+        if _clean(got):
+            headers, decision = longer, got
+        else:
+            headers = build_text(args, dod=args.dod + " ; then " + NOT_APPENDED)
+            decision = _decide(args.kind, headers)
+            if _refusal_text(decision):
+                headers = build_text(args, augment=False)  # even the gap text is refused: the typed DoD, as before
+                decision = _decide(args.kind, headers)
+                if _refusal_text(decision):
+                    print(_refusal_text(decision), file=sys.stderr)
+                    return 2
     text = headers
     block = _readers_block(args) if args.owns else ""
     if block:

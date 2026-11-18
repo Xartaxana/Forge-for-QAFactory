@@ -15,17 +15,20 @@
 # Autocancel: a push run is in group canon-push-<branch>, so a newer push of the branch cancels the older push run; a dispatch run
 # is in a group of its own and is never cancelled and never cancels (main, release, TEST_REDUNDANCY, dry_only; FG7-94 F1).
 # GitHub runs a push workflow from the pushed commit's own canon.yml: a branch cut before this file landed starts by hand.
+# Main (FG7-94 D1): a push to main also starts the canon, to learn main's CI state without anyone asking. Its group canon-push-main
+# is never cancelled by a newer push (a verdict must arrive; GitHub keeps one running and one pending run). forge-check already runs
+# on that push, so `checks` is skipped there; `full` and `clock` take the pushed sha, never the moving tip of main.
 name: canon
 run-name: ${{ inputs.dry_only && 'dry-story' || 'canon' }} ${{ inputs.ref || github.ref_name }}
 
 # the canonised ref: inputs.ref on a dispatch, the pushed branch (github.ref_name) on a push
 concurrency:
   group: ${{ github.event_name == 'push' && format('canon-push-{0}', github.ref_name) || format('canon-dispatch-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref_name != 'main' }}
 
 on:
   push:
-    branches: ["worktree-agent-**"]
+    branches: ["worktree-agent-**", main]
   workflow_dispatch:
     inputs:
       ref:
@@ -61,7 +64,7 @@ jobs:
         run: echo "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
   checks:
     needs: start
-    if: ${{ !inputs.dry_only }}
+    if: ${{ !inputs.dry_only && !(github.event_name == 'push' && github.ref_name == 'main') }}
     uses: ./.github/workflows/forge-check.yml
     with:
       ref: ${{ inputs.ref || github.ref_name }}
@@ -70,7 +73,7 @@ jobs:
     if: ${{ !inputs.dry_only }}
     uses: ./.github/workflows/nightly.yml
     with:
-      ref: ${{ inputs.ref || github.ref_name }}
+      ref: ${{ inputs.ref || github.sha }}
       TEST_REDUNDANCY: ${{ inputs.TEST_REDUNDANCY }}
       REDUNDANCY_SCOPE: ${{ inputs.REDUNDANCY_SCOPE }}
   dry-story:
@@ -89,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref || github.ref_name }}
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
