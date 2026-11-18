@@ -4262,10 +4262,25 @@ def test_w5_the_info_lines_carry_the_portable_argv_and_the_stored_one_is_read_wi
             rehearsal = gate_preflight.Rehearsal(root / "qa-factory" / "artifacts" / CMP2_TICKET, "A")
             rehearsal.config = cfg
             identity = rehearsal._observed_identity("api", root)
+            # RD1-14 k2 item 6 (FR-41): an unreadable registry judges nothing -> identity "" and a note naming the registry
+            import gate_registry
+            import gate_template as GT
+            saved_read = list(GT._READ)
+            GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+            rehearsal._probe_reporter = lambda *a, **k: {"timed_out": True}
+            ctx = gate_preflight.ReporterCtx("s5_reporter", "api", root, root, ("python", "x"), "junit-xml", "junit-xml", 30, ("python", "x"))
+            gate_preflight._REPORTER_PROBES.clear()
+            rehearsal._reporter_outcome(ctx, "tests/a", ["python", "x"], root / "report.xml", {"at": ""})
+            blank = rehearsal._observed_identity("api", root)
         finally:
+            GT._READ[:] = saved_read
+            gate_preflight._REPORTER_PROBES.clear()
             execution_request.rehearsal_probe = held
         check_eq("W5: the identity reader got this machine's interpreter and plugin path",
                  (identity, seen[0]["argv"][0], Path(seen[0]["argv"][1]).is_file()), (built, sys.executable, True))
+        check_eq("W5 RD1-14 k2: an unreadable registry gives identity ''", blank, "")
+        check("W5 RD1-14 k2: ...and the rehearsal's note names the registry",
+              any("the gate registry cannot be read (" in str(i.get("message")) for i in rehearsal.info), str(rehearsal.info))
     finally:
         cleanup(root)
 
@@ -4336,7 +4351,7 @@ def test_t300_k30_the_identity_reader_of_gate_a_is_a_rehearsal_and_takes_the_fif
                  identity(result="person_confirmed", provenance=CONFIRMED_PROV, confirmation=CONFIRMATION,
                           identity="person-confirmed:2026-10-02T11:00:00+00:00"), "person-confirmed:2026-10-02T11:00:00+00:00")
         check_eq("K30: `unknown` is no identity", identity(result="unknown", provenance={"technical_verification": False}), "")
-        no_file = {"result": "not_applicable", "provenance": {}, "identity": "", "reason_code": "no_changed_file"}
+        no_file = {"result": "not_applicable", "provenance": {}, "identity": "image:sha256:" + "c" * 64, "reason_code": "no_changed_file"}
         check_eq("K30 RD1-14 k2: a `no_changed_file` probe is no identity of gate A (the reader takes it, provenance.identity does not)",
                  (identity(**no_file), execution_request.rehearsal_probe({**spec, "cwd": str(root), "task_root": str(task.resolve())})["result"]),
                  ("", "not_applicable"))
