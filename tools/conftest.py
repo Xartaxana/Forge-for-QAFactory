@@ -16,6 +16,8 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import under_test  # noqa: E402  (sibling in tools/, found through the path line above; stdlib-only)
+
 NEXT_SUFFIX = ".py.next"
 
 
@@ -50,7 +52,9 @@ def next_copy_map(environ, tools_dir):
 
 class _NextCopyFinder(importlib.abc.MetaPathFinder):
     """Answers `find_spec(<name>)` with the copy's file for the mapped names and None for every other name, so a test's
-    `import dispatch_manifest` and a sibling module's own import both resolve to the copy, in any order."""
+    `import dispatch_manifest` and a sibling module's own import both resolve to the copy, in any order. The spec is built by
+    under_test.copy_spec, the one spec maker (under_test.load_under_test uses it too); the environment is read in two places:
+    here (`<NAME>_PATH`, via next_copy_map) and in load_under_test."""
 
     def __init__(self, mapping):
         self.mapping = mapping
@@ -59,7 +63,7 @@ class _NextCopyFinder(importlib.abc.MetaPathFinder):
         copy = self.mapping.get(fullname)
         if copy is None:
             return None
-        return importlib.util.spec_from_file_location(fullname, copy, loader=importlib.machinery.SourceFileLoader(fullname, copy))
+        return under_test.copy_spec(fullname, copy)
 
 
 def install_next_copies(environ=None, tools_dir=None):
