@@ -1055,6 +1055,14 @@ def site_unread_is_incomplete() -> None:
             check_eq(f"RD1-24 {label}: verify says incomplete (an error row: probe_defect), never survived",
                      RS.verify({"repo": "u", "original_hashes": {}, "targets": [pin]}, [got], [{"instance_id": pin["instance_id"],
                               "status": "passed"}])["status"], "probe_defect" if status == "error" else "incomplete")
+    # RD1-38 P8: an error problem before the failure problem - the guard compares the message the proof compares (the failure's)
+    pin = target_of(expected_location="tests/Calc.kt:5", expected_reason="sum must be 4")
+    two = {"test_id": "t", "status": "failed", "problems": [
+        {"kind": "error", "message": msg, "text": "/clone/tests/Calc.kt:5: E"}, {"kind": "failure", "message": "AssertionError: other", "text": "x"}]}
+    got = RS.target_result(pin, two, "junit-xml", "/clone", command=["ktrunner"])
+    check_eq("RD1-38 P8: the failure's message is not the pinned one -> unread, incomplete, never survived", ("site_unread" in got, RS.verify(
+        {"repo": "u", "original_hashes": {}, "targets": [pin]}, [got], [{"instance_id": pin["instance_id"], "status": "passed"}])["status"]),
+        (True, "incomplete"))
 
 
 def no_reporter_no_rows() -> None:
