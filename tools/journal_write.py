@@ -87,7 +87,6 @@ def _opens_task(event, agent) -> bool:
     """NEW_TASK_EVENTS, plus an `escalated` of agent `architect` (F6): a question for the Architect may be a fresh idea
     that has no task yet, so that line brings its id into existence."""
     return event in NEW_TASK_EVENTS or (event == "escalated" and agent == "architect")
-SAVE_RETRY_SECONDS = 1.0                               # Windows refuses os.replace onto a file another handle has open
 
 
 class Refused(Exception):
@@ -255,15 +254,7 @@ def save_counter(path: Path, counter: dict) -> None:
 def _replace_text(path: Path, text: str) -> None:
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_text(text, encoding="utf-8")
-    deadline = time.monotonic() + SAVE_RETRY_SECONDS
-    while True:
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            if time.monotonic() >= deadline:
-                raise
-            time.sleep(0.02)
+    journal_lock.replace_retrying(tmp, path)
 
 
 def caller_session(obj=None):
