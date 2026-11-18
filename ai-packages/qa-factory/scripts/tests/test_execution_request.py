@@ -1649,6 +1649,7 @@ def c3_k1_one_producer_names_the_provenance_word() -> None:
             ("R6", NA, {}, "not_applicable", (False, False, True, False)), ("R6-local", NA, loc, "local_source", (True, False, True, True)),
             ("R7", {**NA, "reason_code": "No_Changed_File"}, {}, "not_applicable", (False, False, True, False)),
             ("R8 E-k1.2", R8, {}, "unknown", no), ("R8-local E-k1.2", R8, loc, "unknown", no),
+            ("R8-ncf E-k1.2", {k: v for k, v in s["NA1"].items() if k != "timestamp"}, {}, "unknown", no),
             ("R9", {**M, "result": "MATCHED"}, {}, "unknown", no), ("R10", {**PC, "result": "Person_Confirmed"}, {}, "unknown", no),
             ("R11", {**M, "provenance": {**M["provenance"], "deployed_source_revision": "other-1"}}, {}, "mismatched", no),
             ("R12", {**PC, "provenance": {**PC["provenance"], "technical_verification": True}}, {}, "unknown", no),
@@ -1663,6 +1664,13 @@ def c3_k1_one_producer_names_the_provenance_word() -> None:
         check_eq(f"C3-k1 {case}: the word", P.provenance_word(record, task="T", **kw), word)
         if columns:
             check_eq(f"C3-k1 {case}: automation, rehearsal, fingerprint, manual", consumers(record, "local_source" in kw), columns)
+    # critic t-1371 F3 (Lead: option a): a wrong-typed field is a validation error, never a raise in the validator or the refusal
+    for field, bad in (("provenance", "x"), ("provenance", ["x"]), ("result", ["matched"]), ("result", {"w": "matched"}),
+                       ("expected_source_revision", ["a"]), ("mr_source_revision", ["a"]),
+                       ("provenance", {**M["provenance"], "source_linkage": ["exact"]})):
+        record = {**M, field: bad}
+        check_eq(f"C3-k1 F3 {field}={bad!r}: invalid, unknown, and a refusal sentence", (
+            P.validate_runtime_provenance(record)["valid"], P.provenance_word(record), type(P.refusal_text(record))), (False, "unknown", str))
     # P-7: an unreadable registry judged nothing, so refusal_text names it (registry_why) and quotes today's sentence
     said, saved = P.refusal_text(NA), list(GT._READ)
     GT._READ[:] = [({"rows": "x"}, GR.structural_error({"rows": "x"}))]

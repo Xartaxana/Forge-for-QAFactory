@@ -730,12 +730,16 @@ def image_identity(record) -> bool:
 
 
 def validate_runtime_provenance(record: dict) -> dict:
-    """Validate an execution identity without upgrading weak evidence to `matched`."""
+    """Validate an execution identity without upgrading weak evidence to `matched`. A field of the wrong type (a
+    `provenance` that is no object, a `result` or revision that is no string) is an error, read as absent - never a raise
+    (RD1-14, critic t-1371 F3: a list `result` or a string `provenance` raised here and in every reader after it)."""
     declared = record.get("result")
     errors: list[str] = []
     for key in ("profile_id", "timestamp", "environment_id", "expected_source_revision"):
         if not _nonempty(record.get(key)):
             errors.append(f"{key} is required")
+    if declared is not None and not isinstance(declared, str):
+        declared = None   # the error below names it; an unhashable word must not reach the set lookups
     if declared not in PROVENANCE_RESULTS:
         errors.append(f"result must be one of {sorted(PROVENANCE_RESULTS)}")
     if declared != "not_applicable" and not _nonempty(record.get("observed_runtime_identity")):
@@ -748,12 +752,20 @@ def validate_runtime_provenance(record: dict) -> dict:
     except ValueError:
         errors.append("timestamp must be ISO-8601")
     provenance = record.get("provenance") or {}
+    if not isinstance(provenance, dict):
+        errors.append("provenance must be a JSON object")
+        provenance = {}
     technical = bool(provenance.get("technical_verification"))
     linkage = provenance.get("source_linkage")
-    if declared == "matched" and (not technical or linkage not in {"exact", "verified_content"}):
-        errors.append("matched requires technical verification and exact or verified_content source linkage")
     expected_mr = record.get("mr_source_revision")
     expected_source = record.get("expected_source_revision")
+    for name, value in (("provenance.source_linkage", linkage), ("mr_source_revision", expected_mr),
+                        ("expected_source_revision", expected_source)):
+        if value is not None and not isinstance(value, str):
+            errors.append(f"{name} must be a string")
+    linkage, expected_mr, expected_source = (v if isinstance(v, str) else None for v in (linkage, expected_mr, expected_source))
+    if declared == "matched" and (not technical or linkage not in {"exact", "verified_content"}):
+        errors.append("matched requires technical verification and exact or verified_content source linkage")
     deployed_source = provenance.get("deployed_source_revision")
     verified_revisions = provenance.get("verified_source_revisions")
     if verified_revisions is not None and (not isinstance(verified_revisions, list) or not verified_revisions or
@@ -935,24 +947,21 @@ def provenance_word(record, *, rehearsal: bool = False, task=None, local_source:
     and `no_changed_file` wins over it (no consumer takes `local_source` without also taking that reason)."""
     if not isinstance(record, dict):
         return "unknown"
-    try:
-        checked = validate_runtime_provenance(rehearsal_view(record) if rehearsal else record)
-        declared = record.get("result")
-        if checked["result"] == "mismatched":
-            return "mismatched"
-        if not checked["valid"] or checked["result"] != declared:
-            return "unknown"
-        if declared == "matched":
-            return "matched"
-        if declared == "person_confirmed":
-            return "person_confirmed" if person_confirmed(record, task) else "unknown"
-        if declared == "not_applicable":
-            if no_changed_file(record):
-                return "no_changed_file"
-            return "local_source" if local_source else "not_applicable"
+    checked = validate_runtime_provenance(rehearsal_view(record) if rehearsal else record)   # wrong-typed fields: errors, no raise
+    declared = record.get("result")
+    if checked["result"] == "mismatched":
+        return "mismatched"
+    if not checked["valid"] or checked["result"] != declared:
         return "unknown"
-    except Exception:  # noqa: BLE001 - a field of the wrong type (`provenance: "x"`) makes the validator raise: a doubt, not an error
-        return "unknown"
+    if declared == "matched":
+        return "matched"
+    if declared == "person_confirmed":
+        return "person_confirmed" if person_confirmed(record, task) else "unknown"
+    if declared == "not_applicable":
+        if no_changed_file(record):
+            return "no_changed_file"
+        return "local_source" if local_source else "not_applicable"
+    return "unknown"
 
 
 def local_source_request(record) -> bool:
@@ -1115,6 +1124,8 @@ def refusal_text(record, *, task=None) -> str:
         return _unjudged_or(say_refusal("not_a_record", words))
     checked = validate_runtime_provenance(record)
     declared = record.get("result")
+    if declared is not None and not isinstance(declared, str):
+        declared = _first_line(declared, 80)   # a word of the wrong type is quoted, never looked up (critic t-1371 F3)
     provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
     voided = record.get("voided") if isinstance(record.get("voided"), dict) else {}
     clause = (say_refusal("voided", words, date=str(voided.get("earlier_at") or "")[:10] or "an earlier day",
