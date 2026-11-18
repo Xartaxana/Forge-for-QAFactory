@@ -45,7 +45,7 @@ DESIGNER = ["--kind", "designer", "--task", "t-505", "--feature", "F19", "--hand
 
 # id, argv, exit, substrings of stdout, substrings of stderr
 CASES = [
-    ("ok", BASE, 0, ["task: t-862", "owns:\n" + OWN + "\n", "DoD: `python -m pytest x -q`"], []),
+    ("ok", BASE, 0, ["task: t-862", "owns:\n" + OWN + "\n", "DoD: `python -m pytest x -q"], []),
     ("ok-node-feature", BASE + ["--node", "forge/5/F5-2"],
      0, ["node: forge/5/F5-2", "feature: F19"], []),
     ("E-C1-1-relative-owns", swap(BASE, "--owns", "tools/a.py"), 2, [], ["DISPATCH INCOMPLETE", "owns"]),
@@ -238,3 +238,49 @@ def test_printed_text_passes_check_and_ids_read_back(capsys, argv):
         asked.append(argv[i])
         i += 1
     assert [p.path for p in dm.owned_paths(dm.section_cut(out))] == [a.removesuffix(" (new)") for a in asked]
+
+
+# FG7-93: the registry_preflight call of the owned files rides in the DoD span of a builder dispatch
+PRE = "python -B tools/registry_preflight.py check"
+SKIP_D = ["--designer", "skip -- tiny"]
+many = [str(HERE / ("zz_many_%d.py" % i)) + " (new)" for i in range(30)]
+# id, argv, expected DoD line (None: not asserted), substring that must be absent from stdout
+PREFLIGHT = [
+    ("builder-owns-tools", BASE, "DoD: `python -m pytest x -q ; then " + PRE + " lint --paths tools/dispatch_new.py`", ""),
+    ("kind-critic-nothing", ["--kind", "critic", "--task", "t-505", "--feature", "F19", "--handoff",
+                             "C:/r/docs/tasks/specs/reviews/x.md"], None, "registry_preflight"),
+    ("no-row-byte-equal", swap(BASE, "--owns", str(HERE.parent / "docs" / "TESTING.md")), "DoD: `python -m pytest x -q`\n",
+     "registry_preflight"),
+    ("outside-repo-skipped", swap(BASE, "--owns", "C:/r/x.py (new)"), "DoD: `python -m pytest x -q`\n", "registry_preflight"),
+    ("dod-already-has-it", swap(BASE, "--dod", PRE + " lint"), "DoD: `" + PRE + " lint`\n", " ; then "),
+    ("path-with-spaces", swap(BASE, "--owns", str(HERE / "my dir" / "a.py") + " (new)"), " ; then " + PRE + " lint --paths '", ""),
+    ("non-ascii-path", swap(BASE, "--owns", str(HERE / "\u0444.py") + " (new)"), " ; then " + PRE, ""),
+    ("directory-owns", swap(BASE, "--owns", str(HERE)), "DoD: `python -m pytest x -q", ""),
+    ("thirty-owns", swap(BASE, "--owns", None) + ["--owns"] + many + SKIP_D, " ; then " + PRE, ""),
+]
+
+
+@pytest.mark.parametrize("argv,dod,absent", [c[1:] for c in PREFLIGHT], ids=[c[0] for c in PREFLIGHT])
+def test_dod_carries_the_preflight(capsys, argv, dod, absent):
+    code, out, err = run(capsys, argv)
+    assert code == 0, err
+    if dod:
+        assert dod in out
+    if absent:
+        assert absent not in out
+    if "--owns" in argv and len(argv) > 40:
+        assert out.count(PRE) == 1
+
+
+@pytest.mark.parametrize("how", ["raises", "unimportable"])
+def test_preflight_gap_is_visible(capsys, monkeypatch, how):
+    import registry_preflight
+    if how == "raises":
+        monkeypatch.setattr(registry_preflight, "command_for", lambda *a, **k: 1 / 0)
+        cls = "ZeroDivisionError"
+    else:
+        monkeypatch.setitem(sys.modules, "registry_preflight", None)
+        cls = "ModuleNotFoundError"
+    code, out, err = run(capsys, BASE)
+    assert code == 0, err
+    assert "DoD: `python -m pytest x -q ; then registry preflight: not computed (%s)`" % cls in out
