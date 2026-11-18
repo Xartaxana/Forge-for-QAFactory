@@ -527,27 +527,70 @@ def new_tool_uses(obj, seen_ids) -> list:
     return out
 
 
-def send_targets(path) -> dict:
-    """The Lead's SendMessage calls of one main transcript, in ONE streaming pass (iter_lines; the file may be 700
-    MB): {"sends": [{"to", "ts", "line", "id"}], "error": None | str}. Only assistant records that are not
-    `isSidechain` (a worker's own send is never the coordinator's), uuid first copy, tool_use id once. An OSError
-    (also mid-pass) sets `error` and drops the partial sends: no half number. Never raises; may count HIGH."""
-    sends, seen, ids = [], set(), set()
+# The text a PreToolUse hook refusal of an Agent/Task call starts with (measured, FG7-86 spec 1.1). The
+# `[command hook N]` index after it is the settings order, never read.
+HOOK_REFUSAL_PREFIXES = ("PreToolUse:Agent hook error", "PreToolUse:Task hook error")
+
+
+def lead_calls(path) -> dict:
+    """The Lead's calls of one main transcript, in ONE streaming pass (iter_lines; the file may be 700 MB):
+    {"sends": [{"to", "ts", "line", "id"}], "refused": [{"id", "ts", "line", "prompt"}], "failed": int,
+    "error": None | str}. Only records that are not `isSidechain` (a worker's own call is never the coordinator's),
+    uuid first copy, tool_use id and tool_result id once. SENDS: SendMessage tool_use blocks. REFUSED: a
+    tool_result block with `is_error` True whose text starts with HOOK_REFUSAL_PREFIXES, on an Agent/Task call
+    (its `prompt` is the call's input.prompt, None when not a str) or on an id naming no tool_use in the file
+    (prompt None); only tool_result blocks are read, never the record's `toolUseResult`. FAILED: any other
+    `is_error` True result on an Agent/Task call. A result on another tool is nothing. DIRECTIONS: may count
+    HIGH (another PreToolUse hook's refusal of an Agent call counts, an unpaired result in the hook form counts),
+    never counts a passed call. An OSError/ValueError (also mid-pass) sets `error` and empties every list and
+    count: no half number. Never raises."""
+    sends, refused, failed = [], [], 0
+    seen, ids, rids = set(), set(), set()
+    calls, others = {}, set()     # Agent/Task tool_use id -> prompt | None; ids of every other tool_use
     try:
         for n, line in enumerate(iter_lines(path), start=1):
-            if "SendMessage" not in line:
+            # prefilter: the matched fields themselves; `is_error` too, or a non-hook error result (F2 `failed`)
+            # would never be read
+            if "SendMessage" not in line and "PreToolUse:" not in line and '"Agent"' not in line \
+                    and '"Task"' not in line and "is_error" not in line:
                 continue
             obj = parse_line(line)
-            if obj is None or not first_copy(seen, obj) or obj.get("type") != "assistant" \
-                    or obj.get("isSidechain") is True:
+            if obj is None or not first_copy(seen, obj) or obj.get("isSidechain") is True:
                 continue
-            for block in new_tool_uses(obj, ids):
-                inp = block.get("input")
-                if block.get("name") == "SendMessage" and isinstance(inp, dict) and isinstance(inp.get("to"), str):
-                    sends.append({"to": inp["to"], "ts": obj.get("timestamp"), "line": n, "id": block.get("id")})
+            kind = obj.get("type")
+            if kind == "assistant":
+                for block in new_tool_uses(obj, ids):
+                    inp = block.get("input")
+                    name, tid = block.get("name"), block.get("id")
+                    if name == "SendMessage" and isinstance(inp, dict) and isinstance(inp.get("to"), str):
+                        sends.append({"to": inp["to"], "ts": obj.get("timestamp"), "line": n, "id": tid})
+                    if isinstance(tid, str):
+                        if name in ("Agent", "Task"):
+                            prompt = inp.get("prompt") if isinstance(inp, dict) else None
+                            calls[tid] = prompt if isinstance(prompt, str) else None
+                        else:
+                            others.add(tid)
+            elif kind == "user":
+                for block in content_blocks(obj):
+                    tid = block.get("tool_use_id") if isinstance(block, dict) else None
+                    if not isinstance(tid, str) or block.get("type") != "tool_result" or tid in rids:
+                        continue
+                    rids.add(tid)
+                    paired = tid in calls
+                    prompt = calls.pop(tid, None)     # answered: the prompt is not kept (memory)
+                    if block.get("is_error") is not True or tid in others:
+                        continue
+                    text = content_text(block.get("content"))
+                    hook = isinstance(text, str) and text.startswith(HOOK_REFUSAL_PREFIXES)
+                    if not paired and not hook:
+                        continue
+                    if hook:
+                        refused.append({"id": tid, "ts": obj.get("timestamp"), "line": n, "prompt": prompt})
+                    else:
+                        failed += 1
     except (OSError, ValueError) as exc:
-        return {"sends": [], "error": "main transcript unreadable: %s" % exc}
-    return {"sends": sends, "error": None}
+        return {"sends": [], "refused": [], "failed": 0, "error": "main transcript unreadable: %s" % exc}
+    return {"sends": sends, "refused": refused, "failed": failed, "error": None}
 
 
 def _writer_or_live(writer, path) -> bool:

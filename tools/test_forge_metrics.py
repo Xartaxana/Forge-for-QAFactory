@@ -1249,6 +1249,30 @@ def _send(to, uuid, tool_id, sidechain=False):
             "message": {"content": [{"type": "tool_use", "id": tool_id, "name": "SendMessage", "input": {"to": to}}]}}
 
 
+HOOK = "PreToolUse:Agent hook error: [command hook 2]: DISPATCH PATHS MISSING"
+
+
+def _call(tid, prompt, uuid, sidechain=False, name="Agent"):
+    return {"type": "assistant", "uuid": uuid, "isSidechain": sidechain, "timestamp": "2026-11-10T10:00:00Z",
+            "message": {"content": [{"type": "tool_use", "id": tid, "name": name, "input": {"prompt": prompt}}]}}
+
+
+def _result(tid, text, uuid, err=True, sidechain=False):
+    return {"type": "user", "uuid": uuid, "isSidechain": sidechain, "timestamp": "2026-11-10T10:00:01Z",
+            "message": {"content": [{"type": "tool_result", "tool_use_id": tid, "content": text, "is_error": err}]},
+            "toolUseResult": "Error: " + text}
+
+
+def _refusal(tid, prompt, copies=False, sidechain=False):
+    """A refused Agent call: tool_use + hook-form tool_result (+ their api-request-blob copies, E5)."""
+    pair = [_call(tid, prompt, "c" + tid, sidechain), _result(tid, HOOK, "r" + tid, sidechain=sidechain)]
+    return pair + [{"type": "api-request-blob", "message": r["message"]} for r in pair] * copies
+
+
+def _refused(d, r, **want):
+    return all(r[k]["refused"] == v for k, v in want.items())
+
+
 def _critic_attach(d, r):
     return list(r) == ["t-001"] and r["t-001"]["tasks"] == ["t-001", "t-002"] and r["t-001"]["critic"] == 1
 
@@ -1361,7 +1385,31 @@ NC_CASES = [
     ("root_absent_all_unscanned",
      [D("t-001", "a1"), D("t-001", "a2"), A("t-001")], ALL5, None, 2,
      lambda d, r: (d["totals"]["sessions"] == {"scanned": 0, "unreadable": 0} and r["t-001"]["resumes_unscanned"] == 2
-                   and r["t-001"]["moves"] == 1), "no_root"),
+                   and r["t-001"]["moves"] == 1 and r["t-001"]["refused"] is None
+                   and d["totals"]["refused"] is None), "no_root"),
+    # FG7-86 E1 E2 E5-E8: a refusal is a tool_use id + a hook-form is_error result; a passed call never is one
+    ("refused_then_passed_counts_once_each",
+     [D("t-001", "a1"), A("t-001")], ALL5, None, 1,
+     lambda d, r: (_refused(d, r, **{"t-001": 1}) and (r["t-001"]["redelegations"], r["t-001"]["moves"]) == (0, 1)
+                   and d["totals"]["no_node"]["refused"] == {"no_task": 2, "outside": 0} and d["totals"]["failed"] == 1
+                   and d["totals"]["refused"] == {"rows": 1, "shared": 0}),
+     {"sess": _refusal("y1", "task: t-001\nbody", copies=True)
+      + [_call("y2", "task: t-001\nbody", "cy2"), _result("y2", "PreToolUse:Agent hook additional context: x", "ry2", err=False)]
+      + _refusal("y3", "no headers at all") + _refusal("y6", "feature: F19") + _refusal("y4", "task: t-001", sidechain=True)
+      + [_call("y5", "task: t-001", "cy5"), _result("y5", "The user doesn't want to proceed", "ry5")]
+      + [_call("b1", "x", "cb1", name="Bash"), _result("b1", "PreToolUse:Bash hook error: x", "rb1")]}),
+    ("refused_node_only_and_outside",
+     [D("t-001", "a1", node="forge/7/FG7-9"), A("t-001"), D("t-002", "a2", node="forge/7/FG7-1"), A("t-002")],
+     ALL5, None, 2,
+     lambda d, r: (_refused(d, r, **{"forge/7/FG7-9": 2, "forge/7/FG7-1": 0}) and d["totals"]["no_node"]["refused"]
+                   == {"no_task": 0, "outside": 1}),
+     {"sess": _refusal("y1", "node: forge/7/FG7-9") + _refusal("y2", "task: t-777") + _refusal(
+         "y3", "task: t-001\nnode: forge/7/FG7-1")}),
+    ("shared_task_refusal_counts_once_in_the_entry",
+     [D("t-001", "a1"), A("t-001", notes="critic:t-002"), D("t-003", "a3"), A("t-003", notes="critic:t-002"),
+      D("t-002", "a2", agent="critic"), A("t-002")], ALL5, None, 3,
+     lambda d, r: d["shared"][0]["refused"] == 1 and d["totals"]["refused"] == {"rows": 0, "shared": 1},
+     {"sess": _refusal("y1", "task: t-002")}),
     ("role_rows_sum_to_total",
      [D("t-001", "a1"), D("t-001", "a2", agent="critic"), D("t-001", "a3", agent=None), A("t-001")],
      {"a1": W1, "a2": [("m-a", 2000, 0)], "a3": [("m-a", 10, 0)]}, None, 3,
@@ -1396,8 +1444,8 @@ def _six_world():
     return j, w
 
 
-def _nc_text(tmp_path, journal, workers=None):
-    d, _rows = nc_run(tmp_path, journal, workers)
+def _nc_text(tmp_path, journal, workers=None, mains=None):
+    d, _rows = nc_run(tmp_path, journal, workers, mains=mains)
     return d, fm.render_node_costs(d)
 
 
@@ -1411,7 +1459,7 @@ NC_RENDERS = [
                    and "Top 5 accepted nodes by cost: none in the window" in t and "| row |" not in t)),
     ("six_accepted_top_is_five_with_reasons", None, None,
      lambda d, t: (len(_top_lines(t)) == 5 and "6. " not in t
-                   and _top_lines(t)[0] == "1. t-006 $0.60 (2 dispatches, 0 unmeasured) -- moves 1 (resumes 0), "
+                   and _top_lines(t)[0] == "1. t-006 $0.60 (2 dispatches, 0 unmeasured) -- moves 1 (resumes 0, refused 0), "
                                            "rejects 1 (spec 1), critic passes 0, redelegations 1 (replaced 0), escalations 0, defects after "
                                            "acceptance 0"
                    and _top_lines(t)[4].startswith("5. t-002 $0.20") and "| t-001 | accepted | 1 | 0 | 100000 | $0.10 |" in t)),
@@ -1431,7 +1479,7 @@ NC_RENDERS = [
     ("moves_column_and_no_node_line",
      [D("t-001", "a1"), D("t-001", "a9"), A("t-001"), json.dumps({"ts": TS, "event": "delegated", "agent": "builder",
                                                                "notes": "n", "worker_ref": "cli:" + TS})], ALL5,
-     lambda d, t: ("| >= $0.00 | >= 1 (resumes 0, unscanned 1) |" in t and "delegated lines with no task_id 1" in t
+     lambda d, t: ("| >= $0.00 | >= 1 (resumes 0, refused 0, unscanned 1) |" in t and "delegated lines with no task_id 1" in t
                    and [r["dispatches"] for r in d["rows"]] == [2])),
     ("no_task_id_delegated_without_ts_counts_high",
      [D("t-001", "a1"), A("t-001"), json.dumps({"event": "delegated", "agent": "builder", "notes": "n"})], ALL5,
@@ -1443,6 +1491,17 @@ NC_RENDERS = [
     ("no_node_only_journal_is_not_empty",
      [json.dumps({"ts": TS, "event": "delegated", "agent": "builder", "task_id": None, "notes": "n"})], None,
      lambda d, t: "delegated lines with no task_id 1" in t and "no nodes in the window" not in t),
+    # FG7-86 R6 E4: the count sits in the moves cell after cost; no session at all prints `cannot judge`
+    ("refused_cell_and_cannot_judge",
+     [D("t-001", "a1"), A("t-001")], ALL5,
+     lambda d, t: ("| 1 (resumes 0, refused 1) |" in t and "refused with no task or node line 1" in t
+                   and "; other failed Agent calls 1" in t),
+     {"sess": _refusal("y1", "task: t-001") + _refusal("y2", "no headers")
+      + [_call("y5", "task: t-001", "cy5"), _result("y5", "The user doesn't want to proceed", "ry5")]}),
+    ("no_session_read_prints_cannot_judge",
+     [D("t-001", "a1"), A("t-001")], ALL5,
+     lambda d, t: ("refused cannot judge, unscanned 1" in t and "other failed Agent calls" not in t
+                   and "; refused dispatches: cannot judge (no parent session read)" in t), "no_root"),
     ("ties_by_name",
      [D("t-002", "a2"), A("t-002"), D("t-001", "a1"), A("t-001")], ALL5,
      lambda d, t: t.index("| t-001 |") < t.index("| t-002 |") and t.index("1. t-001 ") < t.index("2. t-002 ")),
@@ -1453,11 +1512,12 @@ NC_RENDERS = [
 ]
 
 
-@pytest.mark.parametrize("journal,workers,check", [c[1:] for c in NC_RENDERS], ids=[c[0] for c in NC_RENDERS])
-def test_node_cost_render(tmp_path, journal, workers, check):
+@pytest.mark.parametrize("journal,workers,check,mains", [c[1:4] + (c[4] if len(c) > 4 else None,) for c in NC_RENDERS],
+                         ids=[c[0] for c in NC_RENDERS])
+def test_node_cost_render(tmp_path, journal, workers, check, mains):
     if journal is None:
         journal, workers = _six_world()
-    d, text = _nc_text(tmp_path, journal, workers)
+    d, text = _nc_text(tmp_path, journal, workers, mains)
     assert check(d, text), text
     assert text.startswith("## Node cost (printed, never written: P18)\nwindow: since 2026-11-01; source: worker transcripts")
 
@@ -1534,9 +1594,9 @@ def test_node_cost_broken_price_file_is_one_stderr_line_and_empty_stdout(tmp_pat
 
 
 def test_node_cost_import_stays_light():
-    """I-2: importing forge_metrics pulls neither transcripts nor usage_report (the hooks import it)."""
+    """I-2: importing forge_metrics pulls neither transcripts, usage_report nor dispatch_manifest (the hooks import it)."""
     code = ("import sys; sys.path.insert(0, 'tools'); import forge_metrics; "
-            "print(sorted(m for m in ('transcripts', 'usage_report') if m in sys.modules))")
+            "print(sorted(m for m in ('transcripts', 'usage_report', 'dispatch_manifest') if m in sys.modules))")
     done = subprocess.run([sys.executable, "-I", "-c", code], cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8")
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == "[]"
