@@ -16,3 +16,13 @@ Witness:
 - `tools/lint_ratchet.py --check` -> `lint ratchet: 76 findings, 76 in the baseline, 0 new, 0 stale`
 
 not run locally: test_red_sandbox_reports.py, test_red_sandbox_probe.py, test_gate_registry.py, canon judges
+
+## Round 2 (critic t-1409 S1-S4)
+
+- S1 DONE: red_sandbox.py `_write_product_records` (bindings read) and `_owed_extras` catch `Exception`; the why names the type.
+- S2 DONE: `reporters.failure_problem` is the one pick; `probe_by_code.failure_problem` is an alias; red_sandbox `_failure_problem` removed; inline picks in `red_sandbox.target_result`, `probe_by_code` row reader (:3005) and `reporters._pytest_site` use it.
+- S3 DONE: `_write_product_records` returns the ids written with `cause: judgment`; `probe()`'s note reads that list; the second `judgment_owed` pass is gone.
+- S4 DONE: `judgment_owed(proof, result, base_row, row)`, `row` required.
+- Test: J5 row added in request_status_of_proofs (OSError from a replaced `manifest_bindings` -> record written, `pending_receipt` None, why names OSError).
+
+Witness (one round): `47 passed in 17.48s`; `=== rd1-37a: 88/88 ok ===`; `=== qa-factory selftest: 2/2 ok ===`; `lint ratchet: 76 findings, 76 in the baseline, 0 new, 0 stale`.

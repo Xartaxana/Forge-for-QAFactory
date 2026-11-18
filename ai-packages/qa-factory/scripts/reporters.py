@@ -617,11 +617,17 @@ def failure_frames(row, frames, skip_frames, error_head=None, after_frame_ok=())
     return found or None
 
 
+def failure_problem(row) -> dict:
+    """The ONE pick of a report row's problem: the <failure> body before the <error> one (the old private row reader's order), `{}` when
+    the row holds neither (RD1-37: `red_sandbox` and `probe_by_code` read it here)."""
+    problems = (row or {}).get("problems") or []
+    return next((p for p in problems if p.get("kind") == "failure"),
+                next((p for p in problems if p.get("kind") == "error"), {}))
+
+
 def _pytest_site(row: dict, problems: list, reporter: str = "pytest", runtime: str = "") -> dict:
-    # The old private row reader took the <failure> body before the <error> one; keep that order.
-    chosen = next((p for p in problems if p.get("kind") == "failure"),
-                  next((p for p in problems if p.get("kind") == "error"), None))
-    for line in reversed(((chosen or {}).get("text") or "").splitlines()):
+    chosen = failure_problem({"problems": problems})
+    for line in reversed((chosen.get("text") or "").splitlines()):
         line = line.strip()
         if not line:
             continue

@@ -3002,11 +3002,9 @@ def report_rows(path: Path, reporter: str, raw: bool = False) -> list:
         return reporters.read_rows(path, reporter)
     rows = []
     for row in reporters.read_rows(path, reporter):
-        problems = row.get("problems") or []
-        chosen = next((p for p in problems if p.get("kind") == "failure"),
-                      next((p for p in problems if p.get("kind") == "error"), None))
+        chosen = reporters.failure_problem(row)
         status = row.get("status")
-        if chosen is not None:
+        if chosen:
             status = "failed" if chosen["kind"] == "failure" else "error"
         rows.append({"test_id": row["test_id"], "status": status,
                      "message": (chosen or {}).get("message", ""), "text": (chosen or {}).get("text", "")})
@@ -3082,10 +3080,7 @@ def text_head(text: str, entry: dict) -> str:
     return "\n".join(lines)
 
 
-def failure_problem(row: dict) -> dict:
-    problems = row.get("problems") or []
-    return next((p for p in problems if p.get("kind") == "failure"),
-                next((p for p in problems if p.get("kind") == "error"), {}))
+failure_problem = reporters.failure_problem     # the ONE pick of a row's problem (RD1-37; red_sandbox reads it there too)
 
 
 def fires_on(row: dict, entry: dict, fires_as: str) -> bool:

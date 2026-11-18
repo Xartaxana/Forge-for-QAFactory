@@ -1178,6 +1178,24 @@ def request_status_of_proofs() -> None:
     check_eq("J3 an unread failure with no message and no text is not owed", owed(unread[0], passed("B"), row=""), False)
     check_eq("J4 a survivor and an accepted proof are not owed", (owed(survivor[0], passed("A")), owed(failed("B"), passed("B"))),
              (False, False))
+    # J5: manifest_bindings raising an OSError still leaves a record for the target, with the receipt null and the type named
+    import tempfile
+    receipt = {"repo": "unused", "original_hashes": {}, "targets": [target("B")]}
+    proof = RS.verify(receipt, [unread[0]], [passed("B")])["proofs"]
+    row = {"problems": [{"kind": "failure", "message": "boom", "text": "boom"}]}
+    placed = {"B": {"now": {"input_hash": "h", "test_code_sha": "c", "instance_identity": {}}, "case": "C1", "entry": {}}}
+    saved_bindings = RS.manifest_bindings
+    RS.manifest_bindings = lambda *_a: (_ for _ in ()).throw(OSError("unreadable"))
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            wrote = RS._write_product_records(Path(tmp), "d", placed, [], proof, Path(tmp), [], rows_of={"B": row},
+                                              results=[unread[0]], baseline_results=[passed("B")], receipt=receipt)
+            record = json.loads(PL.probe_record_path(Path(tmp), "B", "product").read_text(encoding="utf-8"))
+    finally:
+        RS.manifest_bindings = saved_bindings
+    check_eq("J5 the record is written, owed, with no receipt and the error type named",
+             (wrote, record["cause"], record["pending_receipt"], "OSError" in record["pending_receipt_why"]),
+             (["B"], "judgment", None, True))
 
 
 def two_targets_one_survivor_beside_a_baseline_that_proves_nothing() -> None:
