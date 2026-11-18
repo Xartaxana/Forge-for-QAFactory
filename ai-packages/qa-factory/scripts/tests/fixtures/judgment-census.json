@@ -904,6 +904,7 @@
   {"file": "red_sandbox.py", "function": "_plan_row", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "red_sandbox.py", "function": "_post_check", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "red_sandbox.py", "function": "_run_install", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "red_sandbox.py", "function": "_write_receipt_file", "class": "shape", "roles": ["conductor", "qa-code-critic"], "owner": "data", "note": "RD1-37: the one receipt writer; a name collision is refused"},
   {"file": "red_sandbox.py", "function": "check_node_ids", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "red_sandbox.py", "function": "inside", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "red_sandbox.py", "function": "install_budget_s", "class": "shape", "roles": ["conductor"], "owner": "data"},

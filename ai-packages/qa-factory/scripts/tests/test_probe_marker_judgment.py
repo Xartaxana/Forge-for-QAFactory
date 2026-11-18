@@ -92,8 +92,8 @@ def world(tmp_path, monkeypatch, *, verdict="incomplete", cause="judgment", judg
     return root, task, path
 
 
-def judge_it(root, task, verdict="fires", quote="badge empty", why="", dispatch="D1"):
-    return PBC.judge_record(task, root, IID, dispatch, verdict, quote, why)
+def judge_it(root, task, verdict="fires", quote="badge empty", why="", dispatch="D1", check="", product=False):
+    return PBC.judge_record(task, root, IID, dispatch, verdict, quote, why, check, product)
 
 
 def refusal(root, task, **kw) -> str:
@@ -106,6 +106,14 @@ def refusal(root, task, **kw) -> str:
 
 def stored(path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def product_record(task, source, **patch) -> Path:
+    """The PRODUCT record (`red_sandbox.py --probe`, RD1-37) of the world's live record `source`: an unread failure that owes the judgment."""
+    path = PL.probe_record_path(task, IID, "product")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({**stored(source), "probe_tool": "red_sandbox.py", "mutated_files": [], **patch}), encoding="utf-8")
+    return path
 
 
 # --- the judge table: the place is never a proof -----------------------------------------------------------
@@ -239,6 +247,16 @@ def test_judge_other_failure_is_wrong_location(tmp_path, monkeypatch):
     assert got["judgment"]["verdict"] == "other_failure" and got["receipt"] is None
 
 
+def test_judge_product_other_failure_and_cannot_judge(tmp_path, monkeypatch):
+    """RD1-37 (D12, D13): `other_failure` -> `survived`, `cannot_judge` -> stays `incomplete`; both write the judgment and no receipt."""
+    for verdict, quote, why, want in (("other_failure", "expected 0, received 1", "", "survived"), ("cannot_judge", "", "unclear", "incomplete")):
+        root, task, path = world(tmp_path / verdict, monkeypatch)
+        product = product_record(task, path)
+        got = judge_it(root, task, verdict, quote, why, product=True)
+        assert (got["verdict"], got["judgment"]["verdict"], stored(product)["verdict"]) == (want, verdict, want)
+        assert not (task / "work" / "sensitivity-receipts").exists() and "receipt_ref" not in got
+
+
 def test_cannot_judge_is_not_could_not_run(tmp_path, monkeypatch):
     root, task, path = world(tmp_path, monkeypatch)
     got = judge_it(root, task, "cannot_judge", "", why="the text names no check")
@@ -311,6 +329,16 @@ def test_judge_refusals_name_the_door(tmp_path, monkeypatch):
     for name, text in messages.items():
         assert "Nothing was written" in text and "probe_by_code.py" in text, (name, text)       # every refusal names a command and the state
     assert path.read_bytes() == before                                                          # and nothing was written
+    # RD1-37: the same door over a PRODUCT record (`--product`): D1 none, D2 owes none / judged, D3 product bytes moved, D4, D5, D8
+    patches = {"D1": None, "D2 owes none": {"verdict": "survived", "cause": None}, "D2 judged": {"judgment": {"verdict": "cannot_judge"}},
+               "D3": {"mutated_files": [{"path": "src/gone.py", "sha256": "0" * 64}]}, "D4": {}, "D5": {}, "D8": {}}
+    calls = {"D4": {"verdict": "fire"}, "D5": {"quote": "a line the run never printed"}, "D8": {"check": "x"}}
+    for name, patch in patches.items():
+        root, task, path = world(tmp_path / name, monkeypatch)
+        product = product_record(task, path, **(patch if patch is not None else {})) if patch is not None else PL.probe_record_path(task, IID, "product")
+        held = product.read_bytes() if product.exists() else None
+        assert "Nothing was written" in refusal(root, task, product=True, **calls.get(name, {})), name
+        assert (product.read_bytes() if product.exists() else None) == held and not (task / "work" / "sensitivity-receipts").exists(), name
 
 
 def test_quote_not_in_text_refused(tmp_path, monkeypatch):

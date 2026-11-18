@@ -193,6 +193,7 @@ RUN_TIMEOUT_S = 1860
 # window note (`window_record.build`), the refusals of `judge_record` and the charter's pin all carry this constant.
 JUDGE_DOOR = ('probe_by_code.py --task <T> --dispatch <D> --judge "<instance>" --verdict fires|other_failure|cannot_judge '
               '--quote "<a line of its failure text>" [--why "<one sentence>"]')
+JUDGE_PRODUCT_DOOR = JUDGE_DOOR + " --product"      # RD1-37: the same door for a PRODUCT record (red_sandbox.py --probe), derived, never a second text
 JUDGE_VERDICTS = ("fires", "other_failure", "cannot_judge")
 FAILURE_TEXT_MAX = reporters.FAILURE_TEXT_MAX    # characters of ONE failure text stored in `judgment_facts` (cut by `reporters.cut_failure_text`)
 FACTS_ROWS_MAX = 12         # unsettled rows `judgment_facts.rows` holds (the rest is counted in `rows_cut`; `fires` is refused then)
@@ -7859,7 +7860,63 @@ def _refold(parts: dict, note: str) -> dict:
     return _aggregate_record(ctx, plan, entries, walk, (ctx.spec["file"], span[0], span[1]) if span else None)
 
 
-def judge_record(task_root, root, instance_id: str, dispatch: str, verdict: str, quote: str, why: str = "", check: str = "") -> dict:
+def _product_judged_record(task_root: Path, root: Path, instance_id: str) -> tuple:
+    """`(path, record, manifest entry)` of the PRODUCT record (`red_sandbox.py --probe`, `work/probes/product`) `--judge --product` may
+    judge, else the `_judge_refusal`s about the record: it exists, is of the test bytes and the mutated product bytes held now, owes the
+    judgment (`incomplete`, `cause: judgment`, with facts - a record written before RD1-37 holds none) and has none written."""
+    path = proof_level.probe_record_path(task_root, instance_id, "product")
+    record = read_json(path, kind=dict)
+    door = "Door: " + JUDGE_PRODUCT_DOOR
+    if record is None:
+        raise _judge_refusal(f"no product probe record of {instance_id!r} (work/probes/product) - the judgment is of a probe that ran",
+                             "Run the product probe first (red_sandbox.py --probe).")
+    entry = manifest_entry(task_root, instance_id)
+    current, bound = proof_level.current_test_sha(entry, root), str(record.get("test_file_sha256") or "")
+    if not (current and bound and current == bound and proof_level._mutated_files_hold(record, entry, root)):
+        raise _judge_refusal("the product record is of other bytes than the test or the mutated product file hold now (or they cannot be "
+                             "read); a judgment of other bytes counts for nothing", "Probe the current bytes again with red_sandbox.py --probe.")
+    if record.get("verdict") != "incomplete" or record.get("cause") != "judgment" or not isinstance(record.get("judgment_facts"), dict):
+        raise _judge_refusal(f"this product probe owes no judgment: its verdict is {record.get('verdict')!r}"
+                             + (f" with cause {record['cause']!r}" if record.get("cause") else ""),
+                             "Only a product record `incomplete` with `cause: judgment` is judged. " + door)
+    if isinstance(record.get("judgment"), dict):
+        raise _judge_refusal("this record already carries a judgment, and a written judgment is never rewritten",
+                             "Probe the test again with red_sandbox.py --probe (the new record is judged on its own).")
+    return path, record, entry
+
+
+def _judge_product(task_root: Path, root: Path, instance_id: str, dispatch: str, verdict: str, quote: str, why: str) -> dict:
+    """`judge_record(..., product=True)`: the code critic's judgment of a product record (RD1-37). `fires` -> `intended_failure`,
+    `proved_by: critic` and the critic's receipt (`red_sandbox.write_critic_receipt`, published by `publish_product_refs` only when
+    `whole_unlisted`; a pending body missing leaves `receipt_missing`); `other_failure` -> `survived`; `cannot_judge` -> stays
+    `incomplete` with the judgment. The record is written last. Checks DATA only (AR-29)."""
+    import red_sandbox
+    path, record, entry = _product_judged_record(task_root, root, instance_id)
+    facts = record["judgment_facts"]
+    quote, why = _judge_input(verdict, quote, why, facts)
+    _demand_critic_dispatch(root, record, dispatch, instance_id)
+    judgment = {"verdict": verdict, "quote": quote, "why": why, "by": dispatch,
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "facts_sha": facts_sha(facts)}
+    notes = list(record.get("notes") or []) + [f"judged by the code critic ({dispatch}): {verdict}"]
+    changes = {"judgment": judgment, "notes": notes}
+    if verdict == "fires":
+        ref, missing = red_sandbox.write_critic_receipt(task_root, record, judgment)
+        if missing.startswith(red_sandbox.RECEIPT_COLLISION):
+            raise _judge_refusal("a receipt of this name holds other bytes, and an immutable receipt is never overwritten", "Door: " + JUDGE_PRODUCT_DOOR)
+        changes.update(verdict="intended_failure", cause=None, proved_by="critic", receipt_missing=[missing] if missing else [])
+        if ref:
+            changes["receipt_ref"] = ref["receipt_ref"]
+            target = {"instance_id": instance_id, "obligation_id": (record.get("pending_receipt") or {}).get("obligation_id")}
+            red_sandbox.publish_product_refs(task_root, root, [target], {instance_id: ref}, notes)
+    elif verdict == "other_failure":
+        changes.update(verdict="survived", cause=None)
+    record.update(changes)
+    atomic_json(path, record)
+    return record
+
+
+def judge_record(task_root, root, instance_id: str, dispatch: str, verdict: str, quote: str, why: str = "", check: str = "",
+                 product: bool = False) -> dict:
     """THE one writer of a record's `judgment` (AR-14): the code critic's verdict on a record `incomplete` with `cause: judgment`
     (t-1968 N2). It checks DATA only - the record exists, is of these bytes, owes the judgment, the verdict is one of
     `JUDGE_VERDICTS`, the quote is a substring of the stored text after whitespace folding (of the message or of the failure text),
@@ -7879,6 +7936,10 @@ def judge_record(task_root, root, instance_id: str, dispatch: str, verdict: str,
     writer, from every per-check record: the receipt appears only when the plan is now complete (EP-K). Code records the judgment and
     re-folds; it weighs nothing (AR-29)."""
     task_root, root = Path(task_root), Path(root)
+    if product:    # RD1-37: a product record has no checks and its own receipt road
+        if check:
+            raise _judge_refusal("--product has no --check: a product record holds no checks", "Door: " + JUDGE_PRODUCT_DOOR)
+        return _judge_product(task_root, root, instance_id, dispatch, verdict, quote, why)
     path, record, entry, parts = _judged_record(task_root, root, instance_id, check)
     facts = record["judgment_facts"]
     quote, why = _judge_input(verdict, quote, why, facts)
@@ -7926,10 +7987,13 @@ def _judge_cli(args) -> None:
         except ValueError as exc:
             raise Refusal(str(exc)) from exc
         record = judge_record(root, project_root().resolve(), args.judge, args.dispatch, args.verdict or "", args.quote or "",
-                              args.why or "", args.check or "")
+                              args.why or "", args.check or "", bool(args.product))
     except Refusal as exc:
         print(json.dumps({"status": "refused", "error": str(exc)}, ensure_ascii=False))
         sys.exit(2)
+    if args.product:    # a product record is no probe_by_code record: printed whole, exit 1 for `cannot_judge` only
+        print(json.dumps(record, ensure_ascii=False))
+        sys.exit(1 if record["judgment"]["verdict"] == "cannot_judge" else 0)
     bound = publish_binding(args.task, root, record)
     if bound:
         record["binding"] = bound
@@ -8102,6 +8166,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--check", default=None, metavar="KEY",
                         help="with --judge: the key of the check to judge (`<file>:<line>`, `--plan` lists them); may be left out when exactly "
                              "one check of the probe owes a judgment")
+    parser.add_argument("--product", action="store_true",
+                        help="with --judge: the record is the PRODUCT probe's (red_sandbox.py --probe, `work/probes/product`), not this tool's")
     parser.add_argument("--verdict", default=None, help="with --judge: " + "|".join(JUDGE_VERDICTS))
     parser.add_argument("--quote", default=None, help="with --judge: a line of the record's stored failure text")
     parser.add_argument("--why", default=None, help="with --judge: one sentence (required for cannot_judge)")

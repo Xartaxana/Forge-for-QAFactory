@@ -1059,6 +1059,34 @@ def no_row_language_reaches_a_counted_receipt() -> None:
                  ("catches_broken_product", []))
         check_eq("...through the row's published ref", (row.get("sensitivity_proof") or {}).get("receipt_ref", {}).get("path"),
                  result["receipts"][0]["path"])
+        # RD1-37 (D9): the runner now names only a basename frame, which no reader pins -> incomplete, owed to the code critic's door
+        fake.write_text(fake.read_text(encoding="utf-8").replace(
+            'f"{loc}: AssertionError"', 'f"at tests.Calc.test_add(Calc.kt:{frame.lineno})"'), encoding="utf-8")
+        iid = row["instance_id"]
+        record_path = PL.probe_record_path(task, iid, "product")
+        record_path.unlink()   # the first record answers a repeat over these bytes (`already_probed`): the second scenario is a fresh probe
+        result = probe(world, request)
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        check_eq("a basename frame is incomplete with cause judgment and a pending receipt",
+                 (result["status"], record["verdict"], record.get("cause"), bool(record.get("pending_receipt")), result.get("notes")),
+                 ("incomplete", "incomplete", "judgment", True, result.get("notes")))
+        controller = task / "state" / "controller.json"
+        doc = json.loads(controller.read_text(encoding="utf-8"))
+        doc["dispatches"] = {"S5-qa-code-critic-1": {"id": "S5-qa-code-critic-1", "stage": "S5", "role": "qa-code-critic",
+                                                     "status": "running", "scope": ["TC-100"]}}
+        write_json(controller, doc)
+        import probe_by_code as PBC
+        judged = PBC.judge_record(task, world, iid, "S5-qa-code-critic-1", "fires", "sum must be 4", product=True)
+        check_eq("fires: the record is the critic's intended_failure with a receipt ref",
+                 (judged["verdict"], judged["proved_by"], judged["cause"]), ("intended_failure", "critic", None))
+        receipt = json.loads((task / judged["receipt_ref"]["path"]).read_text(encoding="utf-8"))
+        check_eq("...the receipt is the critic's, holds the quote and covers the whole test",
+                 (receipt["proved_by"], receipt["judgment"]["quote"], receipt["scope"]), ("critic", "sum must be 4", "whole_unlisted"))
+        PL._reset()
+        got = PL.reached(entry_of(world), manifest_of(world), task)
+        check_eq("...and the reader counts it through the published ref",
+                 (got["level"], entry_of(world)["sensitivity_proof"]["receipt_ref"]["path"]),
+                 ("catches_broken_product", judged["receipt_ref"]["path"]))
     finally:
         finish_project(world)
         cleanup(fake_dir)
