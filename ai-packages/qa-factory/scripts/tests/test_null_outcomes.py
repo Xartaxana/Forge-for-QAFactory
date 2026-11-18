@@ -34,7 +34,7 @@ S7 = "s7-analyst-to-automator"
 SCRIPTS = PLUGIN_ROOT / "scripts"
 # The walk sizes. A change of any of them is a change of the factory's contracts, and the Lead's question:
 # the detector is not adjusted to agree with the tree (t-305 N0 step 0).
-PINS = {"scope": 32, "other": 4, "outputs": 16, "tool_fields": 27, "conditional": 11, "validator": 16, "registry": 12}
+PINS = {"scope": 33, "other": 4, "outputs": 16, "tool_fields": 27, "conditional": 11, "validator": 16, "registry": 12}
 
 REAL_INDEX = handoff.index()["handoffs"]
 OLD_EMPTY_SCOPE = "no rows. `scope` is a required list and may not be empty."
@@ -146,14 +146,14 @@ def the_real_tree_is_green_and_the_line_is_printed() -> None:
     check_eq("the detector over the real package finds nothing wrong", REAL.problems, [])
     print(REAL.line())                      # never silent: the default rule's count is on every run (FR-41)
     c = REAL.counts
-    check_eq("K0.4: the walk sizes AT their pins (32 scope carriers: 17 `scope` + 15 `inputs_read`, 4 others, 16 outputs, 27 tool fields, 11 "
+    check_eq("K0.4: the walk sizes AT their pins (33 scope carriers: 17 `scope` + 15 `inputs_read` + 1 `rounds`, 4 others, 16 outputs, 27 tool fields, 11 "
 "conditional, 16 validator rows, 12 conditions)",
              (c["scope"], c["other"], c["outputs"], c["tool_fields"], c["conditional"], c["validator"],
-              len(NO.CONDITIONS)), (32, 4, 16, 27, 11, 16, 12))
-    check_eq("homes: one declared, 33 never_empty (+16 validator: 18 before the 15 `inputs_read` rows NE39-NE53), 52 pending",
-             (c["declared"], c["never_empty"], c["pending"]), (1, 33, 52))
+              len(NO.CONDITIONS)), (33, 4, 16, 27, 11, 16, 12))
+    check_eq("homes: two declared (`scope` and `rounds`), 33 never_empty (+16 validator: 18 before the 15 `inputs_read` rows NE39-NE53), 52 pending",
+             (c["declared"], c["never_empty"], c["pending"]), (2, 33, 52))
     check_in("K0.8: the summary line says what was walked and what each home holds",
-             "walked scope 32, outputs 16, tool fields 27, conditional 11 | declared 1, never_empty 33 (+16 validator), "
+             "walked scope 33, outputs 16, tool fields 27, conditional 11 | declared 2, never_empty 33 (+16 validator), "
              "pending 52 of which by default ", REAL.line())
     defaults = [r for r in REAL_DATA["pending"] if r["default"] is True]
     check_eq("K0.8: Z in the line is COMPUTED - it is the count of `default: true` rows", c["default"], len(defaults))
@@ -229,8 +229,8 @@ def the_registry_and_the_declaration_shape() -> None:
                                sections=handoff.sections(S7), stage_ids=STAGE_IDS), [])
     cases = (
         ("a misspelled condition", VALID.replace("triage_has_no_repair", "triage_has_no_repairs"), "unknown condition"),
-        ("a reserved condition", VALID.replace("triage_has_no_repair", "sibling_in"),
-         "reserved for node N1; no implementation yet"),
+        ("a reserved condition", VALID.replace("triage_has_no_repair", "sibling_equals"),
+         "reserved for node N4/N6; no implementation yet"),
         ("a missing param", VALID.replace("      listed_in: not_for_repair\n", ""), "missing param `listed_in`"),
         ("an unknown param", VALID.replace("      listed_in: not_for_repair\n", "      listed_in: not_for_repair\n      extra: 1\n"),
          "unknown param `extra`"),
@@ -259,8 +259,8 @@ def the_registry_and_the_declaration_shape() -> None:
     check_eq("K0.3: the registry holds 12 conditions (plan_defers_all is not one of them: Q14-b)",
              (len(NO.CONDITIONS), "plan_defers_all" in NO.CONDITIONS), (12, False))
     live = sorted(name for name, c in NO.CONDITIONS.items() if c.status == "live")
-    check_eq("K0.3: exactly one condition is live - the pilot's; every other is reserved for its node (Q-N0-1)",
-             live, ["triage_has_no_repair"])
+    check_eq("K0.3: two conditions are live - the pilot's and sibling_in (FV3-30); every other is reserved for its node (Q-N0-1)",
+             live, ["sibling_in", "triage_has_no_repair"])
     for name, condition in NO.CONDITIONS.items():
         check(f"K0.3: {name}: its parameter kinds are in the closed set",
               all(kind in NO.PARAM_KINDS for kind in condition.params.values()), str(condition.params))
@@ -570,7 +570,7 @@ def the_runtime_fails_closed() -> None:
         refused("a listed_in naming a field that is not there",
                 dict(base, params=dict(base["params"], listed_in="not_for_repairs")))
         refused("a param missing", dict(base, params={"repair_verdicts": base["params"]["repair_verdicts"]}))
-        refused("a RESERVED condition", {"condition": "sibling_in", "params": {"field": "header.window", "in": ["x"]}})
+        refused("a RESERVED condition", {"condition": "sibling_equals", "params": {"field": "header.window", "value": "x"}})
         refused("a source that is not the condition's", dict(base, source="work/elsewhere.json"))
         _d, _f, problems, _j, _dd = HC.check(handoff.parse(form), S7, HC.Artifacts(task), fix=False, use_judge=False)
         check("E3 control: the real declaration, on the same form, accepts the empty scope", not [p for p in problems if p.path == "scope"],
@@ -587,7 +587,7 @@ def the_runtime_fails_closed() -> None:
     finally:
         handoff.null_outcomes = real
         cleanup(task)
-    reserved = audit_syn(VALID.replace("triage_has_no_repair", "sibling_in"))
+    reserved = audit_syn(VALID.replace("triage_has_no_repair", "sibling_equals"))
     check_eq("the Lead's edge: a reserved condition in a declaration is counted (the package's own count is pinned at 0)",
              (reserved.counts["reserved_declared"], REAL.counts["reserved_declared"]), (1, 0))
 

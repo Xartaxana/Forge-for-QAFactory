@@ -35,3 +35,64 @@ Card F-r2-5(a): no frozen fixture was re-judged by me; these are keep-test expec
 Not run: form_filler.py (tests helper) `_excused`/required-set now treat `rounds` as required-list; handoff_init.py:190 no longer initialises `rounds`. Noticed analogs; not measured.
 
 ## Config keys: none. Changelog fragment: Lead writes it. Tests added: ~18 lines vs ~44 code lines.
+
+# Round 2
+
+## 1. test_null_outcomes.py (owned now) - pins, before -> after
+- PINS["scope"] 32 -> 33; K0.4 sizes tuple (32,...) -> (33,...): +1 = the `rounds` carrier
+- homes `declared` 1 -> 2; summary line "walked scope 32 ... declared 1" -> "walked scope 33 ... declared 2"
+- live conditions ["triage_has_no_repair"] -> ["sibling_in", "triage_has_no_repair"]
+- the reserved-condition text "node N1" -> "node N4/N6", with `sibling_equals` as the reserved sample (also in E3 and the reserved-declared count rows, which used `sibling_in`)
+- registry pin stays 12; never_empty 33 and pending 52 unchanged.
+
+## 2. STOPPED: measured divergence, fix is outside owns
+Script (scratch, never committed; full source below). It runs the real tree ("after") against a patched copy that emulates "before" (REQUIRED_LISTS without rounds, null_outcomes without rounds):
+- `form_filler._excused(s7-automator-to-analyst, "rounds")`: True before, False after. No world-list token (`<instance>` only) occurs in any rounds row, so no filler verdict changes today. `emptiable()` is unchanged (rounds is nulled).
+- `handoff_init.empty_optional_lists(template, s7-automator-to-analyst)`: NOT identical. Before: `rounds: []` + the sample row as comment lines. After: the sample row stays as live template data (`p not in nulled` at handoff_init.py:190 now skips rounds). The check reads an untouched row as empty, so the verdict is the same, but the skeleton a role gets is different (F1(b), B-11: "a reader never meets a template row as data").
+Fix needs handoff_init.py:190, outside owns. Candidate (not applied): exclude from `nulled` only the sections whose entry is `triage_has_no_repair`'s / or drop `p not in nulled` for non-REQUIRED... that is a design choice, so I stop. Lead widens.
+
+## 3. Driver source (run3.py form) - scratch run_nodes.py
+```python
+import sys
+sys.path.insert(0, r"C:/QAFactory/forge-repo/.claude/worktrees/agent-ada34995f535ddf75/ai-packages/qa-factory/scripts/tests")
+sys.path.insert(0, r"C:/QAFactory/forge-repo/.claude/worktrees/agent-ada34995f535ddf75/ai-packages/qa-factory/scripts")
+import importlib
+import harness
+for spec in sys.argv[1:]:
+    mod, fn = spec.split("::")
+    getattr(importlib.import_module(mod), fn)()
+    print("ran", spec)
+harness.finish("nodes")
+```
+
+Measure script (scratch) measure.py:
+```python
+import sys
+A = r"C:/QAFactory/forge-repo/.claude/worktrees/agent-ada34995f535ddf75/ai-packages/qa-factory/scripts"
+sys.path.insert(0, A); sys.path.insert(0, A + "/tests")
+import handoff, handoff_init, form_filler
+C = "s7-automator-to-analyst"
+text = handoff.template(C).text()
+def world():
+    return (handoff_init.empty_optional_lists(text, C), form_filler._excused(C, "rounds"), form_filler._excused(C, "unresolved"))
+after = world()
+real_req, real_no = handoff.REQUIRED_LISTS, handoff.null_outcomes
+handoff.REQUIRED_LISTS = ("scope", "inputs_read")
+handoff.null_outcomes = lambda c: {k: v for k, v in real_no(c).items() if k != "rounds"}
+before = world()
+print("empty_optional_lists output identical:", before[0] == after[0])
+print("rounds excused before/after:", before[1], after[1], "| unresolved:", before[2], after[2])
+import difflib
+for l in difflib.unified_diff(before[0].split("\n"), after[0].split("\n"), "before", "after", lineterm="", n=0):
+    print(l)
+tokens = form_filler.rules()["world_list_tokens"]
+print("world tokens:", list(tokens))
+print("tokens in rounds rows:", [t for t in tokens if any(t in l for l in text.split("\n"))])
+```
+
+## Witness round 2
+    python -B run_nodes.py test_handoff::an_untouched_list_is_empty_at_every_depth_that_crosses_no_row test_s7_null_outcome::every_other_contract_behaves_as_it_did
+    === nodes: 43/43 ok ===
+    python -B ai-packages/qa-factory/scripts/tests/test_null_outcomes.py
+    === test_null_outcomes: 360/360 ok ===
+    registry preflight: lint ok / read-json ok / driver-layers ok (census not judged)
