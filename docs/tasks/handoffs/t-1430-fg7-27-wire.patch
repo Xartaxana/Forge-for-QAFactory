@@ -27,7 +27,7 @@ index be99bb75..e19adad7 100644
      "tools/wait_reaper.py",         # run by SessionStart (session_context), SubagentStop (dod_gate) and .githooks/post-merge (bounded waits K-WIRE, t-1122): stops trees
      "tools/session_proc.py",        # imported by wait_reaper.py, compact_snapshot.py, session_context.py (session stamp, t-1122); decides which session a process belongs to
 diff --git a/tools/test_streams.py b/tools/test_streams.py
-index 625a15f3..1dedf58d 100644
+index 625a15f3..6bce24db 100644
 --- a/tools/test_streams.py
 +++ b/tools/test_streams.py
 @@ -244,8 +244,6 @@ def test_g_a_guarded_file_runs_without_streams_and_uses_it_when_present(tmp_path
@@ -39,12 +39,14 @@ index 625a15f3..1dedf58d 100644
  }
  
  
-@@ -302,8 +300,7 @@ def test_s3_positive_control_the_real_census_sees_the_helper_and_a_chain_link():
+@@ -301,9 +299,8 @@ def test_s3_positive_control_the_real_census_sees_the_helper_and_a_chain_link():
+     assert not unreadable
      assert counts["streams.py"] == 1 and counts["journal_echo.py"] >= 1 and counts["language_sites.py"] >= 1
      # streams.py is itself a link (offload B23: the closure over journal_write reaches it); the census still tells a link
-     # from a tool OUTSIDE the chain that carries a call (language_sites.py, exempt only through KEPT)
+-    # from a tool OUTSIDE the chain that carries a call (language_sites.py, exempt only through KEPT)
 -    assert in_chain("tools/journal_echo.py") and in_chain("tools/streams.py") and not in_chain("tools/language_sites.py")
 -    assert "language_sites.py" in KEPT
++    # from a tool OUTSIDE the chain that carries a call (dup_report.py; language_sites.py is a chain link since FG7-27, through MECHANISM_PREFIXES; the negative control is test_s3_negative_control, not KEPT)
 +    assert in_chain("tools/journal_echo.py") and in_chain("tools/streams.py") and in_chain("tools/language_sites.py")
  
  

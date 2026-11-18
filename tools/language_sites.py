@@ -2,7 +2,7 @@
 Python reaches the branch unseen (spec t-2065, node TR2-15, owner's words 06.11.2026: «Нигде не должно быть таких
 исключений для каких-то языков, проектов или случаев. Это пораждает баги фабрики»).
 
-Wired (FG7-27): .githooks/pre-commit runs `--check --staged`; forge-check runs `--check --base $BASE`. A SITE is a place in a package script
+Wired (FG7-27): forge-check runs `--check --base $BASE`; pre-commit not placed (scan over 10 s, F5). A SITE is a place in a package script
 (ai-packages/qa-factory/, tests excluded) where code takes a different road for a token, by AST, in one of these forms:
 `compare`, `name-call`, `regex`, `parser`, `table-key`, `predicate-call`. Key `<path>|<qualname>|<form>|<token>`, a
 count; NO line number in a key. The baseline is tools/language-sites-baseline.json (rows, tokens, predicates, and
