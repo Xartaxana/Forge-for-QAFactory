@@ -99,8 +99,7 @@ REBIND_AND_REPROBE, REPROBE, LEAVE_TO_CRITIC = "rebind_and_reprobe", "reprobe", 
 ACTIONS = (REBIND_AND_REPROBE, REPROBE, LEAVE_TO_CRITIC)
 
 # The door of a rebind that code will not do (FR-1): who acts and with what.
-REBIND_LEFT = ("the author re-runs manifest_from_tests.py (with --collect if the ids come from a "
-               "collect)")
+REBIND_LEFT = "the author re-runs manifest_from_tests.py"
 
 
 # --- reading ---------------------------------------------------------------------------------------
@@ -595,6 +594,11 @@ def _rebind(ctx: dict, item: dict) -> tuple:
         return False, f"the rebind dry run failed (exit {rc}: {_fold(said)}): " + REBIND_LEFT, refusal
     fragment = dry.get("fragment") if isinstance(dry.get("fragment"), dict) else {}
     wanted = [str(t.get("instance_id") or "") for t in fragment.get("tests") or [] if isinstance(t, dict)]
+    # The dry run carries source spellings; the store keeps a row it renamed under the collected one with `asked` = the source
+    # spelling (RD1-35, F3, E15): mapped through the one reader, an unambiguous `asked` counts as known; an ambiguous one does not.
+    import manifest_put
+    again = manifest_put.asked_spellings(C.manifest_tests(manifest))
+    wanted = [again.get(i, i) for i in wanted]
     if not wanted or not (set(_aliases(row)) & set(wanted)):
         return False, ("the dry run would not write this instance, so it would not rebind it: "
                        + REBIND_LEFT), True

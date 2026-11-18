@@ -926,24 +926,38 @@ def _drop_role_marks(rows: list, notes: list) -> None:
         notes.append(f"{NODE_ID_CHECK} is written by manifest_put; the value you sent was dropped")
 
 
-def _asked_map(stored: list, stored_spellings: dict) -> dict:
+def asked_spellings(stored_tests) -> dict:
     """{the author's spelling -> the stored id} out of every stored `node_id_check.asked` that no stored row answers to itself:
-    a re-sent author spelling (a patch, a Then, an obligation) joins its resolved row with no collect (E8)."""
-    again = {}
+    a re-sent author spelling (a patch, a Then, an obligation, the writer's row form, a probe rebind) joins its resolved row
+    with no collect (E8). The ONE reader of `asked` (RD1-35, AR-13). A spelling two stored rows claim maps to no row: the
+    caller reads it as unknown, never as a row it was not asked for (the safe side); a non-dict row or mark, a blank or
+    non-string `asked` maps nothing."""
+    stored = [s for s in stored_tests if isinstance(s, dict)] if isinstance(stored_tests, list) else []
+    live = {s_ for s in stored for s_ in _spellings(s)}
+    again, claimed = {}, {}
     for s in stored:
         mark = s.get(NODE_ID_CHECK)
         asked = mark.get("asked") if isinstance(mark, dict) else None
-        if isinstance(asked, str) and asked.strip() and _instance(s) and asked.strip() not in stored_spellings:
-            again[asked.strip()] = _instance(s)
+        if isinstance(asked, str) and asked.strip() and _instance(s) and asked.strip() not in live:
+            claimed.setdefault(asked.strip(), set()).add(_instance(s))
+    for spelling, ids in claimed.items():
+        if len(ids) == 1:
+            again[spelling] = next(iter(ids))
     return again
 
 
+def _asked_map(stored: list) -> dict:
+    """`asked_spellings` of the stored rows (one reader, AR-13)."""
+    return asked_spellings(stored)
+
+
 def _eligible_rows(rows: list, stored_spellings: dict) -> list:
-    """[(row, held)] of the rows asked (E9): a dict with no `WRITER_MARK`, an explicit id and a `file`, whose spelling no stored
-    row answers to - or a stored `not_verified` row answers to it (`held`, asked again: the FR-40 way out); `held` is None else."""
+    """[(row, held)] of the rows asked (E9): every dict - the writer's and the hand's alike (RD1-35: `WRITER_MARK` exempts no
+    row, a copied `generated_from` included) - with an explicit id and a `file`, whose spelling no stored row answers to - or a
+    stored `not_verified` row answers to it (`held`, asked again: the FR-40 way out); `held` is None else."""
     out = []
     for r in rows:
-        if not isinstance(r, dict) or WRITER_MARK in r or not _typed_id_key(r):
+        if not isinstance(r, dict) or not _typed_id_key(r):
             continue
         if not isinstance(r.get("file"), str) or not r["file"].strip():
             continue
@@ -1088,10 +1102,11 @@ def _retract_renamed(fragment: dict, spellings: list) -> None:
 
 
 def stamp_node_ids(fragment, task_root, project, words=None) -> tuple:
-    """(the fragment with its hand-typed `tests[]` ids resolved, [problems], [sentences to print]). Pure of the given fragment
-    (a copy is returned); the one subprocess is ONE collect per call, started only when a row is eligible (RD1-19, FR-16, AR-15).
+    """(the fragment with every `tests[]` id resolved - the writer's and the hand's, RD1-35 - [problems], [sentences to print]).
+    Pure of the given fragment (a copy is returned); the one subprocess is ONE collect per call, started only when a row is
+    eligible (RD1-19, FR-16, AR-15: the ONE asker; the writer's own `--collect` ask is gone).
 
-    A hand-typed id is the id pytest collects in the row's `file`: asked through `node_ids` (the survivor the runner, the sandbox
+    A `tests[]` id is the id pytest collects in the row's `file`: asked through `node_ids` (the survivor the runner, the sandbox
     and the probe use), and the row is marked `node_id_check` {status, note, asked?}: `verified` (collected as typed, or rewritten
     to the collected spelling with `asked` keeping the author's), `not_verified` (no collect could answer: the id is stored as
     typed, never refused, never `missing`), `passed_by_person` (a `missing` id the person's recorded word passes: `words(text)`
@@ -1106,7 +1121,7 @@ def stamp_node_ids(fragment, task_root, project, words=None) -> tuple:
     _drop_role_marks(rows, notes)
     stored = [s for s in _current_tests(task_root) if isinstance(s, dict)]
     stored_spellings = {s_: s for s in stored for s_ in _spellings(s)}
-    again = _asked_map(stored, stored_spellings)
+    again = _asked_map(stored)
     if again:
         _rewrite_instance_ids(fragment, again)
     eligible = _eligible_rows(rows, stored_spellings)
@@ -2886,8 +2901,8 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
         print("manifest_put: " + _problems_text(task_root, "unresolved-reasons", reason_conflicts)
               + ". " + REPAIR_MARKER + ".", file=sys.stderr)
         return EXIT_BAD_FRAGMENT
-    # A hand-typed `tests[]` id joins the collect of its file BEFORE the commit (RD1-19, FR-16): after every cheaper shape refusal above
-    # (no collect is spent on a fragment those refuse), before `stamp_provisional`, the content hash, the validation and the story lock
+    # Every `tests[]` id, the writer's and the hand's (RD1-35), joins the collect of its file BEFORE the commit (RD1-19, FR-16):
+    # after every cheaper shape refusal above (no collect is spent on a fragment those refuse), before `stamp_provisional`, the content hash, the validation and the story lock
     # (one bounded collect per call, never under the lock; the receipt is the hash of the bytes stored; a rewrite that makes two rows
     # one id is refused by `validate` as stored). `merge`/`fold`/replay never collect (E14). An id pytest does not collect, whose file
     # did collect, is a SOURCED refusal unless a person's recorded S5 word covers it (`node_ids.missing_sentence` holds the block words).

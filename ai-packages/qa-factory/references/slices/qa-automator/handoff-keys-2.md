@@ -8,7 +8,7 @@
 - [manifest_put:colliding_ids] Two rows of one fragment that resolve to one instance id never name different test files. Door: rename one function or split the fragment, then `manifest_put.py` again.
 - [manifest_put:ghost_rows] A fragment never binds a Then to an id it retracts in the same fragment, and never sends a ghost row of an instance the manifest retracted. Door: drop the row or the retract.
 - [manifest_put:helper_rows] An `introduced_helpers[]` row has `file`, `name` and the four role fields as strings, `novelty` (new, changed or unknown) only when the writer sent it, and no other key. Door: run the same command again with the fixed row.
-- [manifest_put:node_id] A hand-written `tests[]` `instance_id` is the id pytest collects in the row's `file`; where no collect answers, the row is stored marked `not_verified`. Door: send the collected id (the refusal lists the nearest), or the class path `<Class>::<function>`.
+- [manifest_put:node_id] Every `tests[]` `instance_id` is the id pytest collects in the row's `file`; where no collect answers, the row is marked `not_verified`. Door: send the collected id (the refusal lists the nearest), or the class path `<Class>::<function>`.
 - [manifest_put:novelty] A `tests[]` row carries `novelty` only as the whole row form `manifest_from_tests.py` writes (an object with `measured_on` and `measured_by`, no `resolved`). Door: leave `novelty` out; code writes it.
 - [manifest_put:obligation_hash] A row never sends an `obligation_hash` the code did not build (`content_hash(obligation_refs)`). Door: leave it out; code writes it.
 - [manifest_put:provisional] `provisional` is a list of rows in the registry's provisional form. Door: run the same command again with the fixed row.
