@@ -63,6 +63,10 @@ Script source: see the k1 report lines 326-441 (the same bytes; attached by refe
 - E-k4.5, `acceptable_provenance|\bACCEPTS\b` over `scripts/*.py` (control: the same call found the pre-edit hits): no import of a deleted name in a keep or package file. Remaining hits: prose `execution_request.py:2586`, `runtime_probe.py:57` (docstrings naming `acceptable_provenance`; not in owns), `gate_registry.py:42,406` (non-goal); `profile_contract.py:913` (mine, says "deleted"); `test_gate_registry.py:630,763-785` (synthetic source text of scanner tests); quarantined readers (report line, F-r2-2 (a)): `test_profile_contract.py:142,291,292,296,340,385,471,479,500,504,505` and `test_launch_wrappers.py:163,167` (a `mock.patch.object(.., "acceptable_provenance")` that already named nothing after k2).
 - Axis 5 prose twins (`execution-lifecycle.md`, `manual-evidence.md`, `environment-preparation.md`, `phases/s5.md`, `s6.md`): zero hits for the old names (control: Grep over `*.md` found two sibling hits, below). Other `.md` hits: `design/factory-rules-debt.md:101` (non-goal, S1b/RD1-23), `CHANGELOG.md:5309` (history).
 
+## Test volume (commit 3fbce261)
+
+The commit hook WARNs `+37 test lines vs +9 product lines` (added-lines count; the product side is mostly deletions: about 40 lines of `acceptable_provenance`/`ACCEPTS` leave). All 37 are pins that move and in-place rewrites of existing readers (card: "pins that move ... are not behaviour lines"); no new behaviour row was written. A `tests-over:` word is the Lead's.
+
 ## Needed from integration
 
 - `ai-packages/qa-factory/scripts/runtime_probe.py:57`: `profile_contract.acceptable_provenance(rehearsal=True)` -> `acceptable(provenance_word(rehearsal=True), "provenance.rehearsal")` (docstring, names a deleted function). Also `execution_request.py:2586`: the docstring word `acceptable_provenance` -> `provenance_word`. Neither is in owns.
