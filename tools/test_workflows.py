@@ -190,7 +190,8 @@ def test_install_parity_has_two_branches_pull_request_with_the_head_message_and_
     the merge commit, so the message of the PR head is passed; the sha reaches the shell only through env:."""
     steps = {s.get("name"): s for s in run_steps(load("forge-check.yml")["jobs"]["forge-check"]) if "install_parity" in s["run"]}
     pr, push = steps["install parity (pull request)"], steps["install parity (push, canon)"]
-    assert pr["if"] == "github.event_name == 'pull_request'" and push["if"] == "github.event_name != 'pull_request'"
+    for step, op in ((pr, "=="), (push, "!=")):         # FG7-90: the event test sits inside the always-run condition
+        assert step["if"] == "${{ !cancelled() && steps.base.conclusion == 'success' && github.event_name %s 'pull_request' }}" % op
     assert pr["env"] == {"HEAD_SHA": "${{ github.event.pull_request.head.sha }}"} and "env" not in push
     assert "--skip-from-commit-message" in pr["run"] and "${{" not in pr["run"]
     assert push["run"].strip() == "python tools/install_parity.py --check"          # no flag: the tool reads HEAD itself
@@ -208,6 +209,49 @@ def test_the_dup_gate_is_in_forge_check_and_the_report_is_in_package_full_and_ne
     assert block.index("mkdir -p") < block.index("dup_ratchet.py --report") < block.index("cd ai-packages/qa-factory")
     assert "|| echo" in report_line and "|| rc=1" not in report_line          # a measurement, never the verdict
     assert '"$NODE_INDEX" = "1"' in report_line                                  # shard 1 only (:211)
+
+
+# ---------------------------------------------------------------- every check runs after a red neighbour (FG7-90)
+
+def hidden_checks(job, marker):
+    """What would still hide a check behind a red neighbour in one job: names of the offending steps (`[]` = none). The marker
+    step (an `id`) closes the setup steps; every later step except an `actions/upload-artifact` step is a check and must carry exactly
+    `!cancelled() && steps.<marker>.conclusion == 'success'` (an install-parity check adds its event test), no
+    `continue-on-error`, no `|| true`; a step at or before the marker must be a setup kind (checkout, setup-python, pip install, git config) with no `if`."""
+    steps = job_steps(job)
+    at = next((i for i, s in enumerate(steps) if s.get("id") == marker), None)
+    if at is None:
+        return [f"no marker {marker}"]
+    want = re.compile(r"\$\{\{ !cancelled\(\) && steps\.%s\.conclusion == 'success'( && github\.event_name (==|!=) 'pull_request')? \}\}" % re.escape(marker))
+    bad = []
+    for i, s in enumerate(steps):
+        name = s.get("name") or s.get("run", s.get("uses", "?")).strip().splitlines()[0]
+        cond = str(s.get("if", ""))
+        if i <= at:
+            run = s.get("run", "").strip()
+            if "if" in s:
+                bad.append(f"setup step with a condition: {name}")
+            if not (s.get("uses", "").startswith(("actions/checkout", "actions/setup-python")) or s.get("id") == marker
+                    or run.startswith(("pip install", "git config"))):
+                bad.append(f"not a setup step before the marker: {name}")
+        elif not s.get("uses", "").startswith("actions/upload-artifact"):
+            if "run" not in s:
+                bad.append(f"uses step that is not the artifact upload: {name}")
+                continue
+            if not want.fullmatch(cond):
+                bad.append(f"condition missing or wrong: {name}")
+            if s.get("continue-on-error"):
+                bad.append(f"continue-on-error: {name}")
+            if s["run"].rstrip().endswith("|| true"):
+                bad.append(f"run ends || true: {name}")
+    return bad
+
+
+@pytest.mark.parametrize("workflow, job_name, marker", [("forge-check.yml", "forge-check", "base"),
+                                                        ("forge-check.yml", "package-fast", "setup"),
+                                                        ("dry-story.yml", "tables", "setup")])
+def test_every_check_step_runs_after_a_red_neighbour(workflow, job_name, marker):
+    assert hidden_checks(load(workflow)["jobs"][job_name], marker) == []
 
 
 # ---------------------------------------------------------------- the jobs around it
@@ -346,7 +390,8 @@ def test_dry_story_matrix_comes_from_the_list_job_and_an_empty_list_says_so():
     assert parts["if"] == "${{ needs.list.outputs.groups != '[]' }}" and parts["env"] == {"GROUP": "${{ matrix.group }}"}
     (listing,) = runs(jobs["list"])
     assert "dry-1/exits" in listing and "no walk groups" in listing and 'echo "walk groups: $names"' in listing
-    assert any("dry_exits.py --check" in r and "dry_stub.py --selftest" in r and "--part exits:selftest" in r for r in runs(jobs["tables"]))
+    got = " ".join(runs(jobs["tables"]))        # FG7-90: one command per step now, the four texts unchanged
+    assert all(t in got for t in ("dry_exits.py --check", "dry_exits.py --selftest", "dry_stub.py --selftest", "--part exits:selftest"))
 
 
 def test_every_dry_story_job_that_runs_the_dry_world_installs_pytest():
