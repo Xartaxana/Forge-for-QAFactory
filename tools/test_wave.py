@@ -439,6 +439,39 @@ def test_oserror_in_the_window_names_the_copy_Q5c(env, monkeypatch):
     assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2
 
 
+@pytest.mark.parametrize("errs,exc,calls,ok", [          # FG7-82: t-1414 WinError 5 on os.replace
+    ([PermissionError(5, "denied")], None, 2, True),                    # E1: once, then works
+    ([PermissionError(32, "busy")] * 9, PermissionError, 5, False),     # E2: always fails -> raised, tmp gone
+    ([OSError("disk")] * 9, OSError, 1, False),                         # E3: other OSError, no retry
+])
+def test_atomic_write_retries_permission_error_only(tmp_path, monkeypatch, errs, exc, calls, ok):
+    real, seen = os.replace, []
+
+    def rep(a, b):
+        seen.append(1)
+        if len(seen) <= len(errs):
+            raise errs[len(seen) - 1]
+        real(a, b)
+    monkeypatch.setattr(wave.os, "replace", rep)
+    monkeypatch.setattr(wave.time, "sleep", lambda s: None)
+    p = tmp_path / "j.jsonl"
+    if exc:
+        with pytest.raises(exc):
+            wave._atomic_write(p, b"new")
+    else:
+        wave._atomic_write(p, b"new")
+    assert len(seen) == calls and p.exists() == ok and not (tmp_path / "j.jsonl.wave-tmp").exists()
+
+
+@pytest.mark.parametrize("copy_bytes,main_rc,clause", [(b"A", 0, True), (b"B", 0, False), (b"A", 1, False)])
+def test_restore_failed_clause_only_when_copy_equals_main_FG7_82(env, tmp_path, monkeypatch, copy_bytes, main_rc, clause):
+    copy = tmp_path / "copy"
+    copy.write_bytes(copy_bytes)
+    monkeypatch.setattr(wave, "git_bytes", lambda *a: (main_rc, b"A"))
+    w = wave.Wave(env.root, "x", "t-1")
+    assert ("by hand" in w._recovery_clause(REL, copy)) == clause
+
+
 def test_fetch_failure_in_step_9_after_the_push_still_finishes_C3_1(env, monkeypatch):
     branch(env, "b17c", {"f.txt": "x\n"})
     real = wave.Wave.fetch

@@ -65,6 +65,8 @@ JOURNAL_WAIT = 15.0
 SWEEP_WAIT = 20.0                 # seconds on a running worktree sweep before a worktree is left to it (C3-7)
 SHOW_PATHS = 5
 ATTEMPTS = 3
+REPLACE_TRIES = 5                 # os.replace tries on PermissionError (module constant: a test moves it)
+REPLACE_PAUSE = 0.2               # seconds between those tries
 MAIN = "main"
 REASON_MAX = 300                  # the longest --tests-over / --leftover-ok reason
 LEFTOVER_SHOW = 20                # leftover files named in a refusal, then "+N more"
@@ -118,7 +120,15 @@ def _atomic_write(path, data):
     tmp = path.with_name(path.name + ".wave-tmp")
     try:
         tmp.write_bytes(data)
-        os.replace(tmp, path)
+        for attempt in range(REPLACE_TRIES):
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                # t-1414 (18.11): another process held the journal for a moment (WinError 5/32)
+                if attempt == REPLACE_TRIES - 1:
+                    raise
+                time.sleep(REPLACE_PAUSE)
     except OSError:
         tmp.unlink(missing_ok=True)
         raise
@@ -520,6 +530,7 @@ class Wave:
                 return "journal restore mismatch"
         except OSError as exc:
             self.mismatch = "JOURNAL RESTORE FAILED (%s): copy kept at %s" % (exc, copy)
+            self.mismatch += self._recovery_clause(rel, copy)
             return "journal restore failed"
         if kept:
             self.say("a line written during the window was appended to the journal; the copy is kept at %s" % copy)
@@ -529,6 +540,16 @@ class Wave:
             return None
         self.ff_text = err or o
         return self.ff_text
+
+    def _recovery_clause(self, rel, copy):
+        """E6: the kept copy equals origin/main's journal -> name the manual recovery; any failure -> no clause."""
+        try:
+            rc, ob = git_bytes(self.root, "show", "origin/%s:%s" % (MAIN, rel))
+            if rc == 0 and copy.read_bytes() == ob:
+                return "; the copy equals origin/%s: stage %s and fast-forward the root by hand" % (MAIN, rel)
+        except Exception:
+            pass
+        return ""
 
     def worktree_of(self):
         out = git(self.root, "worktree", "list", "--porcelain")[1]
