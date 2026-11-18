@@ -2366,7 +2366,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_handoff_values.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:112"
+    "design/state-exits.md:125"
    ],
    "replaced_by": null,
    "covers": [
@@ -2432,7 +2432,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_handoff_values.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:112"
+    "design/state-exits.md:125"
    ],
    "replaced_by": null,
    "covers": [
@@ -3974,7 +3974,7 @@
   },
   "test_probe_joint_judge.py": {
    "layer": "gate_named",
-   "why": "named by design/state-exits.md:112 (a check the probe's walk did not reach: never a proof, the instance stays incomplete)",
+   "why": "named by design/state-exits.md:115 (a check the probe's walk did not reach: never a proof, the instance stays incomplete)",
    "covers": [
     "assertion_detectors.py",
     "probe_by_code.py"
