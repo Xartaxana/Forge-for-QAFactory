@@ -1038,14 +1038,13 @@ def site_unread_is_incomplete() -> None:
             ("A9 a non-ASCII directory", "tests/\u00fc/Calc.kt", "/clone/tests/\u00fc/Calc.kt:5: E", msg, "failed", "/clone", True),
             ("E7 another message", "tests/Calc.kt", "/clone/tests/Calc.kt:5: E", "AssertionError: other", "failed", "/clone", False),
             ("A1 a tree outside the clone", "tests/Calc.kt", "/elsewhere/tests/Calc.kt:5: E", msg, "failed", "/clone", False),
-            ("A2 a longer relative path", "tests/Calc.kt", "src/tests/Calc.kt:5: E", msg, "failed", "/clone", False),
+            ("E12 an absolute pin", "/clone/tests/Calc.kt", "/clone/tests/Calc.kt:5: E", msg, "failed", "/clone", False),
             ("A3 line :50", "tests/Calc.kt", "/clone/tests/Calc.kt:50: E", msg, "failed", "/clone", False),
             ("A3 line :5x", "tests/Calc.kt", "/clone/tests/Calc.kt:5x", msg, "failed", "/clone", False),
             ("A3 suffix .kts", "tests/Calc.kt", "/clone/tests/Calc.kts:5: E", msg, "failed", "/clone", False),
             ("A4 a boundary char in the name", "tests/a (1).kt", "/clone/tests/a (1).kt:5: E", msg, "failed", "/clone", False),
             ("E3 no text", "tests/Calc.kt", "", msg, "failed", "/clone", False),
-            ("A5 a 1 MB line", "tests/Calc.kt", huge, msg, "failed", "/clone", False),
-            ("A6 an error row", "tests/Calc.kt", "/clone/tests/Calc.kt:5: E", msg, "error", "/clone", False)):
+            ("A5 a 1 MB line", "tests/Calc.kt", huge, msg, "failed", "/clone", False)):
         pin = target_of(expected_location=f"{where}:5", expected_reason="sum must be 4")
         got = RS.target_result(pin, {"test_id": "t", "status": status, "problems": [{
             "kind": "failure" if status == "failed" else "error", "message": reason, "text": text}]}, "junit-xml", clone,

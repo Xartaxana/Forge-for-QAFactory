@@ -421,7 +421,9 @@ def pinned_frames(test_file, line) -> "list | None":
     edge = "\\s(\"'<>\\[="
     if not segments or not re.fullmatch(r"[1-9][0-9]*", str(line)) or any(re.search(f"[{edge}]", part) for part in segments):
         return None  # a path holding a boundary character cannot be told from its neighbours in a text: unread, the safe side
-    return [f"(?:^|(?<=[{edge}]))(?P<path>(?:[^{edge}]*[/\\\\])?{'[/\\\\]'.join(map(re.escape, segments))}):(?P<line>{line})(?!\\w)"]
+    sep = "[/\\\\]"  # hoisted: a backslash in an f-string expression is a SyntaxError before Python 3.12
+    body = sep.join(map(re.escape, segments))
+    return [f"(?:^|(?<=[{edge}]))(?P<path>(?:[^{edge}]*{sep})?{body}):(?P<line>{line})(?!\\w)"]
 
 
 def _expected_path(test_file, clone_root) -> str:
