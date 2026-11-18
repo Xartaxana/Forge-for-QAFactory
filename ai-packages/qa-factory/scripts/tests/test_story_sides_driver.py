@@ -8,42 +8,44 @@ sys.path.insert(0, str(harness.SCRIPTS))
 from story_sides_common import ABSENT, SUBSTITUTED, copy_registry  # noqa: E402
 
 
-def driver_cases():
+import project_knowledge as PK
+from story_run_common import eq as check_eq   # this one takes a detail text (the process output) as a fourth argument
+from story_run_common import s0_answer, s0_pipeline, s0_project, s0_run, s0_state, stub_calls
+repos = {"code_repos": [{"name": "app", "path": "app"}]}
+# PC2-7 (t-043): ONE table - the implicit `product` is carried exactly when no side of the story is a real side of this team, whatever the
+# registry holds from earlier stories and with or without `--no-trace`. Each S0 row runs traced AND `--no-trace` and the two records are
+# equal without `at`; the id of the row names the case in every label. `second-story` has no `--no-trace` half (that flow asks again).
+product_default = {"reality": "real", "deliverable": True, "source": "default"}
+ours, theirs = (("ui", True, ""),), (("backend", False, "platform team"),)
+# id, registry rows (name, deliverable, settles_by), launch flags, the answer to sides.deliverable (None: not asked), `product`, `backend`
+rows = (
+    ("own-answer", (), ("--side", "backend=substituted"), "another team's", product_default, (SUBSTITUTED, False, "")),
+    ("other-story-row", theirs, ("--side", "backend=substituted"), None, product_default, (SUBSTITUTED, False, "platform team")),
+    ("real-side-named", ours, ("--side", "backend=substituted"), "another team's", None, None),
+    ("other-team-real", (("ui", False, ""),), ("--side", "backend=substituted"), "another team's", product_default, None),
+    ("reference-only", (), ("--reference", "ui=old"), None, None, None),
+    ("second-story", (), ("--side", "backend=substituted"), "another team's", product_default, (SUBSTITUTED, False, "")),
+)
+
+def strip(sides):
+    return {name: {k: v for k, v in entry.items() if k != "at"} for name, entry in sides.items()}
+
+def story_one(row, *extra):
+    """A fresh project, the registry rows seeded, the launch and the answer; `(root, task_root, env, out)` - the caller cleans up."""
+    root, task_root, env = s0_project("PROJ-1", config=repos)
+    for name, deliverable, settles_by in row[1]:
+        PK.record(root, key=PK.SIDES_KEY, environment="", element=name, state="known", scope="project",
+                  value={"deliverable": deliverable, "settles_by": settles_by}, words="the person said", source="person", story="S-0", by="conductor")
+    out = s0_run(root, env, "PROJ-1", *extra, *row[2])
+    if row[3]:
+        out = s0_answer(root, env, "PROJ-1", row[3], *extra)
+    return root, task_root, env, out
+
+
+
+def sides_table():
     """t-2181 PC-1b in the driver at S0: the second story is not asked; the answer is recorded once (writer 2); a no_trace story
     keeps it in `pipeline.sides` with the line; C15; an unreadable registry is `sides_unknown`."""
-    import project_knowledge as PK
-    from story_run_common import eq as check_eq   # this one takes a detail text (the process output) as a fourth argument
-    from story_run_common import s0_answer, s0_pipeline, s0_project, s0_run, s0_state, stub_calls
-    repos = {"code_repos": [{"name": "app", "path": "app"}]}
-    # PC2-7 (t-043): ONE table - the implicit `product` is carried exactly when no side of the story is a real side of this team, whatever the
-    # registry holds from earlier stories and with or without `--no-trace`. Each S0 row runs traced AND `--no-trace` and the two records are
-    # equal without `at`; the id of the row names the case in every label. `second-story` has no `--no-trace` half (that flow asks again).
-    product_default = {"reality": "real", "deliverable": True, "source": "default"}
-    ours, theirs = (("ui", True, ""),), (("backend", False, "platform team"),)
-    # id, registry rows (name, deliverable, settles_by), launch flags, the answer to sides.deliverable (None: not asked), `product`, `backend`
-    rows = (
-        ("own-answer", (), ("--side", "backend=substituted"), "another team's", product_default, (SUBSTITUTED, False, "")),
-        ("other-story-row", theirs, ("--side", "backend=substituted"), None, product_default, (SUBSTITUTED, False, "platform team")),
-        ("real-side-named", ours, ("--side", "backend=substituted"), "another team's", None, None),
-        ("other-team-real", (("ui", False, ""),), ("--side", "backend=substituted"), "another team's", product_default, None),
-        ("reference-only", (), ("--reference", "ui=old"), None, None, None),
-        ("second-story", (), ("--side", "backend=substituted"), "another team's", product_default, (SUBSTITUTED, False, "")),
-    )
-
-    def strip(sides):
-        return {name: {k: v for k, v in entry.items() if k != "at"} for name, entry in sides.items()}
-
-    def story_one(row, *extra):
-        """A fresh project, the registry rows seeded, the launch and the answer; `(root, task_root, env, out)` - the caller cleans up."""
-        root, task_root, env = s0_project("PROJ-1", config=repos)
-        for name, deliverable, settles_by in row[1]:
-            PK.record(root, key=PK.SIDES_KEY, environment="", element=name, state="known", scope="project",
-                      value={"deliverable": deliverable, "settles_by": settles_by}, words="the person said", source="person", story="S-0", by="conductor")
-        out = s0_run(root, env, "PROJ-1", *extra, *row[2])
-        if row[3]:
-            out = s0_answer(root, env, "PROJ-1", row[3], *extra)
-        return root, task_root, env, out
-
     for row in rows:
         name, found = row[0], {}
         for mode, extra in (("traced", ()), ("no-trace", ("--no-trace",))):
@@ -77,6 +79,9 @@ def driver_cases():
                 harness.cleanup(root)
         if "no-trace" in found:
             check_eq(f"{name}: the traced and the `--no-trace` records are equal without `at`", found["traced"], found["no-trace"])
+
+
+def writer_two():
     root, task_root, env = s0_project("PROJ-1", config=repos)
     try:
         s0_run(root, env, "PROJ-1", "--side", "backend=substituted")
@@ -87,6 +92,9 @@ def driver_cases():
                  (0, {"deliverable": False, "settles_by": ""}, "driver", "person", "known"))
     finally:
         harness.cleanup(root)
+
+
+def no_trace_answer():
     root, task_root, env = s0_project("PROJ-1", config=repos)
     try:
         s0_run(root, env, "PROJ-1", "--no-trace", "--side", "backend=substituted")
@@ -101,6 +109,9 @@ def driver_cases():
         check_eq("... and records nothing in the registry", PK.record_path(root).exists(), False)
     finally:
         harness.cleanup(root)
+
+
+def c15_spelling():
     root, task_root, env = s0_project("PROJ-1", config=repos)
     try:
         PK.record(root, key=PK.SIDES_KEY, environment="", element="ui", state="known", scope="project", value={"deliverable": True},
@@ -119,6 +130,9 @@ def driver_cases():
                  out.stdout[-400:] + out.stderr[-300:])
     finally:
         harness.cleanup(root)
+
+
+def unreadable_registry():
     root, task_root, env = s0_project("PROJ-1", config=repos)
     try:
         PK.record_path(root).parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +149,13 @@ def driver_cases():
                  out.stdout[-400:] + out.stderr[-300:])
     finally:
         harness.cleanup(root)
-    stands = {"code_repos": [{"name": "app", "path": "app"}], "environments": [{"name": "dev"}]}
+
+
+
+stands = {"code_repos": [{"name": "app", "path": "app"}], "environments": [{"name": "dev"}]}
+
+
+def f1_repaired_registry():
     root, task_root, env = s0_project("PROJ-1", config=stands)
     try:
         PK.record_path(root).parent.mkdir(parents=True, exist_ok=True)
@@ -159,6 +179,9 @@ def driver_cases():
                  s0_pipeline(task_root)["sides"]), (0, pipeline["sides"]))
     finally:
         harness.cleanup(root)
+
+
+def w2_no_deliverable():
     # t-2277 batch 2b W2 (4): a relaunch re-read of a side with NO recorded deliverable answer keeps the default `ours` (the owner accepted it)
     root, task_root, env = s0_project("PROJ-1", config=stands)
     try:
@@ -179,18 +202,23 @@ def driver_cases():
                  (contract.story_sides(pipeline)["backend"]["deliverable"], s0_state(task_root).get("s0_block")), (True, None))
     finally:
         harness.cleanup(root)
-    # PC3-1 (t-057 N1, N6): the re-read after a registry repair records what S0 would have recorded with a readable registry -
-    # same merge (registry + launch words + the person's answers), same `product` default. Ids name the case in every label.
-    def seed_backend_theirs(root):
-        PK.record(root, key=PK.SIDES_KEY, environment="", element="backend", state="known", scope="project",
-                  value={"deliverable": False, "settles_by": "platform team"}, words="theirs", source="person", story="S-0", by="conductor")
-        PK.record(root, key=PK.STAND_SIDES_KEY, environment="dev", element="backend", state="known", scope="stand",
-                  value={"reality": SUBSTITUTED}, words="the stand", source="person", story="S-0", by="conductor")
 
-    def break_registry(root):
-        PK.record_path(root).parent.mkdir(parents=True, exist_ok=True)
-        PK.record_path(root).write_text("{not json", encoding="utf-8")
 
+
+# PC3-1 (t-057 N1, N6): the re-read after a registry repair records what S0 would have recorded with a readable registry -
+# same merge (registry + launch words + the person's answers), same `product` default. Ids name the case in every label.
+def seed_backend_theirs(root):
+    PK.record(root, key=PK.SIDES_KEY, environment="", element="backend", state="known", scope="project",
+              value={"deliverable": False, "settles_by": "platform team"}, words="theirs", source="person", story="S-0", by="conductor")
+    PK.record(root, key=PK.STAND_SIDES_KEY, environment="dev", element="backend", state="known", scope="stand",
+              value={"reality": SUBSTITUTED}, words="the stand", source="person", story="S-0", by="conductor")
+
+def break_registry(root):
+    PK.record_path(root).parent.mkdir(parents=True, exist_ok=True)
+    PK.record_path(root).write_text("{not json", encoding="utf-8")
+
+
+def reread_launch_words():
     root, task_root, env = s0_project("PROJ-1", config=stands)
     try:
         seed_backend_theirs(root)
@@ -217,6 +245,9 @@ def driver_cases():
                  out.stdout[-400:] + out.stderr[-300:])
     finally:
         harness.cleanup(root)
+
+
+def reread_person_answer():
     root, task_root, env = s0_project("PROJ-1", config=stands)
     try:
         break_registry(root)
@@ -231,6 +262,9 @@ def driver_cases():
                  (0, {"reality": "real", "deliverable": False, "source": "person"}, product_default), out.stdout[-400:] + out.stderr[-300:])
     finally:
         harness.cleanup(root)
+
+
+def reread_case_twin():
     root, task_root, env = s0_project("PROJ-1", config=stands)
     try:
         break_registry(root)
@@ -248,6 +282,9 @@ def driver_cases():
                  (True, True, False, {}), out.stdout[-400:] + out.stderr[-300:] + log[-400:])
     finally:
         harness.cleanup(root)
+
+
+def reread_lifts_mark():
     for case, rows_after in (("reread-all-real-registry", (("ui", True, ""),)), ("reread-empty-registry", ())):
         root, task_root, env = s0_project("PROJ-1", config=stands)
         try:
@@ -263,10 +300,16 @@ def driver_cases():
                      (out.returncode, bool(pipeline.get("sides_unknown")), "sides" in pipeline), (0, False, False), out.stdout[-400:] + out.stderr[-300:])
         finally:
             harness.cleanup(root)
+
+
+def product_default_fresh():
     import contract
     first, second = contract.product_default_entry(), contract.product_default_entry()
     first["settles_by"] = "x"
     check_eq("product_default_entry: the values, and a fresh dict on every call", (second, first is second), (product_default, False))
+
+
+def w2_later_word():
     # t-2277 batch 2b W2 (1, 2): the answer is the PROJECT's (a registry row) and a later word overwrites it; the next story reads the latest
     root, task_root, env = s0_project("PROJ-1", config=repos)
     try:
@@ -283,6 +326,9 @@ def driver_cases():
                  (row["provenance"]["words"], row["provenance"]["story"], bool(row["at"])), ("no, this backend is ours", "S-1", True))
     finally:
         harness.cleanup(root)
+
+
+def f2_stand_selected():
     root, task_root, env = s0_project("PROJ-1", config=stands)
     try:
         PK.record(root, key=PK.SIDES_KEY, environment="", element="backend", state="known", scope="project",
@@ -299,6 +345,9 @@ def driver_cases():
               "product" in (pipeline.get("sides") or {}), sorted(pipeline.get("sides") or {}))
     finally:
         harness.cleanup(root)
+
+
+def f2_stand_only_asked():
     root, task_root, env = s0_project("PROJ-1", config=stands)
     try:
         PK.record(root, key=PK.STAND_SIDES_KEY, environment="dev", element="backend", state="known", scope="stand",
@@ -312,7 +361,21 @@ def driver_cases():
 
 
 def main() -> None:
-    driver_cases()
+    sides_table()
+    writer_two()
+    no_trace_answer()
+    c15_spelling()
+    unreadable_registry()
+    f1_repaired_registry()
+    w2_no_deliverable()
+    reread_launch_words()
+    reread_person_answer()
+    reread_case_twin()
+    reread_lifts_mark()
+    product_default_fresh()
+    w2_later_word()
+    f2_stand_selected()
+    f2_stand_only_asked()
     harness.finish("test_story_sides_driver")
 
 
