@@ -1096,8 +1096,8 @@ def tooling_gap_key(task_root, identity: str, current_hash: str) -> str:
 
     A key only for a record that says `cause: tooling`, whose verdict is `not_executed` or `incomplete`, that names a
     `language` (one token), and whose `test_file_sha256` EQUALS the current hash of the test (both non-empty: a record of
-    other bytes says nothing about these). A record that judged the test (`intended_failure`, `no_failure`,
-    `wrong_location`), no record, an unreadable one, a stand that did not run (no `cause`) and a call that was refused with
+    other bytes says nothing about these). A record that judged the test (`probe_judged`: `intended_failure`,
+    `no_failure`, `wrong_location`, `survived`), no record, an unreadable one, a stand that did not run (no `cause`) and a call that was refused with
     no record give "": the class never covers what it was not asked about. Error direction: "" - the instance then needs the
     word of its own, as before. Never raises."""
     try:
@@ -1143,7 +1143,8 @@ def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
 
     `state` is one of `not_run` (no record, an unreadable one, one of other bytes - `input_hash` or `test_file_sha256` empty or
     different - or one with no verdict), `not_executed`, `incomplete` (the verdict as it stands), `judged` (`intended_failure`,
-    `no_failure`, `wrong_location`: a probe that caught something is not one that could not run). `cause` is the record's own
+    `no_failure`, `wrong_location`, `survived` - the set `probe_judged` defines: a probe that ran to a verdict is not one that
+    could not run). `cause` is the record's own
     `cause` word for `not_executed` and `incomplete` ("" otherwise): `tooling` (the tool could not read the test), `judgment`
     (the run failed at the mutated line on a text the tool cannot read; the code critic judges it, t-1968). `judgment` is the
     verdict word of that critic's `judgment` block (`fires` / `other_failure` / `cannot_judge`) or "" when none is written.
