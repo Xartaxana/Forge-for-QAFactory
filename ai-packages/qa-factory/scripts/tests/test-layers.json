@@ -4268,7 +4268,8 @@
     "references/verification-levels.json",
     "tests/harness.py",
     "tests/test_probe_binding.py",
-    "tests/test_run_freshness.py"
+    "tests/test_run_freshness.py",
+    "tests/story_step_common.py"
    ]
   },
   "test_provisional.py": {
@@ -6138,7 +6139,8 @@
     "tests/story_run_common.py",
     "waiver.py",
     "window_record.py",
-    "tests/story_run_loop_b_common.py"
+    "tests/story_run_loop_b_common.py",
+    "tests/story_step_common.py"
    ]
   },
   "test_story_run_loop_b_threshold.py": {
@@ -7959,7 +7961,8 @@
     "tests/harness.py",
     "tests/test_controller_rework_scope.py",
     "tests/test_controller_state.py",
-    "tests/test_s5_precheck.py"
+    "tests/test_s5_precheck.py",
+    "tests/story_step_common.py"
    ]
   },
   "test_words_carry.py": {

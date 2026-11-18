@@ -3051,7 +3051,9 @@ def an_area_keyed_scope_takes_the_controllers_rule_not_a_looser_one():
 
 # ---- B-375: an instance the manifest hands to the person has a receipt road; a claim the manifest does not hold has none ---------
 
-HANDED_ROW = {"case": "TC-1", "reason": "handed_to_person", "detail": "web: npx playwright test tests/test_tc-1.py"}
+from story_step_common import handed_row  # noqa: E402
+
+HANDED_ROW = handed_row(detail="web: npx playwright test tests/test_tc-1.py")
 
 
 HANDED_FIELDS = {"obligation_refs": [{"obligation_id": "OB-1", "obligation_hash": "oh-1"}],

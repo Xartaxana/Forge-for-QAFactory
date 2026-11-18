@@ -156,9 +156,9 @@ def s5_finish_unresolved_pair() -> None:
         harness.cleanup(root)
 
 
-# The `handed_to_person` row of the manifest - same shape as `HANDED_ROW` of test_acceptance_semantics.py (not imported: that
-# module makes a temp dir on import) and of test_window_record.py.
-HANDED_ROW = {"case": "TC-1", "reason": "handed_to_person", "detail": "web: npx playwright test t.spec.ts"}
+from story_step_common import handed_row  # noqa: E402  (the one literal of the `handed_to_person` manifest row, FG7-3)
+
+HANDED_ROW = handed_row()
 
 
 def confirm_handed(task_root, instance_id) -> None:

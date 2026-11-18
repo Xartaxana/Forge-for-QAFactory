@@ -296,8 +296,7 @@ def probe_problem_matrix():
 # --- proof_required ---------------------------------------------------------------------------
 
 def proof_required_is_the_one_predicate():
-    handed_row = {"case": "TC-9", "reason": "handed_to_person", "detail": "ios: run it on a device"}
-    manifest = {"unresolved": [handed_row]}
+    manifest = {"unresolved": [HANDED]}
     for key, value in (("sensitivity_proof_required", True), ("new_or_changed", True),
                        ("change_disposition", "new_or_changed")):
         check_eq(f"{key} demands a proof", PL.proof_required({key: value, "covers": ["TC-1"]}, manifest), True)
@@ -348,7 +347,9 @@ def before_t134(entry, manifest) -> bool:
     return not (mine & PL._handed_keys(manifest))
 
 
-HANDED = {"case": "TC-9", "reason": "handed_to_person", "detail": "ios: run it on a device"}
+from story_step_common import handed_row  # noqa: E402
+
+HANDED = handed_row("TC-9", detail="ios: run it on a device")
 IID = "TC-1::test_x"          # aliases: TC-1::test_x, test_x
 IID_ALIASES = ["TC-1::test_x", "test_x"]
 FLAG_VALUES = (None, False, 0, "", True, 1, "yes")     # None = the key is absent
