@@ -2,17 +2,11 @@
 
 Read by the coordinator at start and after compaction (SessionStart line `COORDINATOR RULES:`); workers do not read it at boot — a role reads only the section its role file names
 
-The coordinator's routing policy of this repository (the worker block — the dispatch form, command hygiene, worker
-duties, Язык — is `CLAUDE.md`, auto-loaded), and nothing that not every session needs. History of its clauses:
-`docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`. Full state restoration goes through BOOT.md ("Restore context from BOOT.md"), not
-here: boot context is expensive (boot-context-is-expensive rule). Without this policy in context (the `COORDINATOR RULES:`
+The coordinator's routing policy of this repository; it holds nothing that not every session needs. The worker block
+is `CLAUDE.md` (auto-loaded); the project's own rules, principles and layout are PROJECT.md, read with this file;
+history of its clauses: `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`. Full state restoration goes through BOOT.md, not here:
+boot context is expensive (boot-context-is-expensive rule). Without this policy in context (the `COORDINATOR RULES:`
 line), Lead ends up doing delegable work itself on a tier above the work's (cheapest-tier-default rule).
-
-The project's own rules, principles and layout live in PROJECT.md, read with this file (the `COORDINATOR RULES:` line).
-
-The factory building rules, one line each (generated from `ai-packages/qa-factory/design/factory-rules.md`; the full
-text is read before changing the package), and the factory architecture invariants AR-n, one line each (generated from
-`ai-packages/qa-factory/design/architecture.md`; a package change names the AR-n it touches, rule 10).
 
 ## Contents — topic → where to read
 
@@ -128,9 +122,7 @@ a rule.
    delegation rule). Small diffs: a "critic: skipped, <reason>" note inside the `accepted` event is a waiver available
    ONLY to an acceptor whose tier is above the executor's. TWO-LAYER CRITIC ENTRY (two-layer review rule): a
    MECHANICAL layer — test re-runs, control values, smoke matrices — is executed by the submitting builder or a script
-   and attached to critic as VERBATIM output BEFORE the verdict; critic's own zone is the VERDICT layer (architecture,
-   semantics, class-wide completeness); a cheap control re-run of what is attached is legitimate, investigating the
-   mechanics by reading is not; a layer not attached → critic asks the dispatcher for it and does not execute it.
+   and attached to critic as VERBATIM output BEFORE the verdict; the critic's VERDICT layer and its control re-run: `.claude/agents/critic.md` rule 21.
    Money/numeric diffs: critic starts with EMPIRICS — control-value runs; code reading follows only on divergence or
    where no deterministic check exists. Critic-on-plan: a plan or recon deliverable that will itself serve as the SPEC
    for more than roughly 30 minutes of work gets a critic review of the PLAN before any code starts when it carries
@@ -355,11 +347,7 @@ One journal file per developer: `<dev>` is the `developer:` slug of the untracke
 `python -B tools/journal_write.py <event> …` (the machine lock, the clock, the validator BEFORE the write; the owner's
 word 14.11.2026): the Task/Agent PostToolUse hook writes `delegated` (and the owed designer `dispatch_skipped`) and the
 SubagentStop gate writes `returned` by themselves; the coordinator writes `accepted`, `rejected` and the rest with one
-call (`accept --run "<cmd>"` runs the verification under bash and stores its verbatim tail as the witness):
-
-```json
-{"ts":"2026-11-11T12:00:00","event":"delegated","agent":"builder","model":"sonnet","task_id":"t-042","category":"implementation","worker_ref":"agent:<id>","feature":"F19","notes":"brief: what was delegated"}
-```
+call (`accept --run "<cmd>"` runs the verification under bash and stores its verbatim tail as the witness).
 
 The journal is append-only and records ACCOMPLISHED FACTS, not intentions: `delegated` is written by the hook AFTER
 the launch returns (a hook line `JOURNAL: … NOT written` is repaired the same turn with the CLI), `escalated` after
@@ -388,11 +376,9 @@ unclassified work is a Forge metric, not an error). Old events are never rewritt
 git common directory, shared by every session and worktree of the clone; ids may skip and land out of order, never
 repeat (validator rule 9a: never seen, at most 1000 above its letter's max). An id carries the clone's LETTER — none
 for the first clone of a developer, `a`, `b`, … for the next ones (`logs/journal-letters.json`, `journal_write.py clone
---claim`; the owner's word 14.11.2026 «Номер 123 и 123А», written in lower case ASCII: `t-123`, `t-123a`). Bands
-(`id_band`) are retired for new lines and still read in old ones; `journal_keys.py declare` repairs only collisions
+--claim`; the owner's word 14.11.2026 «Номер 123 и 123А», written in lower case ASCII: `t-123`, `t-123a`). `journal_keys.py declare` repairs only collisions
 already in history. A collision noticed later is not rewritten — it gets a note on the next event and counts as two
-tasks (no-silent-reuse rule). `ts` is read from the system clock by the writer, never taken from the session's
-narrative; a wrong `ts` noticed later gets a note on the next event (the reference: usage reports / git log,
+tasks (no-silent-reuse rule). A wrong `ts` noticed later gets a note on the next event (the reference: usage reports / git log,
 calibration check 13(f)). A MISSED event noticed later is repaired by a RETRO pair: append
 `delegated`/`accepted` NOW, with the current `ts`, a "retroactive" mark and the event's actual boundaries in
 `notes`; inserting lines into the past is forbidden; calibration watches the retro stream.

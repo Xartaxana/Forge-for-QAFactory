@@ -50,3 +50,23 @@ What was dropped and why: rule 13 judge text, R1-a, hygiene 2, the journal-segme
    progress lives in its «Ход». Gates on the path: `piles.py check --msg-file` in commit-msg (door
    `piles-skip: <item> -- <reason>`), `board --check` in pre-commit, pre-merge-commit and CI. Detector:
    calibration check 33.
+
+## COORDINATOR.md text moved by boot diets (verbatim)
+
+Moved out of `COORDINATOR.md` on 18.11.2026 (FG7-62, t-1519), as the text stood; the rule text left behind is in `COORDINATOR.md` § Routing log.
+
+### The `delegated` example line (§ Routing log)
+
+```json
+{"ts":"2026-11-11T12:00:00","event":"delegated","agent":"builder","model":"sonnet","task_id":"t-042","category":"implementation","worker_ref":"agent:<id>","feature":"F19","notes":"brief: what was delegated"}
+```
+
+### Bands sentence (§ Routing log)
+
+Bands
+(`id_band`) are retired for new lines and still read in old ones;
+
+### Timestamp sentence (§ Routing log)
+
+`ts` is read from the system clock by the writer, never taken from the session's
+narrative; a wrong `ts`
