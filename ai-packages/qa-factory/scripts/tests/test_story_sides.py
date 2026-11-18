@@ -803,16 +803,21 @@ def _bare_relaunch(driver):
     return -2
 
 
-word_cases()
-reader_cases()
-registry_cases()
-driver_cases()
-absent_side_cases()
-parks_cases()
-awaiting_cases()
-stage_done_cases()
-note_cases()
-edge_cases()
-bom_cases()
-transition_cases()
-harness.finish("test_story_sides")
+def main() -> None:
+    word_cases()
+    reader_cases()
+    registry_cases()
+    driver_cases()
+    absent_side_cases()
+    parks_cases()
+    awaiting_cases()
+    stage_done_cases()
+    note_cases()
+    edge_cases()
+    bom_cases()
+    transition_cases()
+    harness.finish("test_story_sides")
+
+
+if __name__ == "__main__":
+    main()
