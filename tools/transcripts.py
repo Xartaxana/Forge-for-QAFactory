@@ -498,6 +498,58 @@ def main_transcript_of(worker_path):
     return str(session.parent / (session.name + ".jsonl"))
 
 
+def first_copy(seen, obj) -> bool:
+    """True when this record is the first copy of its `uuid` in the pass (the harness re-writes records under the
+    same uuid, E32): the first copy wins and its uuid joins `seen`. A record with no (str) uuid is always a first
+    copy. Error direction: a record without uuid may be counted twice, so a count may err HIGH, never LOW."""
+    uid = obj.get("uuid")
+    if not isinstance(uid, str) or not uid:
+        return True
+    if uid in seen:
+        return False
+    seen.add(uid)
+    return True
+
+
+def new_tool_uses(obj, seen_ids) -> list:
+    """The tool_use blocks of an assistant record, each str tool_use id once per pass (the second guard behind the
+    uuid: an `api-request-blob` copy repeats the id); a block with no str id is always returned. May count HIGH."""
+    out = []
+    for block in content_blocks(obj):
+        if not isinstance(block, dict) or block.get("type") != "tool_use":
+            continue
+        tid = block.get("id")
+        if isinstance(tid, str):
+            if tid in seen_ids:
+                continue
+            seen_ids.add(tid)
+        out.append(block)
+    return out
+
+
+def send_targets(path) -> dict:
+    """The Lead's SendMessage calls of one main transcript, in ONE streaming pass (iter_lines; the file may be 700
+    MB): {"sends": [{"to", "ts", "line", "id"}], "error": None | str}. Only assistant records that are not
+    `isSidechain` (a worker's own send is never the coordinator's), uuid first copy, tool_use id once. An OSError
+    (also mid-pass) sets `error` and drops the partial sends: no half number. Never raises; may count HIGH."""
+    sends, seen, ids = [], set(), set()
+    try:
+        for n, line in enumerate(iter_lines(path), start=1):
+            if "SendMessage" not in line:
+                continue
+            obj = parse_line(line)
+            if obj is None or not first_copy(seen, obj) or obj.get("type") != "assistant" \
+                    or obj.get("isSidechain") is True:
+                continue
+            for block in new_tool_uses(obj, ids):
+                inp = block.get("input")
+                if block.get("name") == "SendMessage" and isinstance(inp, dict) and isinstance(inp.get("to"), str):
+                    sends.append({"to": inp["to"], "ts": obj.get("timestamp"), "line": n, "id": block.get("id")})
+    except (OSError, ValueError) as exc:
+        return {"sends": [], "error": "main transcript unreadable: %s" % exc}
+    return {"sends": sends, "error": None}
+
+
 def _writer_or_live(writer, path) -> bool:
     """writer(path); True (the file is kept) when the predicate raises."""
     try:
