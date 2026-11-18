@@ -761,21 +761,19 @@ def n2_k2_validate_request_takes_a_word_bound_to_the_story(request: dict) -> Non
              verdict({**test_deployed, "person_confirmation": {**test_deployed["person_confirmation"], "story_revision": "elsewhere-1"}}, "n2k2-td3"))
     check_eq("K-N2.2 control: a `matched` record is accepted as it always was", verdict(shapes["M"], "n2k2-m"), "matched")
     check_in("K-N2.2 control: an `unknown` is refused, whatever it names", refused, verdict(shapes["U"], "n2k2-u"))
-    # RD1-14 k2 (item 1, E-S3, E-S7): the word of a local-source request is made by `provenance_word`, judged by the registry
+    # RD1-14 k2 (item 1, E-S3, E-S7): the word is made by `provenance_word` and judged by the registry
     local = {"runtime_required": False, "target_kind": "local_source"}
-    check_eq("RD1-14 k2: a local-source request with a VALID bare not_applicable is admitted",
-             verdict(shapes["NA2"], "n2k2-l1", **local), "not_applicable")
-    check_in("RD1-14 k2: ...and with an INVALID one (no timestamp) it is refused, one sentence", refused,
+    check_eq("RD1-14 k2: a local-source request with a VALID bare not_applicable is admitted", verdict(shapes["NA2"], "n2k2-l1", **local), "not_applicable")
+    check_in("RD1-14 k2: ...an INVALID one (no timestamp) is refused", refused,
              verdict({k: v for k, v in shapes["NA2"].items() if k != "timestamp"}, "n2k2-l2", **local))
     import gate_registry as GR
     import gate_template as GT
-    saved = list(GT._READ)
-    GT._READ[:] = [({"rows": "x"}, GR.structural_error({"rows": "x"}))]
+    saved, GT._READ[:] = list(GT._READ), [({"rows": "x"}, GR.structural_error({"rows": "x"}))]
     try:
         blind = verdict(shapes["M"], "n2k2-r1")
     finally:
         GT._READ[:] = saved
-    check_in("RD1-14 k2 E-S7: a valid `matched` is refused when the registry cannot be read (nothing is admitted unjudged)", refused, blind)
+    check_in("RD1-14 k2 E-S7: a valid `matched` is refused when the registry cannot be read", refused, blind)
 
 
 def n2_k3_the_fingerprint_of_a_word_is_not_the_fingerprint_of_a_reading(request: dict) -> None:

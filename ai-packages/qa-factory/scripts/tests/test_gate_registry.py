@@ -147,8 +147,7 @@ def a_findings(result: dict) -> list:
 
 
 def called_names(path: Path, function: str) -> set:
-    """The names called anywhere inside the def `function` of a source file, module-level or a method (RD1-14 k2: gate A's
-    `_observed_identity` is one) (an AST read: `f(...)` is `f`, `m.f(...)` is `f`)."""
+    """The names called anywhere inside the def `function` (a method too: RD1-14 k2) of a source file (an AST read: `f(...)` is `f`, `m.f(...)` is `f`)."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     out: set = set()
     for node in ast.walk(tree):
@@ -1180,11 +1179,9 @@ D13_TRIPLES = [
 # `state == 'incomplete'`, `state == 'not_executed'` and `state in ('not_executed', 'incomplete')`). The rows `probe_verdict` and `test_identity`
 # gain sites; no allow entry. Items: probe_judged 1, tooling_gap_key 1, probe_record_state 5, held_words 2, compare_identity 4 (returned
 # tuples), same_instance_bytes 1. Missing: none.
-# 184 -> 180 (RD1-14 k2, t-1406, AR-20; measured with GR.analyse before (184 / 69 triples, on the base 6947b055 tree) and after (180 / 68)): the
-# execution side asks `acceptable(provenance_word(..), consumer)`, so four counted comparisons leave: the tuple `accepts=("matched",
-# "person_confirmed")` of `_observed_identity` (its triple leaves with it: 69 -> 68), `target_kind == 'local_source'` of `validate_request`,
-# and the two `checked["result"] == "not_applicable"` copies of the local-source and fingerprint residue (`validate_request`, `build`).
-# The allow pin gains +3 (`validate_request` two, `build` one); `rehearsal_probe` and `run_suite.probe_runtime` held no counted item.
+# 184 -> 180 (RD1-14 k2, t-1406, AR-20; GR.analyse before 184 / 69 triples, after 180 / 68): four comparisons leave as the execution side asks
+# `acceptable(provenance_word(..), consumer)`: `_observed_identity`'s tuple (its triple too), `validate_request`'s `target_kind == 'local_source'`
+# and `checked["result"] == "not_applicable"` copy, and `build`'s `checked["result"] == "not_applicable"`; the allow pin gains +3.
 D13_ITEM_COUNT = 180
 
 
