@@ -2,9 +2,9 @@
 """The ONE writer of the journal (offload spec r2, §3.B1; M3): a library (`write_event`, used by the hooks) and a CLI.
 
     python -B tools/journal_write.py next [--n K]                      reserve K ids (1..20), print them
-    python -B tools/journal_write.py delegated --agent A --model M --worker W --notes N [--task t-NNN]
+    python -B tools/journal_write.py delegated --agent A --model M --worker W --feature Fnn --notes N [--task t-NNN]
     python -B tools/journal_write.py returned --task t-NNN --worker W
-    python -B tools/journal_write.py accept --task t-NNN --agent A --model M --by B --notes N
+    python -B tools/journal_write.py accept --task t-NNN --agent A --model M --by B --feature Fnn --notes N
                                        (--run "<cmd>" | --witness-file <path> | --witness "<text>" | --from-worker <handoff path>)
     python -B tools/journal_write.py reject|skip|escalate|defect|decomposable|degraded|restored|calibrated ...
     python -B tools/journal_write.py event --json '<object without ts>'   a rare or retro line
@@ -465,18 +465,23 @@ DOOR_TEXT = ("nothing was written; fix what is named above and run the call agai
 def _check_feature(root: Path, obj: dict, via: str) -> None:
     """FG7-70: a CLI-written event the Forge metrics attribute (jv.FEATURE_WARN_EVENTS, the one set forge_metrics also reads)
     without a registered `feature` is REFUSED -- a hook-written line keeps the WARN (jv.feature_warnings). Why: one such line
-    (t-1289) made the pre-merge-commit check refuse every merge of main. Registry unreadable -> only the missing field is judged."""
+    (t-1289) made the pre-merge-commit check refuse every merge of main. Judged against the ROOT registry only -- the carrier
+    forge_metrics.run_check reads; an unreadable one REFUSES (FR-41: an unknown is not a pass; review t-1357 C-2: a fallback
+    to the tool checkout's registry let an unregistered value in, which then blocked every merge)."""
     event = obj.get("event")
     if via != "cli" or not isinstance(event, str) or event not in jv.FEATURE_WARN_EVENTS:
         return
-    fv = obj.get("feature")
-    known = jv.load_feature_ids(root / jv.FEATURE_REGISTRY_REL)
+    head = f"refused: event {event} for task {obj.get('task_id') or '(new)'}"
+    registry = root / jv.FEATURE_REGISTRY_REL
+    known = jv.load_feature_ids(registry)
     if known is None:
-        known = jv.load_feature_ids()
-    if fv in (None, "") or (known is not None and fv not in known):
-        why = "has no `feature`" if fv in (None, "") else f"names feature {fv!r} that is not in {jv.FEATURE_REGISTRY_REL}"
-        raise Refused(2, f"refused: event {event} for task {obj.get('task_id') or '(new)'} {why}; "
-                         f"nothing written; fix: add --feature Fnn (an id from {jv.FEATURE_REGISTRY_REL})")
+        raise Refused(2, f"{head}: the feature registry {registry} is unreadable (absent, not JSON, or no feature ids), so "
+                         "the feature cannot be judged; nothing written; fix: restore that file, then run the call again")
+    problem = jv.feature_problem(obj, known)
+    if problem is not None:
+        fv = obj.get("feature")
+        why = "has no `feature`" if problem == "missing" else f"names feature {fv!r} that is not in {jv.FEATURE_REGISTRY_REL}"
+        raise Refused(2, f"{head} {why}; nothing written; fix: add --feature Fnn (an id from {jv.FEATURE_REGISTRY_REL})")
 
 
 def _write_event(root: Path, obj: dict, via: str, lock_timeout: float) -> Result:
@@ -535,7 +540,7 @@ def _write_event(root: Path, obj: dict, via: str, lock_timeout: float) -> Result
     if counter_warn:
         messages.append(counter_warn)
     with contextlib.suppress(Exception):
-        messages.extend(jv.feature_warnings([line], file_lines))
+        messages.extend(jv.feature_warnings([line], file_lines, registry=root / jv.FEATURE_REGISTRY_REL))   # C-3: the refusal's carrier
         messages.extend(jv.node_warnings([line], file_lines))
         messages.extend(jv.matrix_warnings([line], file_lines, seed_lines=seed, config_text=config_text))
     with contextlib.suppress(Exception):
@@ -820,7 +825,8 @@ def _accept_obj(a, root: Path) -> tuple:
                          "--witness \"<text>\", --from-worker <handoff path>")
     notes = f"{a.notes} allow-red: {a.allow_red}" if a.allow_red else a.notes
     check_notes(notes)                                 # before a --run executes; _prepare runs the same function again
-    if a.run is not None:                              # POSITIONAL: before the lock
+    _check_feature(root, {"event": "accepted", "feature": a.feature, "task_id": a.task}, "cli")   # C-1: same, a run is lost
+    if a.run is not None:                            # POSITIONAL: before the lock
         _precheck_task(root, a.task)
         witness, _rc = run_witness(a.run, root, allow_red=a.allow_red)
         witness_by = "run"

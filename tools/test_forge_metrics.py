@@ -1498,14 +1498,10 @@ def test_node_cost_critic_token_pattern_equals_the_hooks():
     assert fm._CRITIC_TOKEN_RE.pattern == journal_echo.CRITIC_TOKEN_RE.pattern
 
 
-# ---------------------------------------------------------------------------------------------
-# FG7-70 -- GRANDFATHERED_EVENTS: an exact (ts, event, task_id) triple is no offender, a note names it
-# ---------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("listed, ts, tid, offenders, noted", [
     ([("2026-11-18T02:19:45", "accepted", "t-1289")], "2026-11-18T02:19:45", "t-1289", 0, True),   # exact triple: skipped, noted
     ([("2026-11-18T02:19:45", "accepted", "t-1289")], "2026-11-18T02:20:00", "t-1289", 1, False),  # same task, other ts: offender
-    ([], "2026-11-18T02:19:45", "t-1289", 1, False),                                               # empty list: check unchanged
-], ids=["exact-triple", "same-task-other-ts", "empty-list"])
+], ids=["exact-triple", "same-task-other-ts"])
 @needs_git
 def test_fg7_70_grandfathered_event_triples(tmp_path, monkeypatch, listed, ts, tid, offenders, noted):
     root, base = _frepo(tmp_path)

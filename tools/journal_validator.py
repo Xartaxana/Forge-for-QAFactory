@@ -1421,23 +1421,34 @@ def _warn_line(tag: str, text: str) -> str:
     return f"{tag}: WARN {text} (a warning only, the journal is not blocked)"
 
 
-def feature_warnings(new_lines: list[str], head_lines: list[str], known=None) -> list[str]:
+def feature_problem(obj: dict, known) -> str | None:
+    """FG7-70: the ONE feature predicate of the writer's refusal, this WARN and forge_metrics.run_check (c) -- three copies
+    had drifted to two registries (review t-1357 C-3). None = fine; "missing" = no or empty `feature`; "unregistered" = a
+    value not in `known` (known None = the registry could not be read: the value is not judged here)."""
+    fv = obj.get("feature")
+    if fv in (None, ""):
+        return "missing"
+    return "unregistered" if known is not None and fv not in known else None
+
+
+def feature_warnings(new_lines: list[str], head_lines: list[str], known=None, registry=None) -> list[str]:
     """WARN texts (never violations) for NEW delegated/accepted/defect_found lines dated
     FEATURE_WARN_FROM or later that carry no `feature` field or a value not in the
-    registry. `known` = the registry ids (None -> read plans/features.json). Lines that
-    do not parse, have no parseable ts, or are older than FEATURE_WARN_FROM are skipped."""
+    registry. `known` = the registry ids (None -> read `registry`, default this checkout's plans/features.json). Lines
+    that do not parse, have no parseable ts, or are older than FEATURE_WARN_FROM are skipped."""
     if known is None:
-        known = load_feature_ids()
+        known = load_feature_ids(registry)
     warns: list[str] = []
     for obj, tag in _dated_new_objs(new_lines, head_lines, FEATURE_WARN_EVENTS, FEATURE_WARN_FROM):
         fv = obj.get("feature")
-        if fv in (None, ""):
+        problem = feature_problem(obj, known)
+        if problem == "missing":
             warns.append(_warn_line(
                 tag,
                 f"no 'feature' field -- the event cannot be attributed to a feature in "
                 f"the Forge metrics (tools/forge_metrics.py) -- add \"feature\":\"Fnn\" with an id "
                 f"from {FEATURE_REGISTRY_REL}"))
-        elif known is not None and fv not in known:
+        elif problem == "unregistered":
             warns.append(_warn_line(
                 tag,
                 f"feature={fv!r} is not an id in {FEATURE_REGISTRY_REL} -- the Forge "

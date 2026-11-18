@@ -43,6 +43,8 @@ def template(tmp_path_factory):
     (repo / "tools/dev.config.yaml").write_text("developer: dev1\n")
     (repo / "tools/journal_write.py").write_text("# stub: the --run capability probe looks for this file\n")
     (repo / "logs/journal/dev1.jsonl").write_text(SEED)
+    (repo / "plans").mkdir()
+    (repo / "plans/features.json").write_text('{"features": [{"id": "F19"}]}\n')   # FG7-70: never the live registry
     # an EMPTY registry, not a copy of the real one: the real file carries a dev1 row of the real clone, which would make
     # this temp clone's claim the next letter ("a") -- the tests must not depend on whose checkout runs them
     (repo / "logs/journal-letters.json").write_text('{"letters": []}\n')
@@ -529,13 +531,13 @@ def test_e_b1_8_a_missing_or_blind_bash_refuses_with_the_witness_file_door(repo,
     t = deleg(repo)
     for which in (lambda _n: None, lambda _n: sys.executable):          # no bash / a launcher that does not see the repo
         monkeypatch.setattr(jw.shutil, "which", which)
-        refused(repo, "accept", "--task", t, "--agent", "builder", "--model", "sonnet", "--by", "opus", "--notes", "ok",
+        refused(repo, "accept", "--task", t, "--agent", "builder", "--model", "sonnet", "--by", "opus", "--feature", "F19", "--notes", "ok",
                 "--run", "echo hi", text="--witness-file")
 
 
 def test_e_b1_8_a_timeout_kills_the_run_and_writes_nothing(repo, needs_bash, monkeypatch):
     monkeypatch.setattr(jw, "RUN_TIMEOUT", 1)
-    refused(repo, "accept", "--task", deleg(repo), "--agent", "builder", "--model", "sonnet", "--by", "opus", "--notes", "ok",
+    refused(repo, "accept", "--task", deleg(repo), "--agent", "builder", "--model", "sonnet", "--by", "opus", "--feature", "F19", "--notes", "ok",
             "--run", "sleep 20", code=3, text="timed out")
 
 
@@ -544,13 +546,13 @@ def test_e_b1_8_a_timeout_kills_the_run_and_writes_nothing(repo, needs_bash, mon
     "python -c \"open('logs/journal/dev1.jsonl','a').write('x')\"", "cd tools && pytest", "$(echo cd) x", "echo " + "a" * 70000],
     ids=["redirect", "backslash", "python-c", "cd", "dynamic-word", "70KB"])
 def test_e_b1_9_refused_by_the_gate_before_anything_runs(repo, needs_bash, cmd):
-    refused(repo, "accept", "--task", deleg(repo), "--agent", "builder", "--model", "sonnet", "--by", "opus", "--notes", "ok",
+    refused(repo, "accept", "--task", deleg(repo), "--agent", "builder", "--model", "sonnet", "--by", "opus", "--feature", "F19", "--notes", "ok",
             "--run", cmd, text="refused by the hygiene gate")
 
 
 def test_e_b1_9_git_checkout_on_a_dirty_tree_and_a_nul_byte_are_refused(repo, needs_bash):
     (repo / "tools/dev.config.yaml").write_text("developer: dev1\n# dirty\n")
-    refused(repo, "accept", "--task", deleg(repo), "--agent", "builder", "--model", "sonnet", "--by", "opus", "--notes", "ok",
+    refused(repo, "accept", "--task", deleg(repo), "--agent", "builder", "--model", "sonnet", "--by", "opus", "--feature", "F19", "--notes", "ok",
             "--run", "git checkout -- .", text="refused by the hygiene gate")
     with pytest.raises(jw.Refused):
         jw.run_witness("echo a\x00b", repo, allow_red=None)
@@ -559,7 +561,7 @@ def test_e_b1_9_git_checkout_on_a_dirty_tree_and_a_nul_byte_are_refused(repo, ne
 @pytest.mark.parametrize("cmd", ["echo ' >> logs\\journal\\probe.jsonl '", "python -m pytest -q ' & echo x >> logs\\journal\\probe.jsonl '"],
                          ids=["echo-quoted", "pytest-quoted"])
 def test_e_b1_9_quoted_redirects_stay_harmless_under_bash(repo, needs_bash, cmd):
-    cli(repo, "accept", "--task", deleg(repo), "--agent", "builder", "--model", "sonnet", "--by", "opus", "--notes", "ok",
+    cli(repo, "accept", "--task", deleg(repo), "--agent", "builder", "--model", "sonnet", "--by", "opus", "--feature", "F19", "--notes", "ok",
         "--run", cmd, "--allow-red", "probe")
     assert not (repo / "logs/journal/probe.jsonl").exists()
 
@@ -658,19 +660,24 @@ def test_every_spawn_hides_the_console_window_and_is_never_detached(site, repo, 
     assert seen and all(f & 0x08000000 and not f & 0x8 for f in seen)
 
 
-# ------------------------------------------------------------------ FG7-70: a CLI event needing a feature is refused without one
 @pytest.mark.parametrize("args, text", [
     (["delegated", "--agent", "builder", "--model", "sonnet", "--worker", "agent:w1", "--notes", "n"], "--feature Fnn"),
     (["delegated", "--agent", "builder", "--model", "sonnet", "--worker", "agent:w1", "--feature", "F99", "--notes", "n"],
      "not in plans/features.json"),
-], ids=["no-feature", "unknown-feature"])
+    (["accept", "--task", "{t}", "--agent", "builder", "--model", "sonnet", "--by", "opus", "--notes", "n", "--run",
+      "touch ran.marker"], "--feature Fnn"),                                  # C-1: refused BEFORE the run executes
+], ids=["no-feature", "unknown-feature", "accept-run-no-feature"])
 def test_fg7_70_cli_feature_event_without_a_registered_feature_is_refused(repo, args, text):
-    err = refused(repo, *args, text=text)
-    assert "delegated" in err and "nothing written" in err
+    t = deleg(repo)
+    err = refused(repo, *[x.replace("{t}", t) for x in args], text=text)
+    assert args[0] in err and "nothing written" in err and not (repo / "ran.marker").exists()
 
 
-def test_fg7_70_outside_the_feature_events_and_via_hook_are_unchanged(repo):
-    assert cli(repo, "skip", "--agent", "builder", "--notes", "n")[0] == 0        # dispatch_skipped: no feature needed
+@pytest.mark.parametrize("registry", [None, "absent", "{broken"], ids=["registered", "absent", "broken"])
+def test_fg7_70_via_hook_is_only_warned_and_an_unreadable_registry_refuses_the_cli(repo, registry):
+    if registry:                                                              # C-2: fail-closed, no fallback registry
+        (repo / "plans/features.json").unlink() if registry == "absent" else (repo / "plans/features.json").write_text(registry)
+        refused(repo, *DELEG, "--worker", "agent:w1", text="features.json is unreadable")
     res = jw.write_event(repo, {"event": "delegated", "agent": "builder", "model": "sonnet", "category": "implementation",
                                 "worker_ref": "agent:w1", "notes": "n"}, via="hook")
     assert res.written and any("WARN" in m and "feature" in m for m in res.messages)

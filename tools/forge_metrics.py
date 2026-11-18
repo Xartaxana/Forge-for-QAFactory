@@ -1625,10 +1625,11 @@ def run_check(root=ROOT, base=None, features=None):
             new_events += 1
             fv = obj.get("feature")
             name = f"{prefix}line {lineno} {obj.get('event')} {obj.get('task_id') or ''}".strip()
-            if fv in (None, ""):
+            problem = _jv.feature_problem(obj, ids)     # FG7-70: the writer's own predicate; no validator -> a loud failure
+            if problem == "missing":
                 bad_events += 1
                 offenders.append(("c", name, f"new journal event ({name}) has no `feature` field"))
-            elif fv not in ids:
+            elif problem == "unregistered":
                 bad_events += 1
                 offenders.append(("c", name, f"new journal event ({name}) names feature {fv!r} that is not in {REGISTRY_REL}"))
     counts = {"new_rows": len(new_rows), "rows_unattributed": bad_rows,

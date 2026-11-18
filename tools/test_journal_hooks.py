@@ -39,6 +39,8 @@ def template(tmp_path_factory):
     git(repo, "config", "core.autocrlf", "false")
     (repo / "tools/dev.config.yaml").write_text("developer: dev1\n")
     (repo / "logs/journal/dev1.jsonl").write_text(SEED)
+    (repo / "plans").mkdir()
+    (repo / "plans/features.json").write_text('{"features": [{"id": "F19"}]}\n')   # FG7-70: never the live registry
     shutil.copy(TOOLS.parent / "logs/journal-letters.json", repo / "logs/journal-letters.json")
     assert jw.claim_letter(repo).code == 0
     git(repo, "add", "-A")
