@@ -31,18 +31,18 @@ fi
 
 # 5. the token for CI reading: the NAME of the variable comes from tools/dev.config.yaml (github_token_env, default
 #    GITHUB_TOKEN); only set/unset is printed, never the value
-TOKEN_ENV=GITHUB_TOKEN
-if [ -f "$ROOT/tools/dev.config.yaml" ]; then
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      github_token_env:*)
-        v="${line#github_token_env:}"; v="${v%%#*}"; v="${v//[\"\' $'\t'$'\r']/}"
-        if [[ "$v" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then TOKEN_ENV="$v"; fi
-        break ;;
-    esac
-  done < "$ROOT/tools/dev.config.yaml"
+#    The one reader is tools/dev_config.py (its CLI prints SET / NOT SET, never the value); this script parses nothing.
+#    A refusal of the reader (key absent from an existing file, invalid name) is printed as one note and setup goes on.
+if tok="$(python -B "$ROOT/tools/dev_config.py" 2>&1)"; then
+  tok="$(printf '%s\n' "$tok" | grep -m1 '^environment variable' || true)"
+  case "$tok" in
+    *"none to check"*) echo "note: $tok" ;;
+    "") echo "note: dev_config.py printed no token line" ;;
+    *) echo "$tok" ;;
+  esac
+else
+  echo "note: dev_config.py refused: $(printf '%s\n' "$tok" | grep -m1 . || true)"
 fi
-if [ -n "${!TOKEN_ENV:-}" ]; then echo "token env $TOKEN_ENV: set"; else echo "token env $TOKEN_ENV: unset"; fi
 
 # 6. the cloud clone is shallow (measured t-1281); history-reading tools need the full one. A failure is a note only
 if [ "$(git -C "$ROOT" rev-parse --is-shallow-repository 2>/dev/null || true)" = "true" ]; then

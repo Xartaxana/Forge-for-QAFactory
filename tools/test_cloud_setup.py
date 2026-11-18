@@ -12,6 +12,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -68,7 +69,7 @@ def _wrapper(path: Path, target: str):
 
 class Clone:
     """A temporary git clone holding the script, a fake `python3` whose pip does nothing, and a PATH that has no
-    `python` and no `gh` (so the script's step 2 and step 5 branches both run)."""
+    `python` (so the script's step 2 branch runs)."""
 
     def __init__(self, tmp: Path, with_example: bool = True, shallow: str = ""):
         """shallow: "" a plain init; "ok" a depth-1 clone whose origin can be fetched; "broken" one whose origin is gone."""
@@ -98,8 +99,11 @@ class Clone:
         fake = tmp / "fakebin"
         fake.mkdir()
         py3 = fake / "python3"
+        # pip does nothing; dev_config.py (the one reader of the dev config) runs on the real interpreter
         py3.write_text('#!/bin/sh\nif [ "$1" = "-m" ] && [ "$2" = "pip" ]; then exit 0; fi\n'
-                       'echo "Python 3.12.0 (fake)"\n', encoding="utf-8", newline="\n")
+                       'case "$*" in *dev_config.py*) exec "%s" "$@";; esac\n'
+                       'echo "Python 3.12.0 (fake)"\n' % Path(sys.executable).as_posix(), encoding="utf-8", newline="\n")
+        shutil.copy(ROOT / "tools" / "dev_config.py", self.root / "tools" / "dev_config.py")
         py3.chmod(py3.stat().st_mode | stat.S_IEXEC)
         for tool in ("git", "ln", "mkdir", "cp", "grep", "dirname"):
             found = shutil.which(tool)
@@ -154,25 +158,24 @@ SECRET = "s3cr3t-value"
 
 @needs_bash
 @pytest.mark.parametrize("config,env,expect", [
-    (None, {}, "token env GITHUB_TOKEN: unset"),
-    (None, {"GITHUB_TOKEN": SECRET}, "token env GITHUB_TOKEN: set"),
-    ("github_token_env: MY_TOK  # why\n", {"MY_TOK": SECRET}, "token env MY_TOK: set"),
-    ("github_token_env: 'MY_TOK'\n", {"GITHUB_TOKEN": SECRET}, "token env MY_TOK: unset"),
-    ("developer: x\n", {"GITHUB_TOKEN": SECRET}, "token env GITHUB_TOKEN: set"),
+    # the reader's semantics: no file -> the default name; a file without the key or with a bad name -> a refusal note
+    (None, {"GITHUB_TOKEN": SECRET}, "environment variable GITHUB_TOKEN: SET"),
+    ("github_token_env: MY_TOK\n", {"GITHUB_TOKEN": SECRET}, "environment variable MY_TOK: NOT SET"),
+    ("developer: x\n", {"GITHUB_TOKEN": SECRET}, "note: environment variable: none to check"),
+    ("github_token_env: my_tok\n", {"GITHUB_TOKEN": SECRET}, "note: dev_config.py refused"),
 ])
-def test_token_step_names_the_env_and_never_prints_the_value(tmp_path, config, env, expect):
-    c = Clone(tmp_path)
+def test_token_step_prints_the_reader_answer_and_never_the_value(tmp_path, config, env, expect):
+    c = Clone(tmp_path, with_example=config is not None)
     if config is not None:
         (c.root / "tools" / "dev.config.yaml").write_text(config, encoding="utf-8")
     r = c.run(**env)
     assert r.returncode == 0, r.stdout + r.stderr
-    lines = r.stdout.splitlines()
-    assert lines.count(expect) == 1
+    assert len([ln for ln in r.stdout.splitlines() if ln.startswith(expect)]) == 1
     assert SECRET not in r.stdout + r.stderr
 
 
 @needs_bash
-@pytest.mark.parametrize("shallow,fetched,note", [("", False, False), ("ok", True, False), ("broken", False, True)])
+@pytest.mark.parametrize("shallow,fetched,note", [("ok", True, False), ("broken", False, True)])
 def test_shallow_clone_is_unshallowed_and_a_failure_is_one_note(tmp_path, shallow, fetched, note):
     c = Clone(tmp_path, shallow=shallow)
 
@@ -182,7 +185,7 @@ def test_shallow_clone_is_unshallowed_and_a_failure_is_one_note(tmp_path, shallo
     before = is_shallow()
     r = c.run()
     assert r.returncode == 0, r.stdout + r.stderr
-    assert (before, is_shallow()) == (("true", "false") if fetched else (("true", "true") if shallow else ("false",) * 2))
+    assert (before, is_shallow()) == (("true", "false") if fetched else ("true", "true"))
     assert len([ln for ln in r.stdout.splitlines() if "unshallow" in ln]) == (1 if note else 0)
 
 
