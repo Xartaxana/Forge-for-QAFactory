@@ -1860,6 +1860,7 @@ def _critic_form(root: Path, dispatch: str = "S5-qa-code-critic-1", reason: str 
                         ("probes.runtime_provenance", "evidence/runtime-provenance-api.json"),
                         ("probes.records[0].instance", "test_one"),
                         ("probes.records[0].verdict", "intended_failure"),
+                        ("probes.records[0].record", "work/probes/test_one.json"),   # t-1338: the template's `<instance>` names no file
                         ("inputs_read[0].path", "work/handoffs/S5-qa-automator-1.yaml"),
                         ("inputs_read[0].version", "manifest revision 1"),
                         ("inputs_read[1].path", "work/automation-manifest.json")):    # FV3-31: row 0 is the author's form, row 1 its input

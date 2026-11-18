@@ -341,3 +341,61 @@ over [] excess {} native []
 ```
 Nothing is left uncommitted in the worktree. No loop or process left running. The A3 probe and spec-diff scripts live in the
 session scratchpad (not committed).
+
+
+## ROUND 4 (critic t-1338 V1/V2; Lead decisions of 18.11): canon 44220653424 red list and dispositions
+
+Commits: a94ee7a3 (code), ecff924f (merge of origin/main with FV3-32), then the fixture/re-pin commit carrying this section. CI ids are
+in the hand-back (started after the push, not waited for). The critic counted 17 newly refused fields; my "15" was an
+undercount of the same list. All 17 are in the 3b list.
+
+| canon red (44220653424) | cause | disposition |
+|---|---|---|
+| test_handoff "the form passes on its own", "two fields over their limit", "two rows" | fixture `_critic_form` filled only the old single `inputs_read` row (row 1 left `<path ...>`); after F4 also `probes.records[0].record` left as `work/probes/<instance>.json` | FIXTURE fixed (fills row 1 and the record); the refusals are right |
+| test_handoff `null_outcomes.audit` over the real index | S6/S7 `inputs_read[].path` got the provenance row's tool hint | RULE fixed: `field_nodes` lets only a list of ONE repeated row shape speak by its first untouched row; fixed rows of different shapes (S2/S6/S7) keep row 0's hint (Lead fork b). No homes added, pin stays 27 |
+| test_handoff_values_keys K-A8, K-A14 x2 | `filled_share` counted the untouched author token row (`work/handoffs/<the author's dispatch>.yaml`) as the role's word, so a fresh S5 critic form read as touched | RULE fixed, not the test: `handoff_check._blank` is now the one blank reading of the field loop AND `filled_share` (the rule counted the template's own `<...>` leaf as FILLED) |
+| test_handoff_values_main_block K11 problems/applied cells | S2 hints changed by the round-3 per-key/row pick | gone with the fixed-row rule (S2 hints are main's again); no re-pin |
+| test_handoff_values_main_block K11 cut cells (seen after the merge) | `_cut_form` fixture: same as `_critic_form` | FIXTURE fixed, then both cut cells RE-PINNED after reading the stdout: `cut by code: scope[0].reason (90 -> 80 characters)...` / `s5-critic-to-automator is complete (47 fields checked)`, exit 0, 2 and 21 lines; the cut is the sole problem (intended form) |
+| test_brief_pack_s5_plan K7 9751 B > 9559 B | the plan critic's brief carries this card's `Reviewed dispatch:` line (203 B raw, +192 normalised; probe printed the line) | RAISED by the measure, named: `raise: S5_PLAN_BRIEF_BYTES_MAX 9559 -> 9751 (+192 B)` (AR-10/AR-20) |
+| test_null_outcomes (tool fields 29 vs 27, K0.4, K0.8) | S6/S7 tool hint | fixed by the fixed-row rule: 9/9 |
+| test_branch_accounting `reg_and_wiring` | the same audit | 4/4 |
+| test_field_producers tool fields + s8 `questions[0].records_with` | S6/S7 tool hint; the filler kept `--task <T> --stage <S>` verbatim | fixed-row rule; FILLER rule mended (Lead fork a): `form-fill-rules.json` `command-template` row gains `fills: {"<T>": "task_key", "<S>": "form:stage"}`, and `tests/form_filler.py::_literal_fills` writes them in, all or nothing (role-to-conductor has no `stage`, so its line stays as written) |
+| test_detector_verdict t4a, test_judgment_census C1 | main's reds (critic t-1338, "Main's reds") | not this branch |
+
+Role load after the fixed-row rule: only qa-code-critic moved (23634 / 21811, raised in round 3). I lowered the round-3 raises of
+qa-requirements-tester, qa-runner and qa-failure-analyst back to their original rows, because their slices are as before (named
+in a94ee7a3). `"["` residual: kept as it is (Lead); `review.findings_file` and `request.file` stay unrefused.
+Code changes outside the earlier owns, per the Lead decisions: `tests/form_filler.py` (+18: `_literal_fills`, needed because the json
+alone cannot resolve `<S>`), `tests/fixtures/form-fill-rules.json`, `tests/test_handoff.py`, `tests/test_handoff_values_main_block.py`,
+`tests/test_brief_pack_s5_plan.py`.
+Observation (rule 5): the one wording `stage_done.reviewed_row_rule` tells the S5 critic "the LAST `inputs_read` row naming a
+qa-automator dispatch must be ...". The S5 forms put the author at row 0 and the case rows after it. No S5 gate reads it (E13),
+but the text and the form order disagree. The S4 form has the same order.
+
+### Witness round 4 (once, after all edits; after the merge of origin/main)
+```
+== test_handoff_init (DoD)
+=== handoff_init purpose: 32/32 ok ===
+== N1
+=== N1: 15/15 ok ===
+== named functions of the 7 canon-red files
+test_handoff::two_fields_cut_at_once_and_a_later_cut_of_another_field_keeps_the_first_row: 9 PASS, 0 FAIL
+test_handoff::the_null_outcome_audit_is_green_over_the_index_with_the_purpose_rows: 3 PASS, 0 FAIL
+test_handoff_values_keys::values_make_the_form_touched_and_code_derived_values_do_not: 5 PASS, 0 FAIL
+test_handoff_values_keys::an_empty_values_file_changes_nothing: 4 PASS, 0 FAIL
+test_handoff_values_main_block::the_output_is_the_etalon_on_every_kind_of_run: 10 PASS, 0 FAIL
+test_brief_pack_s5_plan::k9_grouping_hint_line: 12 PASS, 0 FAIL
+test_null_outcomes::the_real_tree_is_green_and_the_line_is_printed: 9 PASS, 0 FAIL
+test_branch_accounting::reg_and_wiring: 4 PASS, 0 FAIL
+test_field_producers::every_required_field_has_a_producer_or_a_declared_gap: 33 PASS, 0 FAIL
+test_field_producers::every_form_fills_from_its_own_hints: 403 PASS, 0 FAIL
+
+=== t-1338 named functions: 500/500 ok ===
+== slices
+slices: 44 declared, all present and fresh; 20 key pages; 12 charters carry a generated digest line
+exit 0
+== role_load
+code-critic [(23634, 21811, 'within')]
+process problems []
+over [] excess {} native []
+```
