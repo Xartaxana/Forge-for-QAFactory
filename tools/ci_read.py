@@ -214,7 +214,8 @@ def workflow_note(root, ref: str, workflow: str):
 
 def _canon_run_exists(base: str, token: str, ref: str) -> bool:
     """FG7-91 E6: a push to worktree-agent-** starts the canon by itself, so a hand start of the same head is a duplicate.
-    True (after printing the id and url) when a run of canon.yml exists for the head sha of `ref`, in any state; False
+    True (after printing the id and url) when the PUSH run of canon.yml for branch `ref` exists at its head sha, in any
+    state (a dispatch run carries main's head_sha and never counts); False
     to start as today, with one note line when the head or the run listing could not be read. Only a start without --var
     asks (a --var start is never a push run). Never raises."""
     try:
