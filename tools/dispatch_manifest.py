@@ -173,7 +173,12 @@ WHAT_DEGRADED = "quoted regions could not be read reliably"
 
 # Waivable through manifest-skip but no section of the form: `dod-run` waives the DoD-run check (FG7-63). Kept out of ITEMS so the
 # INCOMPLETE and SKIP_REFUSED texts stay byte for byte; `manifest-skip: dod` never waives it.
-EXTRA_SKIP_ITEMS = ("dod-run",)
+EXTRA_SKIP_ITEMS = ("dod-run", "feature")  # `feature` waives the FG7-73 feature-header refusal
+FEATURE_REFUSED_TEXT = (
+    "DISPATCH FEATURE MISSING (FG7-73): this dispatch has a task: header but no well-formed `feature: Fnn` line outside "
+    "code fences and quotes, so its journal line would carry no feature. Door: add the line feature: Fnn (python -B "
+    "tools/dispatch_new.py --feature Fnn prints it); to send it anyway on purpose, add a line: manifest-skip: feature -- <reason>."
+)
 MAX_DOD_TEST_FILES = 3  # distinct test_*.py a builder's DoD may name (FG7-63, R3)
 
 HEADER_KEY_LIMIT = 160  # characters between the key and the colon
@@ -1037,6 +1042,12 @@ def _dod_run_check(cut: DispatchCut, waiver):
     return DOD_RUN_REFUSED_TEMPLATE.format(why="; ".join(why)), ""
 
 
+def _feature_missing(cut) -> bool:
+    """FG7-73: a `task:` header with no well-formed `feature:` header and no `manifest-skip: feature` waiver."""
+    ids = header_ids(cut)
+    return "task" in ids and "feature" not in ids and "feature" not in waivers(cut)
+
+
 def check_cut(cut, is_builder: bool):
     """The completeness check on a cut: (exit_code, message, note, checked).
     `checked` is True when the dispatch was evaluated as a builder / writing one
@@ -1045,6 +1056,11 @@ def check_cut(cut, is_builder: bool):
         return 0, "", "", False
     if cut.degraded:
         return 0, "", _unchecked(WHAT_DEGRADED), False
+    # FG7-73: BEFORE the early return below, so a critic or scout dispatch is checked too. Invariant: a hook-written `delegated`
+    # copies feature only from this header, and a featureless line blocks every merge (forge_metrics check (c)); a dispatch
+    # with no task id stays unrefused, and a degraded cut returned above.
+    if _feature_missing(cut):
+        return 2, FEATURE_REFUSED_TEXT, "", True
     sections = cut.sections
     has_owned_path = bool(owned_paths(cut))
     if not is_builder and not has_owned_path:
@@ -1120,6 +1136,16 @@ def check(payload):
     internal error or a failed sibling import (piece B guards those)."""
     is_builder, cut = cut_payload(payload)
     if cut is None:
+        # FG7-73: cut_payload's cheap exit (no `owns`/`handoff` word); journal_hooks cuts the same prompt with section_cut and
+        # journals it, so the feature check reads that cut too. Fail-open: no prompt, a raise or a degraded cut refuses nothing.
+        try:
+            prompt = payload["tool_input"].get("prompt")
+            fcut = section_cut(prompt) if isinstance(prompt, str) else None
+            if fcut is not None and not fcut.degraded:
+                if _feature_missing(fcut):
+                    return 2, FEATURE_REFUSED_TEXT, ""
+        except Exception:  # noqa: BLE001
+            pass
         return 0, "", ""
     code, message, note, _checked = check_cut(cut, is_builder)
     return code, message, note
