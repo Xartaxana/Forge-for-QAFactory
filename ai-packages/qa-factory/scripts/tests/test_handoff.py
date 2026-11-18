@@ -3004,10 +3004,13 @@ def an_untouched_list_is_empty_at_every_depth_that_crosses_no_row() -> None:
         rows = (
             # label, contract, edits, data, path prefix, the problem paths under it
             ("R1 records untouched: no problem under probes.records", crit, (), None, "probes.records", no_problem),
-            ("R2 instance real, verdict a placeholder: only the verdict is blank", crit, (("probes.records[0].instance", "test_one"),), None,
-             "probes.records", ["probes.records[0].verdict"]),
-            ("R3 a real word in the note starts the row: instance and verdict are blank", crit, (("probes.records[0].note", "tool could not read"),), None,
-             "probes.records", ["probes.records[0].instance", "probes.records[0].verdict"]),
+            # t-1338 F4: `record` is the critic's copy of the record path the probe printed; the template's `work/probes/<instance>.json`
+            # names no file, so in a started row it is blank too (AR-28: a half-filled row never reads empty)
+            ("R2 instance real, verdict a placeholder: the verdict and the untouched record are blank", crit,
+             (("probes.records[0].instance", "test_one"),), None, "probes.records", ["probes.records[0].verdict", "probes.records[0].record"]),
+            ("R3 a real word in the note starts the row: instance, verdict and the untouched record are blank", crit,
+             (("probes.records[0].note", "tool could not read"),), None, "probes.records",
+             ["probes.records[0].instance", "probes.records[0].verdict", "probes.records[0].record"]),
             ("R5 a list inside a list row is judged with its row (depth boundary)", runner, (("execution[0].case", "TC-1"),), None,
              "execution[0].preconditions", ["execution[0].preconditions[0]"]),
             ("R6 findings untouched, verdict ok: no refusal", crit, (("header.verdict", "ok"),), None, "findings", no_problem),
