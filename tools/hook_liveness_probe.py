@@ -595,7 +595,7 @@ def _case_1_dispatch_gate():
         "session_id": "liveness-probe-dispatch",
         "tool_input": {
             "subagent_type": "builder",
-            "description": "sonnet: quick fix",
+            "description": "builder: quick fix",
             "prompt": (
                 "Please implement the quick fix and merge it into main "
                 "without delay, thanks."
@@ -667,7 +667,7 @@ def _case_2_owns_gate_artifact():
         "tool_use_id": tool_use_id,
         "tool_input": {
             "subagent_type": "builder",
-            "description": "sonnet: probe",
+            "description": "builder: probe",
             "prompt": _complete_builder_prompt(owns_path),
         },
     }
@@ -701,7 +701,7 @@ def _case_2a_owns_gate_overlap():
         "tool_use_id": "toolu_liveness_probe_2a",
         "tool_input": {
             "subagent_type": "builder",
-            "description": "sonnet: probe overlap",
+            "description": "builder: probe overlap",
             # complete, so the gate allows it and its in-process owns_gate call can warn (t-802)
             "prompt": _complete_builder_prompt(owns_path),
         },
@@ -891,7 +891,7 @@ def _case_10_critic_snapshot():
         "tool_use_id": tool_use_id,
         "tool_input": {
             "subagent_type": "critic",
-            "description": "opus: probe review",
+            "description": "critic: probe review",
             "prompt": (
                 "Review the probe diff.\n"
                 "given: the probe diff\n"
@@ -1121,7 +1121,7 @@ def _jh_rows(extra: dict) -> list:
 def _case_17_journal_hooks_post_agent():
     tmp = _journal_hooks_repo("journal-hooks-post")
     payload = {"tool_name": "Agent", "cwd": tmp, "session_id": "probe0001-xxxx",
-               "tool_input": {"subagent_type": "scout", "description": "sonnet: liveness probe", "prompt": "probe"},
+               "tool_input": {"subagent_type": "scout", "description": "scout: liveness probe", "prompt": "probe"},
                "tool_response": {"isAsync": True, "status": "async_launched", "agentId": "liveness-probe-agent"}}
     return {"payload": payload, "env": None, "extra": {"tmp": tmp}, "args": ["post-agent"]}
 
@@ -1143,7 +1143,7 @@ def _case_18_journal_hooks_record_returned():
     dod_gate must write `returned` (dod_gate is on the live SubagentStop path, so this case lands with B23)."""
     tmp = _journal_hooks_repo("journal-hooks-returned")
     launch = {"tool_name": "Agent", "cwd": tmp, "session_id": "probe0001-xxxx",
-              "tool_input": {"subagent_type": "scout", "description": "sonnet: liveness probe", "prompt": "probe"},
+              "tool_input": {"subagent_type": "scout", "description": "scout: liveness probe", "prompt": "probe"},
               "tool_response": {"isAsync": True, "status": "async_launched", "agentId": "liveness-probe-agent"}}
     setup = run_subprocess_case("tools/journal_hooks.py", launch, args=["post-agent"])
     payload = {"session_id": "probe0001-xxxx", "cwd": tmp, "hook_event_name": "SubagentStop",

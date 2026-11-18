@@ -64,7 +64,9 @@ def events(root, kind=None):
     return [o for o in journal(root) if kind is None or o["event"] == kind]
 
 
-def payload(cwd, agent_id="a1b2c3", desc="sonnet: scout the thing", prompt="Recon only.", agent="scout", **extra):
+def payload(cwd, agent_id="a1b2c3", desc="", prompt="Recon only.", agent="scout", **extra):
+    if desc == "":
+        desc = f"{agent}: scout the thing"          # D-0016: the label starts with the role
     obj = {"tool_name": "Agent", "cwd": str(cwd), "session_id": "sess1234-abcd",
            "tool_input": {"subagent_type": agent, "description": desc, "prompt": prompt},
            "tool_response": {"isAsync": True, "status": "async_launched", "agentId": agent_id, "resolvedModel": "claude-sonnet-5-5"}}
@@ -94,6 +96,15 @@ def run_main(mode, raw: bytes, monkeypatch, capsys):
 
 # ------------------------------------------------------------------ E-B23-1 / E-B23-2: the payload table
 
+_CONFIG_NO_BUILDER = "roles:\n  lead:\n    subscription:\n      model: claude-fable-1\n"
+_CONFIG_CRITIC_HAIKU = _CONFIG_NO_BUILDER + "  critic:\n    subscription:\n      model: claude-haiku-9\n"
+
+
+def _with_config(root, text, obj):
+    (Path(root) / "delegation.config.yaml").write_bytes(text if isinstance(text, bytes) else text.encode("utf-8"))
+    return obj
+
+
 NOT_RECORDED = {
     "no_tool_response": lambda c: {k: v for k, v in payload(c).items() if k != "tool_response"},
     "string_without_id": lambda c: payload(c, tool_response="launched, no id here"),
@@ -104,8 +115,8 @@ NOT_RECORDED = {
     "list_payload": lambda c: [payload(c)],
     "no_tool_input": lambda c: {k: v for k, v in payload(c).items() if k != "tool_input"},
     "no_subagent_type": lambda c: payload(c, agent=None),
-    "description_without_tier_word": lambda c: payload(c, desc="fix flaky test"),                      # E-B23-3
-    "description_missing": lambda c: payload(c, desc=None),
+    "role_without_binding": lambda c: payload(c, agent="general-purpose"),                              # E4(c): no config row, no role file
+    "coordination_role_without_model": lambda c: _with_config(c, _CONFIG_NO_BUILDER, payload(c, agent="builder")),   # E4(a)
 }
 
 
@@ -153,9 +164,28 @@ def test_a_recorded_launch_has_the_fields_the_validator_and_check_46_read(repo):
     assert (Path(jl.lock_dir(repo)) / "open/a1b2c3").read_text(encoding="utf-8") == str(repo / "logs/journal/dev1.jsonl")
 
 
-def test_e_b23_3_a_tier_word_description_family_is_what_is_written(repo):
-    jh.post_agent(payload(repo, desc="opus-x: review the diff", agent="critic"))
-    assert events(repo, "delegated")[-1]["model"] == "opus"
+@pytest.mark.parametrize("agent,desc,config,tool_model,agents_file,model,by_default", [
+    ("scout", "", None, None, None, "sonnet", True),                                  # no config: the default bindings, and the line says so
+    ("critic", "", _CONFIG_CRITIC_HAIKU, None, None, "haiku", False),                 # the config binding of the role
+    ("critic", "haiku: x", None, None, None, "opus", True),                           # E2: a legacy model label is never read
+    ("scout", "", b"\xff\xfe not utf-8", None, None, "sonnet", True),                # E5: a broken config defaults, loudly
+    ("designer", "", None, None, "---\nname: designer\nmodel: claude-opus-5-5\n---\n", "opus", False),   # E4(b): the role file
+    ("scout", "", None, "haiku", None, "haiku", False),                               # F5/E13: an explicit model parameter wins
+], ids=["scout_default", "critic_config", "legacy_label", "broken_config", "designer_role_file", "model_parameter"])
+def test_d0016_the_model_written_is_the_binding_of_subagent_type(repo, monkeypatch, tmp_path, agent, desc, config, tool_model,
+                                                                  agents_file, model, by_default):
+    if config is not None:
+        _with_config(repo, config, None)
+    if agents_file:
+        import dispatch_gate
+        (tmp_path / "designer.md").write_text(agents_file, encoding="utf-8")
+        monkeypatch.setattr(dispatch_gate, "AGENTS_DIR", tmp_path)
+    obj = payload(repo, desc=desc or f"{agent}: x", agent=agent)
+    if tool_model:
+        obj["tool_input"]["model"] = tool_model
+    out = jh.post_agent(obj)
+    assert events(repo, "delegated")[-1]["model"] == model, out
+    assert ("model by default bindings" in out[0]) is by_default, out
 
 
 def test_e_b23_4_no_task_id_gets_one_from_the_counter_and_the_line_says_so(repo):
