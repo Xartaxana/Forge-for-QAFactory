@@ -704,6 +704,8 @@
     "references/human-questions.md",
     "references/question-prices.json",
     "tests/harness.py",
+    "tests/dry_exits.py",
+    "scripts/tests/fixtures/stories/dry-1/exits",
     "tests/story_run_common.py",
     "tests/test_no_move_seam.py"
    ]
