@@ -2,6 +2,7 @@
 Fast: no browser, no network. Two worlds: the scaffold task with a fake controller (the command and its refusals), and a real
 event-store task (finalize, the exit check)."""
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -248,6 +249,18 @@ class Finalized(unittest.TestCase):
         self.assertNotIn("result", rows[0])
         self.assertEqual(rows[0]["source_revision"], SNAPSHOT)       # the marker holds none: the controller's own
         self.assertEqual(M.unprepared_rows(self.report())[0]["not_walked"], "the page never opened")
+
+    def test_need_record_never_over_a_result(self):
+        for earlier, extra in (("fail", {}), (None, {}), ("fail", {"stale": True})):
+            shutil.rmtree(self.task / "work/manual-blocks", ignore_errors=True)
+            old = {"schema_version": 2, "case": "TC-1", "obligation_ids": ["O-U"], "result": earlier, **extra}
+            if earlier:
+                atomic_json(self.task / "work/manual-blocks/o.json", {"dispatch_id": "d1", "head": SNAPSHOT, "manual_checks": [old],
+                            "attempt_started_at": "2000-01-01T00:00:00+00:00", "attempt_ended_at": "2000-01-01T00:00:01+00:00"})
+            M.write_unprepared(self.task, "TC-1", [], need="another_instance", need_why="a second device")
+            row = self.report()["current_manual_checks"][-1]
+            self.assertEqual(row.get("result"), "inconclusive" if earlier == "fail" and not extra else None)
+            self.assertEqual("recorded fail in this run" in str(row.get("evidence_errors")), row.get("result") == "inconclusive")
 
     def test_exit_check_accepts_unprepared_case(self):
         import validate_artifacts as V
