@@ -305,19 +305,52 @@ def test_no_collect_is_never_a_refusal_and_never_verified(stand, label):
     assert out.count("stored not_verified") == 1, (label, out)
 
 
-def test_a_role_sent_mark_is_dropped_and_rows_not_asked_keep_their_state(stand):
+@pytest.mark.parametrize("typed,collected", [("test_plain", "test_plain"), ("test_par[2]", "test_par[b-2]")])
+def test_a_role_sent_mark_is_dropped_and_rows_not_asked_keep_their_state(stand, typed, collected):
     """Kill: the role's mark stored (AR-14); a writer row, a patch row with no file asked or marked (E9, E10); a stored
-    `not_verified` row never asked again (FR-40: it has a way out once a collect can answer)."""
-    code, out, err = put(stand, node_row("test_plain", node_id_check={"status": "verified", "note": "mine"}))
+    `not_verified` row never asked again (FR-40: it has a way out once a collect can answer); A2 (critic t-1315): that row,
+    renamed by the collect, left beside its new spelling as a ghost."""
+    code, out, err = put(stand, node_row(typed, node_id_check={"status": "verified", "note": "mine"}))
     assert code == 0 and "the value you sent was dropped" in out, (out, err)
-    assert mark_of(stand, "test_plain")["status"] == "not_verified", "no collect existed: the role's `verified` is gone"
+    assert mark_of(stand, typed)["status"] == "not_verified", "no collect existed: the role's `verified` is gone"
     put(stand, {"tests": [{"instance_id": "test_w", "file": MOD, "covers": [CASE], "status": "green", "generated_from": "x"}]})
     assert mark_of(stand, "test_w") is None, "a writer row is not asked"
-    assert put(stand, {"tests": [{"instance_id": "test_plain", "why": "patch"}]})[0] == 0
-    assert mark_of(stand, "test_plain")["status"] == "not_verified", "a patch with no file leaves the mark"
+    assert put(stand, {"tests": [{"instance_id": typed, "why": "patch"}]})[0] == 0
+    assert mark_of(stand, typed)["status"] == "not_verified", "a patch with no file leaves the mark"
     with_pytest(stand)
-    assert put(stand, node_row("test_plain"))[0] == 0
-    assert mark_of(stand, "test_plain")["status"] == "verified", "FR-40: re-sent with its file once a collect answers"
+    assert put(stand, node_row(typed))[0] == 0
+    assert mark_of(stand, collected)["status"] == "verified", "FR-40: re-sent with its file once a collect answers"
+    rows = [MP._instance(r) for r in stand.manifest()["tests"] if MP._instance(r) in (typed, collected)]
+    assert rows == [collected], ("A2: one row, no ghost", rows)
+
+
+# (label, the collect's answer or what it raises, typed, stored, status, asked, a part of the note) - the answer stubbed (critic t-1315)
+ANSWER_ROWS = [
+    ("E1 the call raises: its reason is the note", RuntimeError("collect exploded"), "test_plain", "test_plain", "not_verified",
+     None, "RuntimeError: collect exploded"),
+    ("A4 a judge names another function of the file", {"resolved": {f"{MOD}::test_plian": f"{MOD}::test_plain"}}, "test_plian",
+     "test_plain", "verified", "test_plian", "test_plain"),
+    ("A4 a judge names a test of another file", {"resolved": {f"{MOD}::test_plian": "tests/b.py::test_plain"}}, "test_plian",
+     "test_plian", "not_verified", None, "another file"),
+]
+
+
+@pytest.mark.parametrize("label,answer,typed,stored,status,asked,note", ANSWER_ROWS, ids=[r[0][:40] for r in ANSWER_ROWS])
+def test_the_mark_says_what_the_collect_answered(stand, monkeypatch, label, answer, typed, stored, status, asked, note):
+    """Kill: a raising call's reason overwritten by "pytest gave no answer" (A3, E1); a judge-resolved id stamped `verified` under
+    a spelling that joins nothing (A4: the stored id is the collected one, or not verified when only `file` could join it)."""
+    def collect(*_, **__):
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    import node_ids
+    with_pytest(stand)
+    monkeypatch.setattr(node_ids, "check_request", collect)
+    code, out, err = put(stand, node_row(typed))
+    assert code == 0, (label, out, err)
+    row = stand.manifest()["tests"][0]
+    mark = row["node_id_check"]
+    assert (row["instance_id"], mark["status"], mark.get("asked")) == (stored, status, asked) and note in mark["note"], (label, row)
 
 
 def test_the_authors_spelling_re_sent_after_a_rewrite_joins_the_stored_row(stand, monkeypatch):

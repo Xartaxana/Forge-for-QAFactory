@@ -7,3 +7,5 @@
   (`passed_by_person`); where no collect can answer the id is stored `not_verified` with the reason and never refused (FR-16,
   FR-41, FR-59). `node_ids.match` resolves a class method asked by its bare function name when exactly one class of the same file
   defines it (two classes are refused naming `<Class>::<function>`), so the runner, the sandbox and the writer gain it too.
+  A stored `not_verified` row re-sent once a collect answers is renamed in place (its old spelling retracted, no second row);
+  a judge-resolved id is stored under the collected function name, or `not_verified` when it names another file.

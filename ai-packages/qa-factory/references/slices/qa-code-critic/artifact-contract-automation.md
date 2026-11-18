@@ -6,7 +6,7 @@ What S5 produces and every later stage reads.
 ## `automation-manifest.json`
 
 **Writer** `qa-automator`, S5 (and after `TEST_BUG`/`FLAKY` fixes at S7).
-**Written only through `manifest_put.py --fragment`** — never by hand.
+**Written only through `manifest_put.py --fragment`**.
 
 ```json
 {
@@ -16,6 +16,7 @@ What S5 produces and every later stage reads.
   "unresolved": [{"case": "TC-004", "reason": "pending_implementation"}],
   "self_fixes": [{"test": "tests/t.py::test_limit", "what": "selector",
                   "why_test_defect": "locator renamed in the diff",
+                  "evidence": "evidence/sanity.json",
                   "before": "assert x == 1", "after": "assert x == 1"}],
   "probe": {"layers": "ok", "reuse": "ok", "then_channel": "ok", "duplicates": "none",
             "own_data": "yes", "collected": 12},
@@ -26,7 +27,7 @@ What S5 produces and every later stage reads.
 
 `tests[]` `status` is `green|red|red_lock`; no `critic_verdict` makes the ledger's
 `review_skipped` true. `unresolved[]` takes a `reason` from the closed list, plus
-`partitions[]` when only a slice of the case is unresolved. `blocked_by_env` is one row per
+`partitions[]` when only part of the case is unresolved. `blocked_by_env` is one row per
 case: `instance_ids[]` (every instance the stand blocked), `remedy` `{kind:
 flag|credential|data|service, where: <file:lines or variable NAME>, change, restart?}` and
 `detail` — required when the instance ran and failed: the control that shows the stand, not the
@@ -35,7 +36,7 @@ product, blocked it. `self_fixes[]` `before`/`after`: the Then-lines around the 
 (`evidence/sanity.json exit 0 12 passed`; `check_witness.py`'s flat form).
 `unprojected_events[]`: projection-written; a fragment the merge refused.
 `introduced_helpers[]`: in each row `manifest_from_tests.py` wrote, fill `purpose`, `searched`, `similar_found`,
-`keep`, by `manifest_put.py --fragment`. None: `[]`.
+`keep`. None: `[]`.
 
 ## Instance identity
 

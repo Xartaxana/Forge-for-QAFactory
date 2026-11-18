@@ -124,6 +124,7 @@ from hooklib import project_root, read_json, story_root  # noqa: E402
 import contract as C  # noqa: E402
 import detector_verdict as DV  # noqa: E402
 import proof_level as PL  # noqa: E402
+import node_ids  # noqa: E402 - the one id-to-collect join `stamp_node_ids` asks (standard library only)
 from person_words import door  # noqa: E402
 from role_cli import (REPAIR_MARKER, RefusingParser, command_from_argv, epilog, refuse,  # noqa: E402
                       run_guarded)
@@ -916,6 +917,166 @@ def _ask_spelling(row, typed: str) -> str:
     return typed
 
 
+def _drop_role_marks(rows: list, notes: list) -> None:
+    """A `node_id_check` a role sent on ANY `tests[]` row is removed, with one note: the mark is the code's alone (AR-14, E10)."""
+    if any(isinstance(r, dict) and NODE_ID_CHECK in r for r in rows):
+        for r in rows:
+            if isinstance(r, dict):
+                r.pop(NODE_ID_CHECK, None)
+        notes.append(f"{NODE_ID_CHECK} is written by manifest_put; the value you sent was dropped")
+
+
+def _asked_map(stored: list, stored_spellings: dict) -> dict:
+    """{the author's spelling -> the stored id} out of every stored `node_id_check.asked` that no stored row answers to itself:
+    a re-sent author spelling (a patch, a Then, an obligation) joins its resolved row with no collect (E8)."""
+    again = {}
+    for s in stored:
+        mark = s.get(NODE_ID_CHECK)
+        asked = mark.get("asked") if isinstance(mark, dict) else None
+        if isinstance(asked, str) and asked.strip() and _instance(s) and asked.strip() not in stored_spellings:
+            again[asked.strip()] = _instance(s)
+    return again
+
+
+def _eligible_rows(rows: list, stored_spellings: dict) -> list:
+    """[(row, held)] of the rows asked (E9): a dict with no `WRITER_MARK`, an explicit id and a `file`, whose spelling no stored
+    row answers to - or a stored `not_verified` row answers to it (`held`, asked again: the FR-40 way out); `held` is None else."""
+    out = []
+    for r in rows:
+        if not isinstance(r, dict) or WRITER_MARK in r or not _typed_id_key(r):
+            continue
+        if not isinstance(r.get("file"), str) or not r["file"].strip():
+            continue
+        held = stored_spellings.get(r[_typed_id_key(r)].strip())
+        mark = held.get(NODE_ID_CHECK) if held else None
+        if held is not None and not (isinstance(mark, dict) and mark.get("status") == "not_verified"):
+            continue
+        out.append((r, held))
+    return out
+
+
+def _ask_file(row) -> str:
+    """The row's `file` as asked (slashes normalized for the ask only: the stored `file` is the role's, E6)."""
+    return row["file"].strip().replace("\\", "/")
+
+
+def _ask_node(row) -> str:
+    return f"{_ask_file(row)}::{_ask_spelling(row, row[_typed_id_key(row)].strip())}"
+
+
+def _ask_collect(eligible: list, project) -> tuple:
+    """(`node_ids.check_request`'s answer, the files asked alone) for ONE collect, or (None, reason) when no collect can answer
+    (E1): the switch off, no pytest-shaped command, any exception of the imports or the call (`<ExcType>: <message>`). The
+    reason of a raising call is returned, never read as an empty answer ("pytest gave no answer" hid it: critic t-1315 A3)."""
+    try:
+        from config_contract import effective_config
+        from gate_preflight import collect_base
+        from hooklib import load_config
+        config = effective_config(load_config())
+        section = config.get("execution") if isinstance(config.get("execution"), dict) else {}
+        argv = collect_base(config)
+        timeout = section.get("node_id_collect_timeout_s", 180)
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+            timeout = 180
+        if section.get("verify_node_ids", True) is False:
+            return None, "`execution.verify_node_ids` is false in qa-factory/config.json"
+        if not argv:
+            return None, "the project has no pytest-shaped command in `test_command_templates`"
+        files = sorted({_ask_file(r) for r, _ in eligible})
+        form, _ = node_ids.runner_form(argv)
+        asks = sorted({_ask_node(r) for r, _ in eligible} | set(files))
+        return node_ids.check_request(argv, str(project), asks, int(timeout), form=form), files
+    except Exception as exc:  # noqa: BLE001 - nothing may stop a store because the check could not run (E1)
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def _read_collect(eligible: list, checked, files: list) -> dict:
+    """{id(row): (status, detail)} out of one collect's answer: resolved -> verified; unverified (partial) -> node_ids' reason;
+    missing in a file that yielded no test -> not_verified (E7); missing -> a problem; no answer -> the collect's own word."""
+    checked = checked if isinstance(checked, dict) else {}
+    resolved = checked.get("resolved") or {}
+    missing = {m.get("asked"): m for m in checked.get("missing") or []}
+    unverified = {u.get("asked"): u.get("reason") for u in checked.get("unverified") or []}
+    why = "; ".join(str(n) for n in checked.get("notes") or []) or str(checked.get("collect_error") or "") \
+        or "pytest gave no answer"
+    answers = {}
+    for r, _ in eligible:
+        node, file = _ask_node(r), _ask_file(r)
+        if node in resolved:
+            answers[id(r)] = ("verified", str(resolved[node]))
+        elif node in unverified:
+            answers[id(r)] = ("not_verified", str(unverified[node])[:NODE_ID_REASON_CUT])
+        elif node in missing and file in missing and file in files:
+            answers[id(r)] = ("not_verified", f"file {file} yielded no test in this collect")
+        elif node in missing:
+            answers[id(r)] = ("missing", missing[node])
+        else:
+            answers[id(r)] = ("not_verified", why[:NODE_ID_REASON_CUT])
+    return answers
+
+
+def _verified_mark(row, detail: str, notes: list, renames: dict) -> dict:
+    """The `verified` mark of a row collected as `detail`. The stored id is the typed one with ONLY the part the collect changed
+    replaced (item 2d): the parameters, or the function a judge named in the same file (`node_ids._judged`, mode on: critic
+    t-1315 A4 - `test_logn` kept under `test_login`'s mark joined nothing). A class found is not added (E5a)."""
+    typed = row[_typed_id_key(row)].strip()
+    bare = _ask_spelling(row, typed)
+    _, t_base, t_params = node_ids.split_id(f"{_ask_file(row)}::{bare}")
+    _, r_base, r_params = node_ids.split_id(detail)
+    last = r_base.rsplit("::", 1)[-1]
+    base = t_base if r_base == t_base or ("::" not in t_base and last == t_base) else (r_base if "::" in t_base else last)
+    params = t_params if r_params is None or r_params == t_params else r_params
+    new = typed[:len(typed) - len(bare)] + base + (f"[{params}]" if params is not None else "")
+    if new != typed:
+        renames[typed] = new
+        notes.append(f"{NODE_ID_CHECK}: pytest collects {typed} as {new} - the manifest carries the collected id")
+        return {"status": "verified", "note": f"pytest collects {typed} as {new}", "asked": typed}
+    collected = detail.partition("::")[2]
+    if collected and collected != bare:
+        notes.append(f"{NODE_ID_CHECK}: pytest collects {typed} as {collected} (the manifest keeps its own spelling)")
+        return {"status": "verified", "note": f"pytest collects {typed} as {collected}"}
+    return {"status": "verified", "note": "pytest collects the id as typed"}
+
+
+def _stamp_rows(eligible: list, answers: dict, words, notes: list, problems: list) -> tuple:
+    """Mark every eligible row by its answer; ({typed: stored} renames, [old spellings to retract]). A resolution into another
+    file is no match for this row (the store never rewrites `file`, E6): not_verified, never `verified` (A4)."""
+    renames, retract, reasons = {}, [], {}
+    for r, held in eligible:
+        typed = r[_typed_id_key(r)].strip()
+        status, detail = answers[id(r)]
+        if status == "verified" and not node_ids.same_file(_ask_file(r), detail):
+            status, detail = "not_verified", f"the collect named {detail}, a test of another file"[:NODE_ID_REASON_CUT]
+        if status == "verified":
+            r[NODE_ID_CHECK] = _verified_mark(r, detail, notes, renames)
+            if held is not None and typed in renames:
+                retract.append(typed)
+        elif status == "not_verified":
+            r[NODE_ID_CHECK] = {"status": "not_verified", "note": detail}
+            reasons.setdefault(detail, []).append(typed)
+        else:
+            text = node_ids.missing_sentence([detail])
+            said = words(text) if callable(words) else ""
+            if said:
+                r[NODE_ID_CHECK] = {"status": "passed_by_person", "note": f"passed by a person's recorded decision: {said}"}
+            else:
+                problems.append(text)
+    for reason, ids in reasons.items():
+        notes.append(f"{NODE_ID_CHECK}: {', '.join(ids[:5])}{' and more' if len(ids) > 5 else ''} stored not_verified - {reason}")
+    return renames, retract
+
+
+def _retract_renamed(fragment: dict, spellings: list) -> None:
+    """A stored `not_verified` row asked again and renamed (FR-40) leaves its old spelling in this same fragment: `merge` matches
+    by `_identity`, whose aliases never hold the new spelling, so the old row stood beside the new one (critic t-1315 A2, the
+    ghost E8 forbids). A `retracted_instances` that is no list is left as sent: the merge reads it as it reads any such value."""
+    sent = fragment.get("retracted_instances")
+    if sent is None:
+        fragment["retracted_instances"] = list(dict.fromkeys(spellings))
+    elif isinstance(sent, list):
+        fragment["retracted_instances"] = sent + [s for s in dict.fromkeys(spellings) if s not in sent]
+
+
 def stamp_node_ids(fragment, task_root, project, words=None) -> tuple:
     """(the fragment with its hand-typed `tests[]` ids resolved, [problems], [sentences to print]). Pure of the given fragment
     (a copy is returned); the one subprocess is ONE collect per call, started only when a row is eligible (RD1-19, FR-16, AR-15).
@@ -925,136 +1086,30 @@ def stamp_node_ids(fragment, task_root, project, words=None) -> tuple:
     to the collected spelling with `asked` keeping the author's), `not_verified` (no collect could answer: the id is stored as
     typed, never refused, never `missing`), `passed_by_person` (a `missing` id the person's recorded word passes: `words(text)`
     returns their words, '' when none). A `missing` id whose file DID collect and that no word passes is a problem. Direction of
-    error: toward `not_verified`, never `verified` without a collected match (FR-59, AR-28). Rows not asked: writer rows, rows with
-    no explicit id or no `file`, rows whose spelling is already stored (a stored `not_verified` row re-sent with its `file` is asked
-    again, FR-40). A `node_id_check` a role sent is dropped: the mark is the code's alone (AR-14)."""
+    error: toward `not_verified`, never `verified` without a collected match (FR-59, AR-28)."""
     rows = fragment.get("tests") if isinstance(fragment, dict) else None
     if not isinstance(rows, list) or not rows:
         return fragment, [], []
     fragment = copy.deepcopy(fragment)
     rows = fragment["tests"]
     notes, problems = [], []
-    if any(isinstance(r, dict) and NODE_ID_CHECK in r for r in rows):
-        for r in rows:
-            if isinstance(r, dict):
-                r.pop(NODE_ID_CHECK, None)
-        notes.append(f"{NODE_ID_CHECK} is written by manifest_put; the value you sent was dropped")
+    _drop_role_marks(rows, notes)
     stored = [s for s in _current_tests(task_root) if isinstance(s, dict)]
     stored_spellings = {s_: s for s in stored for s_ in _spellings(s)}
-    # (a) the author's spelling of a row stored under a rewritten one, re-sent (a patch, a Then, an obligation): no collect (E8)
-    again = {}
-    for s in stored:
-        mark = s.get(NODE_ID_CHECK)
-        asked = mark.get("asked") if isinstance(mark, dict) else None
-        if isinstance(asked, str) and asked.strip() and _instance(s) and asked.strip() not in stored_spellings:
-            again[asked.strip()] = _instance(s)
+    again = _asked_map(stored, stored_spellings)
     if again:
         _rewrite_instance_ids(fragment, again)
-    # (b) the eligible rows
-    eligible = []
-    for r in rows:
-        if not isinstance(r, dict) or WRITER_MARK in r or not _typed_id_key(r):
-            continue
-        file = r.get("file")
-        if not isinstance(file, str) or not file.strip():
-            continue
-        held = stored_spellings.get(r[_typed_id_key(r)].strip())
-        mark = held.get(NODE_ID_CHECK) if held else None
-        if held is not None and not (isinstance(mark, dict) and mark.get("status") == "not_verified"):
-            continue
-        eligible.append(r)
+    eligible = _eligible_rows(rows, stored_spellings)
     if not eligible:
         return fragment, problems, notes
-    answers: dict = {}          # id(row) -> ("verified"|"not_verified"|"missing", detail)
-
-    def cannot(reason) -> None:
-        for r in eligible:
-            answers[id(r)] = ("not_verified", str(reason)[:NODE_ID_REASON_CUT])
-
-    asks, checked, file_missing = [], {}, set()
-    try:
-        from config_contract import effective_config
-        from gate_preflight import collect_base
-        from hooklib import load_config
-        import node_ids
-        config = effective_config(load_config())
-        section = config.get("execution") if isinstance(config.get("execution"), dict) else {}
-        argv = collect_base(config)
-        timeout = section.get("node_id_collect_timeout_s", 180)
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-            timeout = 180
-        if section.get("verify_node_ids", True) is False:
-            cannot("`execution.verify_node_ids` is false in qa-factory/config.json")
-        elif not argv:
-            cannot("the project has no pytest-shaped command in `test_command_templates`")
-        else:
-            files = sorted({r["file"].strip().replace("\\", "/") for r in eligible})
-            asks = [f"{r['file'].strip().replace(chr(92), '/')}::{_ask_spelling(r, r[_typed_id_key(r)].strip())}"
-                    for r in eligible] + files
-            form, _ = node_ids.runner_form(argv)
-            checked = node_ids.check_request(argv, str(project), sorted(set(asks)), int(timeout), form=form)
-            file_missing = {m.get("asked") for m in checked.get("missing") or []} & set(files)
-    except Exception as exc:  # noqa: BLE001 - nothing may stop a store because the check could not run (E1)
-        cannot(f"{type(exc).__name__}: {exc}")
-    if asks:
-        resolved = checked.get("resolved") or {}
-        missing = {m.get("asked"): m for m in checked.get("missing") or []}
-        unverified = {u.get("asked"): u.get("reason") for u in checked.get("unverified") or []}
-        why = "; ".join(str(n) for n in checked.get("notes") or []) or str(checked.get("collect_error") or "") \
-            or "pytest gave no answer"
-        for r in eligible:
-            file = r["file"].strip().replace("\\", "/")
-            typed = r[_typed_id_key(r)].strip()
-            bare = _ask_spelling(r, typed)
-            node = f"{file}::{bare}"
-            if node in resolved:
-                answers[id(r)] = ("verified", str(resolved[node]))
-            elif node in unverified:
-                answers[id(r)] = ("not_verified", str(unverified[node])[:NODE_ID_REASON_CUT])
-            elif node in missing and file in file_missing:
-                answers[id(r)] = ("not_verified", f"file {file} yielded no test in this collect")
-            elif node in missing:
-                answers[id(r)] = ("missing", missing[node])
-            else:
-                answers[id(r)] = ("not_verified", why[:NODE_ID_REASON_CUT])
-    renames, reasons = {}, {}
-    for r in eligible:
-        key = _typed_id_key(r)
-        typed = r[key].strip()
-        status, detail = answers[id(r)]
-        if status == "verified":
-            import node_ids
-            file = r["file"].strip().replace("\\", "/")
-            bare = _ask_spelling(r, typed)
-            _, t_base, t_params = node_ids.split_id(f"{file}::{bare}")
-            _, _, r_params = node_ids.split_id(detail)
-            new_bare = bare if r_params is None or r_params == t_params else f"{t_base}[{r_params}]"
-            new = typed[:len(typed) - len(bare)] + new_bare
-            collected = detail.partition("::")[2]
-            mark = {"status": "verified", "note": "pytest collects the id as typed"}
-            if new != typed:
-                mark = {"status": "verified", "note": f"pytest collects {typed} as {new}", "asked": typed}
-                renames[typed] = new
-                notes.append(f"{NODE_ID_CHECK}: pytest collects {typed} as {new} - the manifest carries the collected id")
-            elif collected and collected != bare:
-                mark["note"] = f"pytest collects {typed} as {collected}"
-                notes.append(f"{NODE_ID_CHECK}: pytest collects {typed} as {collected} (the manifest keeps its own spelling)")
-            r[NODE_ID_CHECK] = mark
-        elif status == "not_verified":
-            r[NODE_ID_CHECK] = {"status": "not_verified", "note": detail}
-            reasons.setdefault(detail, []).append(typed)
-        else:
-            import node_ids
-            text = node_ids.missing_sentence([detail])
-            said = words(text) if callable(words) else ""
-            if said:
-                r[NODE_ID_CHECK] = {"status": "passed_by_person", "note": f"passed by a person's recorded decision: {said}"}
-            else:
-                problems.append(text)
-    for reason, ids in reasons.items():
-        notes.append(f"{NODE_ID_CHECK}: {', '.join(ids[:5])}{' and more' if len(ids) > 5 else ''} stored not_verified - {reason}")
+    checked, extra = _ask_collect(eligible, project)
+    answers = _read_collect(eligible, checked, extra) if checked is not None else \
+        {id(r): ("not_verified", str(extra)[:NODE_ID_REASON_CUT]) for r, _ in eligible}
+    renames, retract = _stamp_rows(eligible, answers, words, notes, problems)
     if renames:
         _rewrite_instance_ids(fragment, renames)
+    if retract:
+        _retract_renamed(fragment, retract)
     return fragment, problems, notes
 
 
