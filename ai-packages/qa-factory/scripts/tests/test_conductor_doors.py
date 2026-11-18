@@ -643,8 +643,8 @@ QUESTION_SITE_RE = re.compile(r'\b(?:closed_question|priced_section)\(\s*"([^"]+
 # with C1-5b1 (S5) and C1-5b2 (S7), which take them off this list (and list them in PINNED_ELSEWHERE). A key listed here that the code
 # already raises is a defect of THIS list, not a pass (the negative control below uses a synthetic list).
 REPAIR_LIMIT_KEYS = ("s5.repair_limit", "s5.nobody_review", "s5.nobody_environment", "s5.nobody_tooling", "s7.repair_limit")
-# C1-5b1 (S5) took the four `s5.*` keys off this list: their sites are `Driver.repair_limit_person`, pinned in
-# test_story_run_repair_limit.py (PINNED_ELSEWHERE below). `s7.repair_limit` was listed here until C1-5b2 wrote the S7 site (`Driver.repair_limit_person`
+# C1-5b1 (S5) took the four `s5.*` keys off this list: their sites are `Driver.repair_limit_person`; only `s5.repair_limit` is pinned in
+# test_story_run_repair_limit.py (PINNED_ELSEWHERE below), the three `s5.nobody_*` are driven by the dry story. `s7.repair_limit` was listed here until C1-5b2 wrote the S7 site (`Driver.repair_limit_person`
 # through `s7_limit`); it is in PINNED_ELSEWHERE now (RL8), and a key listed here that the code already raises is a defect of THIS list.
 AWAITING_ITS_SITE: set = {"awaiting.stop"}  # PC-7 (t-2181): the row is data and priced (test_human_reading.py H9); no driver site asks it yet - the stop of a wait is the person's word through `controller.py --operation stop_waiting`. TR3-10 part D: `s6.walk_supply`, `s6.data_change` (test_walk_supply.py) and `s6.walk_account` (test_walk_account.py) have their builders and branches; the census counts them as raised
 # Keys the code raises that this process cannot drive; each is raised, and its question text pinned, by the named file.
@@ -824,7 +824,7 @@ def the_question_prices_are_data() -> None:
     import dry_exits
     dry_driven = dry_exits.driven_keys()
     # an empty set is a NOTE (the pins of undriven keys stay), never a PASS of the shrink
-    print(f"K15 driven by the dry story ({len(dry_driven)}): {sorted(dry_driven)}" if dry_driven else "NOTE K15: dry_exits.driven_keys() is empty - PINNED_ELSEWHERE unchanged")
+    print(f"K15 driven by the dry story ({len(dry_driven)}): {sorted(dry_driven)}" if dry_driven else "NOTE K15: dry_exits.driven_keys() is empty - no key counts as driven by the dry story; a key whose pin left PINNED_ELSEWHERE is red in the census below")
     census = lambda raised, data_keys: census_problems(raised, data_keys, set(offered) | dry_driven, AWAITING_ITS_SITE, set(PINNED_ELSEWHERE))
     check_eq("K15: the census - every raised id has its rows and every row its site, both ways",
              census(sites, set(raw["questions"])), [])
