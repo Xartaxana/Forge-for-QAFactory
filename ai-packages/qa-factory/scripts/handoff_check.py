@@ -1439,7 +1439,7 @@ def _null_outcome_view(doc, section: str, entry: dict, contract: str, art) -> tu
     the person one word (`finish --ignore-handoff`); the forbidden one is accepting a repair left undone.
     `openable` is `[(id, verdict)]` for the rows `--fix` may open under `listed_in` (all of them, and only
     when the triage itself is clean), else []."""
-    if not _is_empty_section(doc, None, section):
+    if not _is_empty_section(doc, None, section, contract):
         return _binding_problems(art, _triage_view(art)[0], section), []
     params = entry["params"]
     verdicts = [str(v) for v in params["repair_verdicts"]]
@@ -1565,7 +1565,7 @@ def _sibling_in_view(doc, section: str, entry: dict, contract: str, art) -> tupl
     say (the impl itself answers "legal", so `check` needs no guard and every other contract's loop is unchanged). Exact match
     only: `Fixed`, an absent or a null value counts as not fixed; a field path that is not `<list>[].<leaf>` refuses (fail
     closed). Nothing is ever openable: `--fix` writes no row for it."""
-    if not _is_empty_section(doc, None, section):
+    if not _is_empty_section(doc, None, section, contract):
         return [], []
     params = entry.get("params") or {}
     field, wanted = str(params.get("field") or ""), [str(w) for w in params.get("in") or []]
@@ -1575,16 +1575,16 @@ def _sibling_in_view(doc, section: str, entry: dict, contract: str, art) -> tupl
                                          f"no rows. `{section}` is empty, and the field `{field}` this contract reads it by is not a "
                                          "`<list>[].<field>` path, so the empty cannot be judged."),
                         f"write the `{section}` rows")], []
-    rows = doc.data.get(head)
+    rows = _data_at(doc.data, head)
     hits = [str(row.get("id") or f"row {i + 1}") for i, row in enumerate(rows if isinstance(rows, list) else [])
             if isinstance(row, dict) and isinstance(row.get(leaf), str) and row[leaf] in wanted]
     if not hits:
         return [], []
-    said = next(iter((entry.get("words") or {}).values()), None) or {"word": wanted[0] if wanted else "", "means": "a repair was made"}
+    # neutral text, from the params only (FR-13: no S7 prose in a generic condition, and `words` keeps its one meaning)
     return [Problem(section, refusal("handoff_check:required_rows",
-                                     f"no rows. `{section}` is empty, and `{said['word']}` in `{field}` says {said['means']}: "
-                                     f"{len(hits)} `{head}` row(s) say it ({_shown(hits)}), but no repair round is recorded."),
-                    f"add the `{section}` row for each (changed, verify.witness), or set `{leaf}` to what really happened")], []
+                                     f"no rows. `{section}` is empty while {len(hits)} `{head}` row(s) carry `{leaf}` "
+                                     f"{', '.join(wanted)} ({_shown(hits)}): a row that says so owes its `{section}` row."),
+                    f"write the `{section}` rows, or set `{leaf}` to what really happened")], []
 
 
 def _view_for(entry: dict, investigating: bool):
@@ -1706,7 +1706,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
             # triage row, with its verdict - and only when the triage is clean, so a repair the role forgot is
             # never papered over by rows that look like a finished handover.
             listed = str(entry["params"]["listed_in"])
-            _problems, openable = (_investigation_view if investigating else _null_outcome_impl(entry))(doc, section, entry, contract, art)
+            _problems, openable = _view_for(entry, investigating)(doc, section, entry, contract, art)
             if openable and _is_empty_section(doc, spec, listed, contract):
                 ids = [ident for ident, _verdict in openable]
                 also = {ident: {"verdict": verdict} for ident, verdict in openable}

@@ -3021,6 +3021,9 @@ def an_untouched_list_is_empty_at_every_depth_that_crosses_no_row() -> None:
             ("R13c rounds untouched, fix_result in another case (Fixed): exact match only, legal", "s7-automator-to-analyst", (("scope[0].fix_result", "Fixed"),), None,
              "rounds", no_problem),
             ("R13d rounds untouched, scope absent: legal for rounds", "s7-automator-to-analyst", (), {"scope": gone}, "rounds", no_problem),
+            ("R13g rounds untouched, scope empty: legal for rounds", "s7-automator-to-analyst", (), {"scope": []}, "rounds", no_problem),
+            ("R13h rounds untouched, fix_result null: not fixed, legal for rounds", "s7-automator-to-analyst", (), {"scope": [{"id": "t1", "fix_result": None}]}, "rounds", no_problem),
+            ("R13i rounds untouched, fix_result absent from the row: legal for rounds", "s7-automator-to-analyst", (), {"scope": [{"id": "t1"}]}, "rounds", no_problem),
             ("R14 findings untouched on the case critic: no refusal", "s4-case-critic-to-designer", (), None, "findings", no_problem),
             ("R15 a flow list in a map, untouched: no refusal", scribe, (), None, "delivery.reasons_by_owner", no_problem),
             ("R17 raw scalar at the nested path reads empty", crit, (), {"probes.records": "foo"}, "probes.records", no_problem),
@@ -3029,8 +3032,8 @@ def an_untouched_list_is_empty_at_every_depth_that_crosses_no_row() -> None:
         for label, contract, edits, data, prefix, want in rows:
             check_eq(label, under(run(contract, edits, data), prefix), want)
         refused = [p for p in run("s7-automator-to-analyst", (("scope[0].fix_result", "fixed"),)) if p.path == "rounds"]
-        check_eq("R13 the code is required_rows, the refusal names the fixed row and the door names the rounds row",
-                 (codes(refused, "rounds"), "no repair round is recorded" in str(refused[0].text), "verify.witness" in refused[0].fix), (["handoff_check:required_rows"], True, True))
+        check_eq("R13 the code is required_rows, the refusal names the leaf and its value and the door names the rounds rows",
+                 (codes(refused, "rounds"), "`fix_result` fixed" in str(refused[0].text), "`rounds` rows" in refused[0].fix), (["handoff_check:required_rows"], True, True))
         # FV3-30: an investigation-shaped S7 form judges rounds by its own rule, not by the investigation view
         was, H._investigation_dispatch = H._investigation_dispatch, lambda _art: True
         try:

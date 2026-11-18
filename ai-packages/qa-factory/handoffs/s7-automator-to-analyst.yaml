@@ -16,10 +16,6 @@ null_outcome:
     params:
       field: scope[].fix_result
       in: [fixed]
-    words:
-      "scope[].fix_result":
-        word: fixed
-        means: "a repair was made"
 
 schema_version: 1
 contract: s7-automator-to-analyst

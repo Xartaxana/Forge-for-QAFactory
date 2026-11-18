@@ -24,6 +24,7 @@ sys.path.insert(0, str(HERE.parent))
 import grammar  # noqa: E402
 import handoff  # noqa: E402
 import handoff_check  # noqa: E402
+import null_outcomes as NO  # noqa: E402
 
 RULES_PATH = HERE / "fixtures" / "form-fill-rules.json"
 ROOT = HERE.parents[1]               # the package root: a template row names its contract file from here (`references/...`)
@@ -381,8 +382,13 @@ class _Survey:
         """The list sections a role may legally leave empty under `word`: not the one list every form owes (unless the form
         declares a null outcome for it, E6) and not a list the verdict owes rows of (E5)."""
         owed = handoff.rows_owed(self.contract, word) if word else set()
-        required = set(handoff.REQUIRED_LISTS) - set(handoff.null_outcomes(self.contract))
-        return [name for name in self.list_sections if name not in owed and name not in required]
+        declared = handoff.null_outcomes(self.contract)
+        required = set(handoff.REQUIRED_LISTS) - set(declared)
+        # a declared list whose condition reads the FORM (`sibling_in`: `rounds` beside `fix_result`) is judged by a sibling the base fill
+        # sets; emptying it would write a form the check refuses (AR-10: the fill must satisfy its own check), so it is not offered
+        read_from_form = {name for name, entry in declared.items() if NO.CONDITIONS.get(entry.get("condition")) is not None
+                          and NO.CONDITIONS[entry["condition"]].source == "form"}
+        return [name for name in self.list_sections if name not in owed and name not in required and name not in read_from_form]
 
     def names(self) -> list:
         out = [VARIANT_BASE]
