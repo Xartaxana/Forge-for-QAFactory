@@ -65,43 +65,58 @@ jobs:
           elif [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then echo "base=$CI_MERGE_REQUEST_DIFF_BASE_SHA" >> "$GITHUB_OUTPUT"
           elif [ -n "$CI_COMMIT_BEFORE_SHA" ] && [ "$CI_COMMIT_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then echo "base=$CI_COMMIT_BEFORE_SHA" >> "$GITHUB_OUTPUT"
           else echo "base=HEAD~1" >> "$GITHUB_OUTPUT"; fi
-      - run: python tools/lint_ratchet.py --check
-      - run: python tools/dup_ratchet.py --check
+      # FG7-90 (owner's word 18.11): every check below runs after a red neighbour, so one round shows every red. A check starts
+      # only when every setup step before the marker `base` succeeded (a setup red = ONE red) and the run is not cancelled.
+      - if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
+        run: python tools/lint_ratchet.py --check
+      - if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
+        run: python tools/dup_ratchet.py --check
       - name: one road (language sites)
+        if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
         env:
           BASE: ${{ steps.base.outputs.base }}
         run: python tools/language_sites.py --check --base "$BASE"
       - name: journal
+        if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
         env:
           BASE: ${{ steps.base.outputs.base }}
         run: python tools/journal_validator.py --all --base "$BASE"
       - name: feature attribution
+        if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
         run: |
           if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then python tools/forge_metrics.py --check --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
           else python tools/forge_metrics.py --check --base HEAD~1 --warn; fi
-      - run: python tools/escape_check.py
-      - run: python tools/factory_rules_index.py --check
-      - run: python tools/architecture_index.py --check
-      - run: python tools/agents_md.py --check
+      - if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
+        run: python tools/escape_check.py
+      - if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
+        run: python tools/factory_rules_index.py --check
+      - if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
+        run: python tools/architecture_index.py --check
+      - if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
+        run: python tools/agents_md.py --check
       - name: piles frozen batches and backlog
+        if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
         env:
           BASE: ${{ steps.base.outputs.base }}
         run: python tools/piles.py check --base "$BASE"
       # install parity (.gitlab-ci.yml: the step before the whole-suite run). On a pull request the checkout is the merge
       # commit, so the door `parity-skip:` is read from the message of the PR head; otherwise the tool reads HEAD itself.
       - name: install parity (pull request)
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() && steps.base.conclusion == 'success' && github.event_name == 'pull_request' }}
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python tools/install_parity.py --check --skip-from-commit-message "$(git log -1 --format=%B $HEAD_SHA)"
       - name: install parity (push, canon)
-        if: github.event_name != 'pull_request'
+        if: ${{ !cancelled() && steps.base.conclusion == 'success' && github.event_name != 'pull_request' }}
         run: python tools/install_parity.py --check
       # the quarantine history check moved to nightly.yml job quarantine-check (owner's word 13.11.2026: it walks the whole history and outlived this job)
-      - run: python -m pytest tools/ -q
+      - if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
+        run: python -m pytest tools/ -q
       - name: measurers (run scoreboard tables)
+        if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
         run: python -B experiments/measurers/test_measurers.py
       - name: scoreboard norms only tighten
+        if: ${{ !cancelled() && steps.base.conclusion == 'success' }}
         env:
           BASE: ${{ steps.base.outputs.base }}
         run: |
@@ -207,16 +222,21 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -q pytest
-      - run: |
+      - id: setup           # FG7-90: the marker of the setup steps; the checks below start only when it succeeded
+        run: |
           git config --global user.name "forge-ci"
           git config --global user.email "forge-ci@invalid.example"
           git config --global init.defaultBranch main
       # --fast already covers --limits, --lang, --hygiene (and --slices, --wiring, --tests)
-      - run: python -B scripts/selftest.py --contracts
-      - run: python -B scripts/tests/test_audit_rules.py
-      - run: python -B scripts/selftest.py --fast --jobs 4
+      - if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: python -B scripts/selftest.py --contracts
+      - if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: python -B scripts/tests/test_audit_rules.py
+      - if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: python -B scripts/selftest.py --fast --jobs 4
       # the audit's A19 over the real agents/ (F6-44): the last step; its wall time is printed, a red audit is the step's exit
       - name: audit_factory --agents
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: |
           t0=$(date +%s)
           rc=0
