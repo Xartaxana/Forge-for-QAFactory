@@ -33,6 +33,10 @@ jobs:
   driver-golden:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    # Explicit bash = -eo pipefail: without it a failing tool before `| tee` exits 0 (tee's status) and exit 2 of record would not stop the job (critic t-1443 F6).
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
