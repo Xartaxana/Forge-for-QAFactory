@@ -20,9 +20,11 @@ F0.1 no config.json: plan, approval and apply do not crash; an unreadable one is
 
 Runnable on its own: `python -B scripts/tests/test_config_migration.py`.
 """
+import ast
 import copy
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -414,6 +416,213 @@ def knowledge_rows() -> None:
     check("item 1 negative control: a table that does change the plan makes the comparison differ",
           json.dumps(plan_of(probe, price_table_answer="builtin", keys=with_row), sort_keys=True)
           != json.dumps(plan_of(probe, price_table_answer="builtin", keys=without), sort_keys=True))
+
+
+SCRIPTS_DIR = PLUGIN_ROOT / "scripts"
+BASELINE_PATH = FIXTURES / "knowledge-read-baseline.json"
+TEST_DATA_READER = ("config_contract.py", "test_data_states")   # the ONE reader of `test_data` (AR-13)
+
+
+def _own_nodes(scope):
+    """The nodes of a function (or module) body, not those of a nested def (those are visited as their own scope)."""
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        yield node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            stack.extend(ast.iter_child_nodes(node))
+
+
+def _is_config_read(node) -> bool:
+    if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+        return any(_is_config_read(v) for v in node.values)
+    if not isinstance(node, ast.Call):
+        return False
+    f = node.func
+    name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+    return name in ("load_config", "read_config_file", "_config") or (
+        name == "read_json" and bool(node.args) and "config.json" in ast.unparse(node.args[0]))
+
+
+def _read_path(node, bound):
+    """The key path a node reads off a config-bound name: `x["a"]`, `x.get("a")`, `(x.get("a") or {}).get("b")` -> ("a", "b")."""
+    if isinstance(node, ast.Name):
+        return () if node.id in bound else None
+    key = None
+    if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+        key, inner = node.slice.value, node.value
+    elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get" and node.args \
+            and isinstance(node.args[0], ast.Constant):
+        key, inner = node.args[0].value, node.func.value
+    elif isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+        return next((p for p in (_read_path(v, bound) for v in node.values) if p is not None), None)
+    if not isinstance(key, str):
+        return None
+    path = _read_path(inner, bound)
+    return None if path is None else path + (key,)
+
+
+def knowledge_reads(scripts: Path, carriers=()) -> set:
+    """R2's scan (OF3-1): (file, function, key) for every read of a config key off a name BOUND to a config reader call
+    (`x = load_config(...)`, `read_config_file`, `CC.read_config_file`, `_config`, `read_json(<...config.json>)`) or off a parameter
+    listed in the baseline's `carriers` (`<module>.<function>:<param>`), in `scripts/*.py` (tests excluded). Key forms: `a`, `a.b`.
+    BLIND TO (a miss, never a red): an alias or reassignment of the bound name, a helper taking the config under a name outside
+    `carriers` (the config is mostly passed as a parameter, so most reads are here), a read deeper than one nested level, a
+    non-literal key, `"k" in x`, a tuple-unpacked binding. It never goes red on a name that is not bound to a config reader."""
+    reads = set()
+
+    def visit(scope, chain, inherited, stem):
+        nodes = list(_own_nodes(scope))
+        bound = set(inherited) | {c.split(":", 1)[1] for c in carriers if c.split(":", 1)[0] == f"{stem}.{chain[-1] if chain else ''}"}
+        bound |= {t.id for n in nodes if isinstance(n, ast.Assign) and _is_config_read(n.value) for t in n.targets if isinstance(t, ast.Name)}
+        for node in nodes:
+            path = _read_path(node, bound) if isinstance(node, (ast.Subscript, ast.Call)) else None
+            if path and len(path) <= 2:
+                reads.add((f"{stem}.py", chain[-1] if chain else "<module>", ".".join(path)))
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                visit(node, chain + (node.name,), bound, stem)
+
+    for path in sorted(scripts.glob("*.py")):
+        try:
+            visit(ast.parse(path.read_text(encoding="utf-8-sig")), (), set(), path.stem)
+        except (SyntaxError, ValueError, OSError):
+            continue    # an unreadable script is a miss, not a red
+    return reads
+
+
+def read_gaps(scripts: Path, rows, baseline_path: Path) -> list:
+    """R2: `<file>:<function>:<key>: <what is wrong; the door>` lines. A read of a key with no catalogue row, and any read of
+    `test_data` / `test_data.*` outside `config_contract.test_data_states` (a bypass of its one reader), needs a baseline line
+    `<file>:<function>:<key> -- <reason>` (shrink-only: a line the scan no longer finds is red, a line with no reason is red, a
+    missing or unreadable baseline is red naming its path)."""
+    try:
+        data = json.loads(baseline_path.read_text(encoding="utf-8"))
+        lines, carriers = list(data["lines"]), list(data["carriers"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return [f"{baseline_path}: the baseline is missing or unreadable ({type(exc).__name__}); restore it from the package"]
+    bad = [f"{line}: a baseline line with no reason after ' -- '" for line in lines
+           if " -- " not in line or not line.split(" -- ", 1)[1].strip()]
+    listed = {line.split(" -- ")[0] for line in lines}
+    seen = set()
+    for f, fn, key in sorted(knowledge_reads(scripts, carriers)):
+        name = f"{f}:{fn}:{key}"
+        seen.add(name)
+        bypass = key.split(".")[0] == "test_data" and (f, fn) != TEST_DATA_READER
+        if (key not in rows or bypass) and name not in listed:
+            bad.append(f"{name}: " + ("a read of `test_data` past config_contract.test_data_states; use it, or add a baseline line"
+                                      if bypass else "a read of a key with no catalogue row; add a row to config-keys.json "
+                                      "`knowledge`, or a baseline line"))
+    bad += [f"{name}: a stale baseline line (the scan no longer finds it); delete it" for name in sorted(listed - seen)]
+    return bad
+
+
+def _named_in(tree, key) -> list:
+    """The defs of `tree` (any depth) whose body holds the full key or its last segment as a string, directly or through a
+    module-level constant (a str, or a tuple / list / set / dict of strs)."""
+    want = {key, key.replace("[]", "").split(".")[-1]}
+    consts = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            strs = {c.value for c in ast.walk(node.value) if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+            consts.update({t.id: strs for t in node.targets if isinstance(t, ast.Name)})
+    out = []
+    for fn in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+        for c in ast.walk(fn):
+            name = c.id if isinstance(c, ast.Name) else c.attr if isinstance(c, ast.Attribute) else None
+            if (isinstance(c, ast.Constant) and c.value in want) or (name and consts.get(name, set()) & want):
+                out.append(fn.name)
+                break
+    return out
+
+
+def _tree_of(scripts: Path, name: str, cache: dict):
+    if name not in cache:
+        path = scripts / name
+        try:
+            cache[name] = ast.parse(path.read_text(encoding="utf-8-sig")) if path.is_file() else None
+        except (SyntaxError, ValueError, OSError):
+            cache[name] = None
+    return cache[name]
+
+
+def reader_gaps(section: dict, scripts: Path, exempt=()) -> list:
+    """R3: `<key>: <what is wrong; the door>` lines. Every `needed_by` entry `file.py:function` of a row must name a function that
+    exists in that file AND whose body holds the full dotted key or the key's last segment as a string literal (or a constant
+    holding it) - a call of project_knowledge.value / state with the key is that literal. BLIND: this proves the function NAMES
+    the key, not that it reads that key (a comment-free string in an unrelated call counts; a read through a loop over names, or
+    a leaf name another key shares, is not seen). A row with no entry is red; so is an entry naming a missing file or function.
+    `exempt` is the baseline's `no_script_reader` (`<key> -- <who reads it>`): a key read by a role or prompt, no script, skips
+    the check. Shrink-only: red for an entry with no reason, a key that is no row, or a key some script now names under this
+    rule. BLIND too: the reason is not checked against the role file."""
+    trees, bad, skip = {}, [], {}
+    for line in exempt:
+        key, _, why = str(line).partition(" -- ")
+        skip[key] = why.strip()
+        if not why.strip():
+            bad.append(f"{key}: a no_script_reader entry with no reason after ' -- '")
+        elif key not in section:
+            bad.append(f"{key}: a no_script_reader entry for a key that is no catalogue row; delete it")
+    for key in skip:
+        if key in section and any(_named_in(_tree_of(scripts, p.name, trees), key) for p in sorted(scripts.glob("*.py"))):
+            bad.append(f"{key}: a no_script_reader entry, but a script names the key now; delete the entry and name that function in needed_by")
+    for key, row in section.items():
+        entries = row.get("needed_by") if isinstance(row, dict) else None
+        if key in skip:
+            continue
+        if not entries:
+            bad.append(f"{key}: no reader is named; add a `file.py:function` that names it, or list it in the baseline's `no_script_reader`")
+        for entry in entries or []:
+            f, _, fn = str(entry).partition(":")
+            tree = _tree_of(scripts, f, trees)
+            if tree is None:
+                bad.append(f"{key}: {entry}: no such file in scripts/; fix the entry")
+            elif not any(d.name == fn for d in ast.walk(tree) if isinstance(d, (ast.FunctionDef, ast.AsyncFunctionDef))):
+                bad.append(f"{key}: {entry}: no such function; fix the entry")
+            elif fn not in _named_in(tree, key):
+                bad.append(f"{key}: {entry}: the function never names the key; fix the entry or name the function that does")
+    return bad
+
+
+def knowledge_reads_have_rows() -> None:
+    """R2: no read of a config key off a config-bound name lands without a catalogue row or a baseline line."""
+    rows = KEYS["knowledge"]
+    check_eq("R2: every read has a row or a baseline line, every baseline line is live and carries a reason",
+             read_gaps(SCRIPTS_DIR, rows, BASELINE_PATH), [])
+    scratch = temp_dir("qa-r2-scratch-")
+    try:
+        shutil.copy(SCRIPTS_DIR / "env_probe.py", scratch / "env_probe.py")
+        shutil.copy(BASELINE_PATH, scratch / "baseline.json")
+        check_eq("R2 control: a scratch copy of env_probe.py is as green as the original (baseline lines aside)",
+                 [g for g in read_gaps(scratch, rows, scratch / "baseline.json") if "stale baseline" not in g], [])
+        with open(scratch / "env_probe.py", "a", encoding="utf-8") as handle:
+            handle.write("\n\ndef sneaky(root):\n    cfg = read_config_file(root)\n    return cfg['test_data'].get('seeds'), cfg.get('no_such_key')\n")
+        got = [g.split(": ")[0] for g in read_gaps(scratch, rows, scratch / "baseline.json") if "stale baseline" not in g]
+        check_eq("R2 positive control: a bypass of test_data_states and an uncatalogued key on a scratch copy are named",
+                 got, ["env_probe.py:sneaky:no_such_key", "env_probe.py:sneaky:test_data", "env_probe.py:sneaky:test_data.seeds"])
+        check_in("R2 control: a missing baseline is red naming its path", str(scratch / "gone.json"),
+                 read_gaps(scratch, rows, scratch / "gone.json"))
+        (scratch / "baseline.json").write_text(json.dumps({"carriers": [], "lines": ["a.py:f:k", "b.py:g:k -- gone"]}), encoding="utf-8")
+        got = read_gaps(scratch, rows, scratch / "baseline.json")
+        check("R2 control: a line with no reason and a line the scan no longer finds are each red",
+              any(g.startswith("a.py:f:k") and "no reason" in g for g in got) and any(g.startswith("b.py:g:k") and "stale" in g for g in got), str(got))
+    finally:
+        cleanup(scratch)
+
+
+def knowledge_rows_have_readers() -> None:
+    """R3: every `needed_by` entry of the catalogue names a function that exists and names its key; no row has an empty list."""
+    exempt = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))["no_script_reader"]
+    check_eq("R3: every row's readers exist and name the key", reader_gaps(KEYS["knowledge"], SCRIPTS_DIR, exempt), [])
+    probe = {"product.roles": {"needed_by": ["project_knowledge.py:roster", "project_knowledge.py:no_such", "gone.py:f", "contract.py:cases_root"]},
+             "empty_key": {"needed_by": []}, "zz_listed_key": {"needed_by": []}, "cases_root": {"needed_by": []}, "noreason": {"needed_by": []}}
+    got = reader_gaps(probe, SCRIPTS_DIR, ["zz_listed_key -- a role", "cases_root -- a role", "nowhere -- a role", "noreason"])
+    check_eq("R3 control: the no_script_reader list skips a listed key, and is red for a script-named key, a non-row, no reason",
+             sorted(g.split(": ")[0] + ":" + g.split(": ")[1][:22] for g in got if not g.startswith(("product.roles", "empty_key: no reader"))),
+             ["cases_root:a no_script_reader ent", "noreason:a no_script_reader ent", "nowhere:a no_script_reader ent"])
+    check_eq("R3 control: an unknown function, a missing file, a function that never names the key are each red",
+             [g.split(": ")[1] for g in got if g.startswith("product.roles")],
+             ["project_knowledge.py:no_such", "gone.py:f", "contract.py:cases_root"])
+    check("R3 control: an empty needed_by is red", any(g.startswith("empty_key: no reader is named") for g in got), str(got))
 
 
 def removed_dead_keys() -> None:
@@ -1864,6 +2073,8 @@ def main() -> None:
     k3_fixture()
     x9_retired_surprise_ignore()
     knowledge_rows()
+    knowledge_reads_have_rows()
+    knowledge_rows_have_readers()
     removed_dead_keys()
     reinstall_equals_fresh()
     notes()

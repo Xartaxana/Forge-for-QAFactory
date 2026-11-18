@@ -1,0 +1,13 @@
+{
+ "about": "R2 and R3 of test_config_migration.py (OF3-1). `lines` (R2): reads of a config key off a config-bound name that have no row in config-keys.json `knowledge`, or that bypass config_contract.test_data_states; form <file>:<function>:<key> -- <reason>; a line the scan no longer finds is red. `no_script_reader` (R3): catalogue keys no script names, read by a role or prompt; form <key> -- <who reads it>; a key a script now names, or that is no row, is red. Both lists only shrink. `carriers`: parameters scanned as the whole config, <module>.<function>:<param>; empty means only names bound to a config reader call.",
+ "carriers": [],
+ "lines": [
+  "audit_factory.py:a7_journal_completeness:journal_legacy_tasks -- read of a key with no catalogue row; row is a follow-up (t-1486 report)",
+  "red_sandbox.py:install_budget_s:sandbox.install_timeout_s -- read of a key with no catalogue row; row is a follow-up (t-1486 report)"
+ ],
+ "no_script_reader": [
+  "dod -- the roles read it from config.json; skills/qa-onboarding/phases/p4-generate.md:134 writes it (topic 9)",
+  "format_changed -- the roles run the command; skills/qa-onboarding/phases/p4-generate.md:132 writes it",
+  "test_data.pii_and_masking -- references/common-rules.md:54 and the role slices read it; brief_pack._approach_test_data loops over the names"
+ ]
+}

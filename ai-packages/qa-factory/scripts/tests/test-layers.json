@@ -33,6 +33,7 @@
  "fixture_owners": {
   "driver-layers.json": "test_driver_layers.py",
   "env-facts-baseline.json": "test_state_portability.py",
+  "knowledge-read-baseline.json": "test_config_migration.py",
   "s6-w1-frozen/calls.json": "test_story_run_s6_w1_frozen.py",
   "s6-w1-frozen/console.json": "test_story_run_s6_w1_frozen.py",
   "s6-w1-frozen/events.json": "test_story_run_s6_w1_frozen.py",
