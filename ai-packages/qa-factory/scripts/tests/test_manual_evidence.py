@@ -841,6 +841,32 @@ def n2_k9_the_persons_word_in_validate_and_the_baseline_that_refuses_it():
             P.REFUSAL_DATA = held
             block.unlink()
         check_in("K-N2.9 F6: the S11 sentence is read from the refusals block", "BLOCK[baseline_person]", changed)
+        # RD1-14 k3 (item 2, E-S7): the baseline reads the ONE predicate (`baseline_identity.capture`)
+        bare = dict(old, result="not_applicable", observed_runtime_identity="", evidence_refs=[], provenance={})
+        check_eq("RD1-14 k3: a valid bare not_applicable baseline probe is no provenance error",
+                 [e for e in M.validate_record(dict(baseline, runtime_before=bare, runtime_after=dict(bare)), ROOT) if "provenance" in e], [])
+        import gate_registry as GR
+        import gate_template as GT
+        saved, GT._READ[:] = list(GT._READ), [({"rows": "x"}, GR.structural_error({"rows": "x"}))]
+        try:
+            blind = errors(baseline)
+        finally:
+            GT._READ[:] = saved
+        check_in("RD1-14 k3 E-S7: an unreadable registry refuses a valid baseline", "manual baseline runtime provenance is unverified", blind)
+        # 2b (E-k3.5, FR-1): a hand-written block that is no object is named by its type, never echoed, never a crash
+        for field, junk, kind in (("baseline_contract", "x", "str"), ("runtime_before", "x", "str"), ("runtime_after", 5, "int"),
+                                  ("runtime_before", "Z" * 1000000, "str"), ("runtime_after", [[[["deep"]]]], "list"),
+                                  ("runtime_before", 0, "int"), ("baseline_contract", [], "list")):
+            got = errors(dict(baseline, **{field: junk}))
+            check_in(f"RD1-14 k3 2b: {field} as {kind} is named by its type", f"{field} must be a JSON object, got {kind}", got)
+            check(f"RD1-14 k3 2b: {field} as {kind}: the value is never echoed", "ZZZZ" not in got and "deep" not in got and "baseline missing" not in got)
+        check_in("RD1-14 k3 2b: None keeps today's sentence", "baseline missing runtime_before", errors(dict(baseline, runtime_before=None)))
+        wrong = dict(old, expected_source_revision="other")
+        got = errors(dict(baseline, runtime_after=wrong))
+        check_in("RD1-14 k3 2b: a mismatching revision names both revisions", "'other', the approved baseline_revision is 'old'", got)
+        check_in("RD1-14 k3 2b: ... and the door", "Capture again on a stand that runs that revision", got)
+        check_eq("RD1-14 k3 K2: a runtime_before-only mismatch gets ONE revision sentence",
+                 errors(dict(baseline, runtime_before=wrong)).count("the approved baseline_revision is"), 1)
         # S12: the sentences code writes into limitations[]
         sentences = M.person_sentences(word)
         check_eq("K-N2.9 S12: a `deployed` word gets one sentence: who, when, not read by the factory",

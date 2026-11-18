@@ -839,21 +839,20 @@ def validate_manual_current(task, record):
         errors.append("manual capture does not bind the approving Gate A decision")
     if not state.get("source_revision") or record.get("source_revision") != state["source_revision"]:
         errors.append("manual source revision unknown or stale")
-    from profile_contract import ACCEPTS, acceptable_provenance, no_changed_file, refusal_text, validate_runtime_provenance
+    from profile_contract import local_source_request, no_changed_file, provenance_word, refusal_text
+    from gate_template import acceptable
     before, after = record.get("runtime_before"), record.get("runtime_after")
     if not isinstance(before, dict) or not isinstance(after, dict):
         errors.append("manual runtime before/after provenance required")
     else:
         story = Path(str(task)).name      # a person's word is bound to ONE story (t-300 N2 X5): never another's
-        local_source = record.get("runtime_required") is False and record.get("target_kind") == "local_source"
+        local_source = local_source_request(record)
         for probe in (before, after):
-            checked = validate_runtime_provenance(probe)
             # ONE predicate (t-300 N2 S13, FR-17), the same as manual_evidence.validate: `matched`, the person's word for
             # THIS story, a probe that compared nothing - and the local_source `not_applicable` beside it. `unknown` is
             # refused, with or without an image (t-279 Q1 took it; Q18-B, FR-59 retire it): the person's word at the
             # build question is the door. The rule below makes before and after name the same identity.
-            if not (acceptable_provenance(probe, ACCEPTS, task=story)
-                    or (checked["valid"] and checked["result"] == "not_applicable" and local_source)):
+            if not acceptable(provenance_word(probe, task=story, local_source=local_source), "provenance.manual"):
                 errors.append("manual runtime provenance is unverified: " + refusal_text(probe, task=story))
             # t-275 (A): the probe names the revision of the PROFILE'S CHECKOUT (its git HEAD, 40 hex), never the
             # controller's `source_revision` (the sha256 of the ticket snapshot, 64 hex): the two can never be
@@ -866,7 +865,7 @@ def validate_manual_current(task, record):
                               "profile: run runtime_probe.py for that profile so its revision is on record")
             # A probe that says `reason_code: no_changed_file` compared nothing because the story changes no file
             # of this checkout: enough on any stand kind (t-279 K-NA); any other not_applicable stays local_source.
-            if probe.get("result") == "not_applicable" and not no_changed_file(probe) and not (record.get("runtime_required") is False and record.get("target_kind") == "local_source"):
+            if probe.get("result") == "not_applicable" and not no_changed_file(probe) and not local_source:
                 errors.append("live manual interaction cannot bypass runtime identity")
         for key in ("profile_id", "environment_id", "expected_source_revision", "observed_runtime_identity"):
             if before.get(key) != after.get(key):

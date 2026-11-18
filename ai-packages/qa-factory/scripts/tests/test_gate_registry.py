@@ -274,7 +274,7 @@ def part_live_registry() -> None:
     g7 = [("execution_request.py", "validate_request"), ("execution_fingerprint.py", "build"),
           ("manual_evidence.py", "_provenance_errors"), ("manual_evidence.py", "_other_profile_errors"),
           ("manual_evidence.py", "validate_baseline_record"),
-          ("coverage_contract.py", "validate_manual_current"), ("environment_preparation.py", "_run_step"),
+          ("coverage_contract.py", "validate_manual_current"),
           ("source_preflight.py", "assess_freshness"), ("run_suite.py", "build_run_block"),
           ("gate_preflight.py", "_derive_probe")]
     for key in g7:
@@ -283,17 +283,19 @@ def part_live_registry() -> None:
               bool(item) and bool(item["rows"]) and item["allowed"], str(item))
     # K-N2.12: each site that no longer compares CALLS the one predicate (an AST read of the live file, not a literal search)
     for (fname, function), callee in ((("run_suite.py", "probe_runtime"), "acceptable"),   # RD1-14 k2: the four execution sites + gate A
-                                      (("manual_capture.py", "stand_probe"), "acceptable_provenance"),
+                                      (("manual_capture.py", "stand_probe"), "acceptable"),   # RD1-14 k3: the manual side + the deploy proof
+                                      (("environment_preparation.py", "_run_step"), "acceptable"),
+                                      (("manual_evidence.py", "validate_baseline_record"), "acceptable"),
                                       (("execution_request.py", "rehearsal_probe"), "acceptable"),
                                       (("execution_request.py", "validate_request"), "acceptable"),
                                       (("execution_fingerprint.py", "build"), "acceptable"),
                                       (("gate_preflight.py", "_observed_identity"), "acceptable"),
-                                      (("manual_evidence.py", "_provenance_errors"), "acceptable_provenance"),
+                                      (("manual_evidence.py", "_provenance_errors"), "acceptable"),
                                       # the wiring pin of the split (HF8-19 F1): `validate` reaches the predicate only through it
                                       (("manual_evidence.py", "validate"), "_provenance_errors"),
                                       (("manual_evidence.py", "validate"), "_other_profile_errors"),
                                       (("manual_evidence.py", "_other_profile_errors"), "_provenance_errors"),
-                                      (("coverage_contract.py", "validate_manual_current"), "acceptable_provenance"),
+                                      (("coverage_contract.py", "validate_manual_current"), "acceptable"),
                                       (("probe_by_code.py", "probe_runtime"), "probe_runtime")):
         check(f"K-N2.12 {fname}:{function} calls `{callee}` (the one predicate; S8 delegates to the strict reader)",
               callee in called_names(PLUGIN_ROOT / "scripts" / fname, function))
@@ -309,15 +311,24 @@ def part_live_registry() -> None:
              len(got), 1, )
     check("K-N2.12 NEG: and it names the consumer and the word", "baseline_identity.readiness" in "".join(got) and "person_confirmed" in "".join(got),
           "\n".join(got))
+    # RD1-14 k3: the capture's consumer (under provenance_acceptance; its prefix names the false row) is held the same way
+    worded = copy.deepcopy(registry)
+    next(r for r in worded["rows"] if r["id"] == "provenance_acceptance")["accepts"]["baseline_identity.capture"].append("person_confirmed")
+    got = GR.analyse(PLUGIN_ROOT, worded)["findings"]
+    check("K-N2.12 NEG: `person_confirmed` added to baseline_identity.capture: one finding naming both", len(got) == 1 and "baseline_identity.capture" in got[0] and "person_confirmed" in got[0], "\n".join(got))
     check("K-T1.2 every comparison the scan counts is attributed", all(i["rows"] and i["allowed"] for i in result["items"]))
     # S1 keeps its non-acceptance comparison as an `allow`, and the allow matches (K-T1.3 on the live data)
     allow = [e for r in registry["rows"] for s in r["sites"] for e in s.get("allow", [])]
     # C3-b2 (t-1080): the two display comparisons of `test_identity`'s accept sites join (a flag that picks the words shown, not an acceptance)
-    check_eq("the allow entries today are S1's data-seed shape check, three provenance picks (RD1-14 k2) and the display flags of test_identity, each the WHOLE comparison (F3)",
+    check_eq("the allow entries today are S1's data-seed shape check, three provenance picks (RD1-14 k2), four more (k3) and the display flags of test_identity, each the WHOLE comparison (F3)",
              [e["compare"] for e in allow], ['seed.get("result") not in {"matched", "mismatched", "unknown"}',
                                               "checked['result'] == 'not_applicable'",              # RD1-14 k2: picks the refusal sentence
                                               "provenance.get('result') == 'person_confirmed'",     # RD1-14 k2: a word on a request that skips the probe
                                               "runtime.get('result') == 'person_confirmed'",        # RD1-14 k2: execution_fingerprint.build keys the word
+                                              "probe.get('result') == 'not_applicable'",            # RD1-14 k3: manual_evidence._provenance_errors picks the NA sentence
+                                              "checked['result'] == 'person_confirmed'",            # RD1-14 k3: validate_baseline_record picks the person's-word sentence
+                                              "probe.get('result') != 'not_applicable'",            # RD1-14 k3: validate_manual_current, an NA probe binds no revision
+                                              "probe.get('result') == 'not_applicable'",            # RD1-14 k3: validate_manual_current, the second NA sentence
                                               "hit['holds'] in ('instance_code', 'file_code')",
                                               "('unknown', WHY_RUN_NO_IDENTITY)",
                                               "('unknown', why or WHY_RUN_NOT_COMPARED)",
@@ -334,8 +345,7 @@ def part_live_registry() -> None:
     # t-300 N2: pinned to the sites that still compare an anchor word (the local_source and data-seed literals of
     # validate_request, the baseline's person_confirmed branch, the deploy step, gate A's identity read): the ones that moved
     # to the predicate hold no anchor literal now, so nothing of theirs is left for the scan to flag
-    for fname, function in (("execution_request.py", "validate_request"), ("manual_evidence.py", "validate_baseline_record"),
-                            ("environment_preparation.py", "_run_step")):   # RD1-14 k2: gate A's identity holds no literal now
+    for fname, function in (("execution_request.py", "validate_request"), ("manual_evidence.py", "validate_baseline_record")):   # RD1-14 k3: the deploy step holds no literal now
         check(f"K-T1.2 NEG: without provenance_acceptance, {fname}:{function} is F-a",
               any(f.startswith(fname + ":") and f"({function})" in f for f in got), f"{len(got)} F-a findings")
     # and the empty registry: valid as data, and every live site is F-a
@@ -713,23 +723,27 @@ def part_fix_pass() -> None:
     # promotable of the row its <gate> prefix names
     home = {c: r["id"] for r in registry["rows"] for c in r["accepts"]}
     check_eq("F1 baseline_identity.readiness lives under baseline_identity", home["baseline_identity.readiness"], "baseline_identity")
-    check_eq("F1 provenance.environment_preparation lives under environment_preparation",
-             home["provenance.environment_preparation"], "environment_preparation")
-    check_eq("F1 the other seven consumers stay under provenance_acceptance (RD1-14 k2: identity, run)",
+    check_eq("F1 environment_preparation.deploy_proof lives under provenance_acceptance (RD1-14 k3: the deploy proof is one more word of the predicate)",
+             home["environment_preparation.deploy_proof"], "provenance_acceptance")
+    check_eq("F1 baseline_identity.capture lives under provenance_acceptance (RD1-14 k3: capture and record, one rule)",
+             home["baseline_identity.capture"], "provenance_acceptance")
+    check_eq("F1 the nine consumers stay under provenance_acceptance (RD1-14 k2: identity, run; k3: the capture and the deploy proof)",
              sorted(c for c, r in home.items() if r == "provenance_acceptance"),
-             ["provenance.automation", "provenance.fingerprint", "provenance.identity", "provenance.manual",
-              "provenance.manual_capture", "provenance.rehearsal", "provenance.run"])
+             ["baseline_identity.capture", "environment_preparation.deploy_proof", "provenance.automation", "provenance.fingerprint",
+              "provenance.identity", "provenance.manual", "provenance.manual_capture", "provenance.rehearsal", "provenance.run"])
     check_eq("F1 both guarding rows are promotable false",
              (by_id["baseline_identity"]["promotable"], by_id["environment_preparation"]["promotable"]), (False, False))
     for consumer, rid in (("baseline_identity.readiness", "baseline_identity"),
-                          ("provenance.environment_preparation", "environment_preparation")):
+                          ("baseline_identity.capture", "baseline_identity"),
+                          ("environment_preparation.deploy_proof", "environment_preparation")):
         probe = copy.deepcopy(registry)
         for r in probe["rows"]:
             if consumer in r["accepts"]:
                 r["accepts"][consumer].append("person_confirmed")
         got = GR.analyse(PLUGIN_ROOT, probe)["findings"]
+        want = f"gate row `{rid}`" if consumer != "baseline_identity.readiness" else rid   # C3-g's pair stays as it was
         check(f"F1 person_confirmed added to {consumer}: exactly one finding, naming the consumer and the row",
-              len(got) == 1 and consumer in got[0] and rid in got[0], "\n".join(got) or "0 findings")
+              len(got) == 1 and consumer in got[0] and want in got[0], "\n".join(got) or "0 findings")
     gate = row("gate_a", promotable=False)
     got = audit(page, gate, row("other_a", promotable=True, accepts={"gate_a.consumer": ["matched", "person_confirmed"]}))
     check("F1 a consumer on a promotable row inherits the false of the row its prefix names: one finding naming both",
@@ -1046,7 +1060,6 @@ D13_TRIPLES = [
     ("delivery_verdict.py", "decide", "delivery"),
     ("driver_stage_build.py", "build_outcome", "stand_identity"),
     ("environment_preparation.py", "_facts", "environment_preparation"),
-    ("environment_preparation.py", "_run_step", "provenance_acceptance"),
     ("execution_fingerprint.py", "build", "provenance_acceptance"),
     ("execution_request.py", "same_instance_bytes", "test_identity"),   # RD1-33 S1 (t-1393): one measure comparison, the budget side (E1-5)
     ("execution_request.py", "validate_request", "provenance_acceptance"),
@@ -1182,7 +1195,8 @@ D13_TRIPLES = [
 # 184 -> 180 (RD1-14 k2, t-1406, AR-20; GR.analyse before 184 / 69 triples, after 180 / 68): four comparisons leave as the execution side asks
 # `acceptable(provenance_word(..), consumer)`: `_observed_identity`'s tuple (its triple too), `validate_request`'s `target_kind == 'local_source'`
 # and `checked["result"] == "not_applicable"` copy, and `build`'s `checked["result"] == "not_applicable"`; the allow pin gains +3.
-D13_ITEM_COUNT = 180
+# 180 -> 173 (RD1-14 k3, t-1434, AR-20; 68 -> 67 triples): `_run_step` (whole triple) and the literal copies of four manual/baseline sites leave; allow pin +4.
+D13_ITEM_COUNT = 173
 
 
 def part_site_attribution() -> None:

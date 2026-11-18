@@ -96,7 +96,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import grammar as G
 import hooklib
 import stand_lease
-from profile_contract import (ACCEPTS, acceptable_provenance, command_argv, content_differs, person_confirmed, profile_commands,
+from profile_contract import (command_argv, content_differs, person_confirmed, profile_commands, provenance_word,
                               refusal_text, say_refusal, stand_runs_other_build)
 from role_cli import EXIT_REFUSED, command_from_argv, epilog, refuse, run_guarded
 
@@ -1654,6 +1654,7 @@ def stand_probe(attempt: Attempt, cfg, project_root, profile, when, command, sta
     unknown, FR-59), and so is a word given for another story (F10: refused BEFORE the session is spent, not at the
     record). The sentence says what the probe said, what was expected and the door (`profile_contract.refusal_text`)."""
     from execution_request import ProvenanceRefused, stand_probe_spec
+    from gate_template import acceptable
     story = attempt.task.name
     # EP1-28: the project's entry, else the default probe over the profile's checkout (never written to the config). No
     # probe at all is a stand fact the person can fix by one line of data, not a factory defect: owner `user`, `cause: build`
@@ -1673,7 +1674,9 @@ def stand_probe(attempt: Attempt, cfg, project_root, profile, when, command, sta
     except Exception as exc:
         raise EnvBlocked(f"runtime probe of {profile} {when}: {exc.__class__.__name__}: {str(exc)[:200]}",
                          say_refusal("remedy_retry"), "user")
-    if not acceptable_provenance(value, ACCEPTS, task=story):
+    # The word is made by `provenance_word` and judged by the registry: a bare `not_applicable` (no `no_changed_file`) is no
+    # word `provenance.manual_capture` takes (it was refused before too, RD1-14 k3).
+    if not acceptable(provenance_word(value, task=story), "provenance.manual_capture"):
         raise _stand_blocked(profile, when, value, refusal_text(value, task=story), story, other_profile=other)
     attempt.probe(when, profile, command, value)
     return value
