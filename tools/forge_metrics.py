@@ -1300,6 +1300,55 @@ def _nc_roles(disp_list, priced_of):
     return [dict(role=r, **x) for r, x in sorted(by.items(), key=lambda kv: (-kv[1]["tokens"], kv[0]))]
 
 
+def _nc_journal(root):
+    """The journal of the repo at `root`; the unreadable-declaration and unreadable-line notes go to stderr."""
+    journal = _jk.load_all(Path(root))
+    if journal.segments_reason:
+        print(f"forge_metrics: the task-key declaration is unreadable ({journal.segments_reason}) -- colliding "
+              "task ids are read as one task", file=sys.stderr)
+    bad = sum(1 for r in journal.rows if r.obj is None)
+    if bad:
+        print(f"forge_metrics: {bad} journal line(s) unreadable", file=sys.stderr)
+    return journal
+
+
+def _nc_assemble(tasks, rows_in, shared_in, priced_of, defect_count, moves, disp_list, no_node_src):
+    """The rows, the shared entries and the totals of node_costs. `moves` = (resumes, ok_aids, no_node_sends,
+    sessions, transcripts); `no_node_src` = (task_id-less delegated objs, window day)."""
+    resumes, ok_aids, no_node_sends, sessions, transcripts = moves
+    nokey, win_day = no_node_src
+
+    def moves_of(ks):
+        """resumes, unscanned agents and moves of the tasks `ks` (moves may err HIGH, never silently LOW)."""
+        res = sum(resumes.get(k, 0) for k in ks)
+        return {"resumes": res, "resumes_unscanned": _nc_unscanned(tasks, ks, ok_aids, transcripts),
+                "moves": res + _nc_counts(tasks, ks)[2]}
+
+    rows = [dict(_nc_row(name, ks, tasks, priced_of, defect_count, shared_in), **moves_of(ks))
+            for name, ks in rows_in.items()]
+    rows.sort(key=lambda r: (r["cost"] is None, -(r["cost"] or 0.0), r["row"]))
+    shared = []
+    for k in sorted(shared_in, key=lambda x: tasks[x]["disp"]):
+        tokens, cost, n, um, elsewhere = _nc_money(tasks, priced_of, [k])
+        shared.append(dict({"task": tasks[k]["disp"], "cited_by": sorted(n_ for n_ in shared_in[k] if n_ in rows_in),
+                            "tokens": tokens, "cost": cost, "partial": bool(um), "dispatches": n, "unmeasured": um,
+                            "priced_elsewhere": elsewhere}, **moves_of([k])))
+    n_disp = sum(r["dispatches"] for r in rows) + sum(s["dispatches"] for s in shared)
+    n_um = sum(len(r["unmeasured"]) for r in rows) + sum(len(s["unmeasured"]) for s in shared)
+    costs = [x["cost"] for x in rows + shared if x["cost"] is not None]
+    n_nokey = sum(1 for o in nokey if not isinstance(o.get("ts"), str) or _nc_new_day(o["ts"], win_day))
+    totals = {"rows": len(rows), "accepted": sum(1 for r in rows if r["status"] == "accepted"),
+              "open": sum(1 for r in rows if r["status"] != "accepted"),
+              "unlinked": sum(1 for r in rows if r["kind"] == "task" and not r["_linked"]),
+              "dispatches": n_disp, "measured": n_disp - n_um, "unmeasured": n_um,
+              "tokens": sum(x["tokens"] for x in rows + shared),
+              "cost": sum(costs) if costs else None, "partial": n_um > 0,
+              "moves": sum(x["moves"] for x in rows + shared),
+              "no_node": {"sends": no_node_sends, "delegated": n_nokey},
+              "sessions": sessions, "roles": _nc_roles(disp_list, priced_of)}
+    return rows, shared, totals
+
+
 def node_costs(root, window, projects=None, prices=None) -> dict:
     """The data of `--node-cost` (spec §3.2). Never prints money to a file; prints only the stderr lines of an
     unreadable journal. Raises usage_report.PricesError when the price table is unreadable (E18)."""
@@ -1310,14 +1359,8 @@ def node_costs(root, window, projects=None, prices=None) -> dict:
     prices_file = "given" if prices is not None else "tools/model_prices.json"
     if prices is None:
         prices = usage_report.load_prices()
-    journal = _jk.load_all(Path(root))
+    journal = _nc_journal(root)
     segs = journal.segments
-    if journal.segments_reason:
-        print(f"forge_metrics: the task-key declaration is unreadable ({journal.segments_reason}) -- colliding "
-              "task ids are read as one task", file=sys.stderr)
-    bad = sum(1 for r in journal.rows if r.obj is None)
-    if bad:
-        print(f"forge_metrics: {bad} journal line(s) unreadable", file=sys.stderr)
     win_day = _since(window)[:10]
     warnings = []
 
@@ -1345,36 +1388,11 @@ def node_costs(root, window, projects=None, prices=None) -> dict:
     disp_list += [ev for k in shared_in for ev in tasks[k]["delegated"]]
     disp_list.sort(key=lambda e: e["seq"])
     priced_of, found = _nc_price_all(disp_list, projects, prices, usage_report, transcripts)
-    resumes, ok_aids, no_node_sends, sessions = _nc_moves(tasks, found, win_day, transcripts)
+    moves = _nc_moves(tasks, found, win_day, transcripts) + (transcripts,)
 
-    def moves_of(ks):
-        """resumes, unscanned agents and moves of the tasks `ks` (moves may err HIGH, never silently LOW)."""
-        res = sum(resumes.get(k, 0) for k in ks)
-        return {"resumes": res, "resumes_unscanned": _nc_unscanned(tasks, ks, ok_aids, transcripts),
-                "moves": res + _nc_counts(tasks, ks)[2]}
-
-    rows = [dict(_nc_row(name, ks, tasks, priced_of, defect_count, shared_in), **moves_of(ks))
-            for name, ks in rows_in.items()]
-    rows.sort(key=lambda r: (r["cost"] is None, -(r["cost"] or 0.0), r["row"]))
-    shared = []
-    for k in sorted(shared_in, key=lambda x: tasks[x]["disp"]):
-        tokens, cost, n, um, elsewhere = _nc_money(tasks, priced_of, [k])
-        shared.append(dict({"task": tasks[k]["disp"], "cited_by": sorted(n_ for n_ in shared_in[k] if n_ in rows_in),
-                            "tokens": tokens, "cost": cost, "partial": bool(um), "dispatches": n, "unmeasured": um,
-                            "priced_elsewhere": elsewhere}, **moves_of([k])))
+    rows, shared, totals = _nc_assemble(tasks, rows_in, shared_in, priced_of, defect_count, moves, disp_list,
+                                        (nokey, win_day))
     top = [r["row"] for r in rows if r["status"] == "accepted" and r["cost"] is not None][:TOP_NODES]
-    n_disp = sum(r["dispatches"] for r in rows) + sum(s["dispatches"] for s in shared)
-    n_um = sum(len(r["unmeasured"]) for r in rows) + sum(len(s["unmeasured"]) for s in shared)
-    costs = [x["cost"] for x in rows + shared if x["cost"] is not None]
-    totals = {"rows": len(rows), "accepted": sum(1 for r in rows if r["status"] == "accepted"),
-              "open": sum(1 for r in rows if r["status"] != "accepted"),
-              "unlinked": sum(1 for r in rows if r["kind"] == "task" and not r["_linked"]),
-              "dispatches": n_disp, "measured": n_disp - n_um, "unmeasured": n_um,
-              "tokens": sum(x["tokens"] for x in rows + shared),
-              "cost": sum(costs) if costs else None, "partial": n_um > 0,
-              "moves": sum(x["moves"] for x in rows + shared),
-              "no_node": {"sends": no_node_sends, "delegated": sum(1 for o in nokey if not isinstance(o.get("ts"), str) or _nc_new_day(o["ts"], win_day))},
-              "sessions": sessions, "roles": _nc_roles(disp_list, priced_of)}
     for r in rows:
         del r["_linked"]
     return {"window": window, "prices_as_of": prices.get("as_of"), "prices_file": prices_file,
@@ -1408,7 +1426,7 @@ def render_node_costs(d: dict) -> str:
          "window: since %s; source: %s (tools/transcripts.py); prices: %s as_of %s -- API list "
          "price of the tokens, an estimate, not a bill" % (d["window"], d["source"], d["prices_file"],
                                                            d["prices_as_of"])]
-    if not d["rows"] and not d["shared"]:
+    if not d["rows"] and not d["shared"] and not t["no_node"]["sends"] + t["no_node"]["delegated"]:
         L.append("rows 0; dispatches 0 -- no nodes in the window")
         L += ["", "Top %d accepted nodes by cost: none in the window" % TOP_NODES]
         return "\n".join(L) + "\n"
@@ -1470,7 +1488,7 @@ def render_node_costs(d: dict) -> str:
         L.append("shared (counted once, in no row): " + "; ".join(
             "%s %s cited by %s%s" % (s["task"], _cost_cell(s["cost"], s["partial"]), ", ".join(s["cited_by"]),
                                      ", moves %s%d" % (">= " if s["resumes_unscanned"] else "", s["moves"])
-                                     if s["moves"] else "")
+                                     if s["moves"] or s["resumes_unscanned"] else "")
             for s in d["shared"]))
     return "\n".join(L) + "\n"
 
