@@ -232,6 +232,53 @@ def check_root(root: Path, manifest: dict) -> None:
                       f"driver-golden.yml (.github/workflows/driver-golden.yml), which keeps one path for base and head.")
 
 
+def _bindings(scope, name: str) -> list:
+    """The assignments that bind `name` inside `scope` (any Store of that Name), as the nodes that hold the Store."""
+    return [n for n in ast.walk(scope) if isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Store)]
+
+
+def _plain_names(node):
+    if isinstance(node, ast.List) and all(isinstance(e, ast.Name) for e in node.elts):
+        return [e.id for e in node.elts]
+    return None
+
+
+def _module_list(tree, name: str):
+    """Shape (ii): `name` is bound ONCE in the whole file, at module level, to a list literal of plain names."""
+    if len(_bindings(tree, name)) != 1:
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+                and node.targets[0].id == name:
+            return _plain_names(node.value)
+    return None
+
+
+def _scenario_arg(arg, tree, call):
+    """The scenario names one run_scenarios argument stands for, or None when its shape is not accepted: (i) a list literal of
+    plain names, (ii) a Name bound once at module level to one, (iii) a Name bound once inside the calling function to a list
+    comprehension over a (ii) Name. For (ii) and (iii) the set is the WHOLE module list: a golden records every scenario."""
+    direct = _plain_names(arg)
+    if direct is not None:
+        return direct
+    if not isinstance(arg, ast.Name):
+        return None
+    whole = _module_list(tree, arg.id)
+    if whole is not None:
+        return whole
+    for func in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+        if not any(n is call for n in ast.walk(func)):
+            continue
+        if len(_bindings(tree, arg.id)) != 1:
+            return None
+        for node in ast.walk(func):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+                    and node.targets[0].id == arg.id and isinstance(node.value, ast.ListComp) \
+                    and len(node.value.generators) == 1 and isinstance(node.value.generators[0].iter, ast.Name):
+                return _module_list(tree, node.value.generators[0].iter.id)
+    return None
+
+
 def discover(root: Path, rules: dict) -> dict:
     """{test file name: {"kind": "rig"|"outside", "side": [...], "inproc": [...], "default": tag}} - the units the golden
     records, found by reading each file's `run_scenarios(...)` call with `ast` (a count printed later must equal it)."""
@@ -249,11 +296,13 @@ def discover(root: Path, rules: dict) -> dict:
                           f"{len(calls)}; the golden reads the scenario names from it.")
         lists = []
         for arg in calls[0].args:
-            if not isinstance(arg, ast.List) or not all(isinstance(e, ast.Name) for e in arg.elts):
-                raise Refusal(f"{path.name}: run_scenarios must be given two list literals of plain function names; "
-                              f"found something else, so the scenario names cannot be discovered. Expected "
-                              f"`run_scenarios([a, b], [c])`.")
-            lists.append([e.id for e in arg.elts])
+            names_of = _scenario_arg(arg, tree, calls[0])
+            if names_of is None:
+                raise Refusal(f"{path.name}: run_scenarios must be given, for each of its two arguments, (i) a list literal of "
+                              f"plain function names, (ii) a name bound once at module level to such a list, or (iii) a name "
+                              f"bound once in the calling function to a list comprehension over a (ii) name; found something "
+                              f"else, so the scenario names cannot be discovered. Expected `run_scenarios([a, b], [c])`.")
+            lists.append(names_of)
         names = lists[0] + lists[1]
         if len(set(names)) != len(names):
             raise Refusal(f"{path.name}: a scenario name appears twice in run_scenarios; a scenario is identified by "
