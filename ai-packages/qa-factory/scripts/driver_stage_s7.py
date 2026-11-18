@@ -43,6 +43,10 @@ class DriverStageS7:
             reasons.append(f"{len(nameless)} failed result row(s) with no id")
         if targets["results"] and not int(totals.get("failed") or 0):
             reasons.append("failed results " + ",".join(sorted(targets["results"])))
+        # U7 7b-A: a coded `report_unread` row is a target the analyst reads from the log; reasons are never "" over one, so
+        # `stage_S7` cannot close by code over it (an `unread` target is no `s7.no_failures`)
+        if targets["unread"]:
+            reasons.append("results the run could not read " + ",".join(sorted(targets["unread"])))
         manifest = _read_json(self.task_root / "work/automation-manifest.json")
         if "contradicts_requirement" in json.dumps(manifest.get("unresolved") or []):
             reasons.append("contradicts_requirement rows")
@@ -91,7 +95,7 @@ class DriverStageS7:
             # a manual `inconclusive` whose own record says what stopped it; a red test is never pre-judged). POSITION
             # INVARIANT: after the entry refusal of `failures_to_triage` (a run that halted - `broken_run`, `timeout`,
             # `env_blocked` - or a `not_executed` with neither an S6 code-only receipt nor a target a role can triage
-            # (`s7_pretriage.triageable_not_executed`) is never triaged, so no row is written over one) and before the analyst's dispatch (an analyst row is never written over, and the analyst
+            # (`s7_pretriage.triageable_not_executed`: a manual target, an observation or an `unread` target) is never triaged, so no row is written over one) and before the analyst's dispatch (an analyst row is never written over, and the analyst
             # is never asked about a failure code answered). It runs on EVERY entry, so a row the analyst dropped is
             # restored; it does not run while an S7 dispatch is in flight (the analyst writes the same file). A pre-triage
             # that cannot run is one printed line and the analyst triages everything, as before (P1).
@@ -122,11 +126,12 @@ class DriverStageS7:
                 return
             left = pre.get("left") or {}
             told = [f"Failures to triage: {reasons}"]
-            if pre.get("kept") and (left.get("results") or left.get("manual") or left.get("unnamed")):
+            if pre.get("kept") and (left.get("results") or left.get("manual") or left.get("unread") or left.get("unnamed")):
                 # only the failures code left to the analyst are named, and the rows code wrote are named once, so the
                 # analyst keeps them (they are listed under `not_for_repair` like any other row) or replaces one (Q10, Q11)
                 told = ["Failures to triage: " + s7_pretriage.brief(
-                            [("result", n) for n in left["results"]] + [("manual", n) for n in left["manual"]],
+                            [("result", n) for n in left["results"]] + [("manual", n) for n in left["manual"]]
+                            + [("unread", n) for n in left.get("unread") or []],
                             left["unnamed"], bool(pre.get("contradicted"))),
                         "Rows already written by code (keep them; you may replace one with your own): "
                         + ", ".join(pre["kept"])]

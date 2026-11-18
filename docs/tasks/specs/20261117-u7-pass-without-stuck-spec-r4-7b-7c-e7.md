@@ -80,6 +80,10 @@ Amendments (ids of verdict t-1272):
   parenthetical for `check_delivery.py` gains `assess` (the union into `excused` happens at that call site).
 - **F5 addendum (section 8).** `report_facts.EXECUTION_OUTCOME_STATES`: unchanged (`not_executed:report_unread` is
   `after_checks` and gives no reason text there).
+- **N11 (7b-B; critic t-1293 Q1, taken 18.11.2026).** In `ledger.py::test_state`, on a row that `C.is_unread_row`, a bound
+  verdict `FLAKY` with `fix_result: fixed` reads `not_verified_flaky`, not `passed_green`: its re-runs were unread too.
+  INVARIANT: no branch of `test_state` reads green for a row whose result code never read. One entry in the
+  `test_ledger.py` test-state table.
 - **F-r4-1 residual.** Section 7 gains a live row beside L6: a `reporter: none` run with a failing test and exit != 0 - today's
   halt and the conductor; if a live run shows it, a node for option (b) is opened in U8.
 

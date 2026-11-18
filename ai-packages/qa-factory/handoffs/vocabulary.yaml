@@ -95,7 +95,7 @@ row_states:
   APP_CHANGED: {restricted_to: [qa-failure-analyst], meaning: the product changed under the test on purpose}
   CASE_DEFECT: {restricted_to: [qa-failure-analyst], meaning: the approved case itself is wrong}
   ASSERT_STRICTER: {restricted_to: [qa-failure-analyst], meaning: "the same action without the change under test shows the same value, and the requirement does not ask what the assert asks; the person decides"}
-  NOT_EXECUTED: {restricted_to: [qa-failure-analyst], meaning: "the check did not answer; code writes it at S7 for a manual check whose own record says what stopped it"}
+  NOT_EXECUTED: {restricted_to: [qa-failure-analyst], meaning: "the check did not answer: code writes it at S7 for a manual check whose own record says what stopped it; the analyst writes it for a test whose results the run could not read, quoting the log"}
   RUNNER_MISREAD_EVIDENCE: {restricted_to: [qa-failure-analyst], meaning: "the manual runner's verdict contradicts the text its own attempt captured; the runner judges the same captures again, no bug"}
   NO_DEFECT: {restricted_to: [qa-failure-analyst], meaning: "a manual runner's observation or recorder surprise (<case>#obs<n>, <case>#sur-<id>) judged not a bug, the reason quoting the recorded evidence; never on a failed Then"}
 
