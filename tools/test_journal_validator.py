@@ -669,6 +669,61 @@ def test_matrix_warns_on_a_passed_line(cfg, agent, by, basis, delegated, expect)
     assert got == expect, warns
 
 
+# ---- FG7-22: a verdict written before the worker returned (WARN only; matrix_warnings -> returned_order_warnings) ----
+RET_NOW = jv.datetime.datetime(2026, 11, 18, 12, 0, 0)
+D, R, A, X = "delegated", "returned", "accepted", "rejected"
+
+
+def _ret_line(n, ev, tid, agent="builder", ref="agent:a1", ts=None, **kw):
+    ts = ts or f"2026-11-17T10:{n:02d}:00"
+    if ev == A:
+        kw.setdefault("by", "opus")
+        kw.setdefault("witness", "pytest -q: 3 passed")
+    if ev == X:
+        kw.update(by="opus", attempt=1, failure_class="spec")
+    if ev == R:
+        kw.update(via="hook")
+    return _line(event=ev, ts=ts, agent=agent, model="opus", task_id=tid, worker_ref=ref, notes="n", **kw)
+
+
+# (id, [(event, task, agent, ref, extra)], expected number of WARNs, texts every WARN holds)
+RETURN_ROWS = [
+    ("accept-before-return", [(D, "t-002", "builder", "agent:a1", {}), (A, "t-002", "builder", "agent:a1", {})], 1,
+     ["agent:a1 (builder)", "t-002", "accepted before the worker returned"]),
+    ("returned-then-accept", [(D, "t-002", "builder", "agent:a1", {}), (R, "t-002", "builder", "agent:a1", {}),
+                              (A, "t-002", "builder", "agent:a1", {})], 0, []),
+    ("pre-era-delegated", [(D, "t-002", "builder", "agent:a1", {"ts": "2026-11-16T22:00:00"}),
+                           (A, "t-002", "builder", "agent:a1", {"ts": "2026-11-17T10:30:00"})], 0, []),
+    ("other-returned", [(D, "t-002", "builder", "agent:a1", {}), (D, "t-003", "builder", "agent:a2", {}),
+                        (R, "t-003", "builder", "agent:a2", {}),
+                        (A, "t-002", "builder", "agent:a1", {})], 1, ["agent:a1 (builder)"]),
+    ("critic-entry-running", [(D, "t-002", "builder", "agent:a1", {}), (R, "t-002", "builder", "agent:a1", {}),
+                              (D, "t-002", "critic", "agent:c1", {}), (A, "t-002", "builder", "agent:a1", {})], 1,
+     ["agent:c1 (critic)"]),
+    ("superseded-retry", [(D, "t-002", "builder", "agent:a1", {}), (X, "t-002", "builder", "agent:a1", {}),
+                          (D, "t-002", "builder", "agent:a2", {"attempt": 2}), (R, "t-002", "builder", "agent:a2", {}),
+                          (A, "t-002", "builder", "agent:a2", {})], 1, ["rejected before the worker returned"]),  # only the rejected warns; the accepted is silent
+    ("batch", [(D, "t-002", "builder", "agent:a1", {}), (D, "t-003", "builder", "agent:a2", {}),
+               (A, "t-002", "builder", "agent:a1", {}), (R, "t-003", "builder", "agent:a2", {}),
+               (A, "t-003", "builder", "agent:a2", {})], 1, ["t-002"]),
+    ("rejected-before-return", [(D, "t-002", "builder", "agent:a1", {}), (X, "t-002", "builder", "agent:a1", {})], 1,
+     ["rejected before the worker returned"]),
+    ("cli-ref-and-broken-head", [(D, "t-002", "builder", "cli:x", {}), (A, "t-002", "builder", "cli:x", {})], 0, []),
+]
+
+
+@pytest.mark.parametrize("rid,rows,count,holds", RETURN_ROWS, ids=[r[0] for r in RETURN_ROWS])
+def test_verdict_before_returned_warns(rid, rows, count, holds):
+    new = [_ret_line(i + 1, ev, tid, agent, ref, **extra) for i, (ev, tid, agent, ref, extra) in enumerate(rows)]
+    head = HEAD_TEXT + ("not json at all\n" if rid.startswith("cli-ref") else "")
+    code, violations, warns = jv.decide_with_warnings(head + "".join(l + "\n" for l in new), head, RET_NOW, known=set(),
+                                                      config_text=CFG_TODAY)
+    assert code == 0, violations
+    got = [w for w in warns if "before the worker returned" in w]
+    assert len(got) == count, warns
+    assert all(h in w for w in got for h in holds), got
+
+
 # ---- the config is read from the ROOT of the repo being validated; absent -> defaults; unreadable -> ONE stderr WARN ----
 
 def _opus_critic_bare():
