@@ -1045,6 +1045,7 @@ D13_TRIPLES = [
     ("environment_preparation.py", "_facts", "environment_preparation"),
     ("environment_preparation.py", "_run_step", "provenance_acceptance"),
     ("execution_fingerprint.py", "build", "provenance_acceptance"),
+    ("execution_request.py", "same_instance_bytes", "test_identity"),   # RD1-33 S1 (t-1393): one measure comparison, the budget side (E1-5)
     ("execution_request.py", "validate_request", "provenance_acceptance"),
     ("exploratory_findings.py", "<module>", "exploratory_oracle"),
     ("exploratory_findings.py", "append", "exploratory_oracle"),
@@ -1088,9 +1089,14 @@ D13_TRIPLES = [
     ("proof_level.py", "_evaluate", "test_identity"),      # C3-b2 (t-1080): `how in ('instance_code', 'file_code')`, the over-comments display flag, allowed
     ("proof_level.py", "_run_freshness", "test_identity"),  # C3-b2 (t-1080): the two `('unknown', ...)` state returns, allowed (F-T1 (a) word `unknown`)
     ("proof_level.py", "already_probed", "test_identity"),
+    ("proof_level.py", "compare_identity", "test_identity"),   # RD1-33 S1 (t-1393): the returned tuple displays (F6 a, produce)
+    ("proof_level.py", "held_words", "test_identity"),         # RD1-33 S1: the display words of `how` (dispatch)
     ("proof_level.py", "novelty_of", "live_check_demand"),
     ("proof_level.py", "probe_found_defect", "probe_verdict"),    # RD1-28 (t-1342): the repeat refusal, one literal comparison of the row's mismatched words
+    ("proof_level.py", "probe_judged", "probe_verdict"),          # RD1-33 S1 (t-1393): the one reader of the judged set (F1 a)
+    ("proof_level.py", "probe_record_state", "probe_verdict"),    # RD1-33 S1: the state words it produces (produce)
     ("proof_level.py", "same_test", "test_identity"),      # C3-b2 (t-1080): `verdict == 'same'` counts once the row's words gain `same`; `same_test` is a produce site
+    ("proof_level.py", "tooling_gap_key", "probe_verdict"),   # RD1-33 S1: the literal `not_executed` / `incomplete` of the tooling-gap key (E1-4)
     ("red_sandbox.py", "product_verdict", "probe_verdict"),    # RD1-28 (t-1342): `proof['verdict'] == 'probe_defect'`, the second producer
     ("run_history.py", "_compare_shas", "test_identity"),   # RD1-26 (t-1309): the returned unknown tuple (allowed), a state returned to the caller
     ("run_suite.py", "build_run_block", "equivalence_metric"),
@@ -1166,7 +1172,12 @@ D13_TRIPLES = [
 # `target_kind == 'local_source'` copies in `validate_request`, `_provenance_errors`, `validate_manual_current` twice, and
 # `no_changed_file`'s `reason_code == NO_CHANGED_FILE`), plus the new sites: `provenance_word` (produce, four declared-word
 # comparisons) and `local_source_request` (validate, one); triples added: those two. The row is debt, so all are allowed.
-D13_ITEM_COUNT = 170
+# 170 -> 184 (RD1-33 S1, t-1393, AR-20; measured with GR.analyse before (170 / 63 triples) and after (184 / 69); card estimate +13 / +6, measured
+# +14 / +6, the one extra is `probe_record_state` counting 5 not 4: `verdict == 'incomplete'`, `verdict in ('not_executed', 'incomplete')`,
+# `state == 'incomplete'`, `state == 'not_executed'` and `state in ('not_executed', 'incomplete')`). The rows `probe_verdict` and `test_identity`
+# gain sites; no allow entry. Items: probe_judged 1, tooling_gap_key 1, probe_record_state 5, held_words 2, compare_identity 4 (returned
+# tuples), same_instance_bytes 1. Missing: none.
+D13_ITEM_COUNT = 184
 
 
 def part_site_attribution() -> None:
