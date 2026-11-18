@@ -766,12 +766,73 @@ def _listing_ok(layers: dict, selected: list, once: bool) -> bool:
         for name in sorted(keep):
             if not (TESTS_DIR / name).is_file():
                 ok = check(f"tests: keep row names no file: {name}", False) and ok
+        problems, outside = named_by_problems(keep)
+        for problem in problems:
+            ok = check(f"tests: named_by: {problem}", False) and ok
+        if outside:
+            check(f"tests: named_by: {len(outside)} entr(ies) name a file outside this package, not checked here (the forge checks them)", True)
     if keep:
         listed = set(keep) | set(layers["quarantine"]) | set(layers["pin_holds"])
         for f in selected:
             if f.name not in listed:
                 ok = check(f"tests: unlisted: {f.name} -- {_UNLISTED_DOOR}", False) and ok
     return ok
+
+
+_NAMED_BY_DOOR = "write the carrier path; a test-file census as <path>::<symbol>; no line numbers"
+_NAMED_BY_SYMBOL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _named_by_form(entry) -> str:
+    """The reason an entry breaks the form (`<rel>` or `<rel>::<symbol>`, symbol only on scripts/tests/test_*.py), else ''."""
+    if not isinstance(entry, str) or not entry:
+        return "not a non-empty string"
+    rel, sep, symbol = entry.partition("::")
+    if sep and not _NAMED_BY_SYMBOL.fullmatch(symbol):
+        return "an empty or non-identifier symbol"
+    if (not rel or rel.startswith("/") or "\\" in rel or re.match(r"[A-Za-z]:", rel) or ".." in rel.split("/")
+            or re.search(r":\d+$", rel)):
+        return "not a relative `/` path without a line number"
+    if sep and not re.fullmatch(r"scripts/tests/test_[A-Za-z0-9_]+\.py", rel):
+        return "a symbol is allowed on scripts/tests/test_*.py only"
+    return ""
+
+
+def named_by_problems(keep: dict, extra: dict | None = None) -> tuple[list[str], list[str]]:
+    """(problems, outside) for the `named_by` entries of every keep row (FG7-81): the carrier names the key as a bounded token,
+    or holds the `::symbol` of a test-file census. Entries outside the package (docs/...) are returned in `outside` for the
+    forge to check, unless `extra` (path -> text) carries them. Never called from test_layers: a stale entry must not stop
+    the gate that reads the file."""
+    problems, outside = [], []
+    for key in sorted(keep):
+        entries = keep[key].get("named_by") if isinstance(keep[key], dict) else None
+        if entries is None:
+            continue
+        if not isinstance(entries, list):
+            problems.append(f"{key}: named_by is not a list")
+            continue
+        for entry in sorted(entries, key=str):
+            why = _named_by_form(entry)
+            if why:
+                problems.append(f"{key} -> {entry!r}: {why}; {_NAMED_BY_DOOR}")
+                continue
+            rel, _, symbol = entry.partition("::")
+            carrier = PLUGIN_ROOT / rel
+            if carrier.is_file():
+                try:
+                    text = carrier.read_text(encoding="utf-8", errors="replace")
+                except OSError as exc:
+                    problems.append(f"{key} -> {entry}: the carrier cannot be read ({type(exc).__name__})")
+                    continue
+            elif extra and rel in extra:
+                text = extra[rel]
+            else:
+                outside.append(entry)
+                continue
+            word = symbol or key
+            if not re.search(r"(?<![A-Za-z0-9_])" + re.escape(word) + r"(?![A-Za-z0-9_])", text):
+                problems.append(f"{key} -> {entry}: the carrier does not name {word}")
+    return problems, outside
 
 
 def _head_sha() -> str:

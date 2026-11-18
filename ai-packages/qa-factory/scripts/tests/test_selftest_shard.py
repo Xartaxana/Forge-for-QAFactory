@@ -304,6 +304,21 @@ def layers_cli_cases(root: Path) -> None:
         check(f"layers: enforce_listing, {label}: one FAIL line, the files still run, exit 1",
               p.stdout.count("FAIL " + want) == 1 and "unlisted:" not in p.stdout and p.returncode == 1
               and len(ran_names(p.stdout)) == 2, p.stdout)
+    carrier, tdir = "scripts/tests/carrier.md", "scripts/tests/"
+    for label, entries, bodies, fails, note in (          # FG7-81: the carrier of a named_by entry names the key (2.1, 2.2)
+            ("carrier names only a longer name", [carrier], {"carrier.md": "xtest_det.py test_det_part.py\n"}, 1, False),
+            ("a line number", [carrier + ":3"], {"carrier.md": "x\ntest_det.py\n"}, 1, False),
+            ("symbol in the file", [tdir + "test_det.py::MARK"], {"test_det.py": "MARK = 1\n"}, 0, False),
+            ("symbol missing from the file", [tdir + "test_det.py::MARK"], {"test_det.py": "NO_MARK = 1\n"}, 1, False),
+            ("symbol on a prose carrier", [carrier + "::MARK"], {"carrier.md": "MARK test_det.py\n"}, 1, False),
+            ("outside and control", ["docs/OUT.md", carrier], {"carrier.md": "test_det.py\n"}, 0, True)):
+        doc3 = layers_doc(four[:2], [])
+        doc3["keep"]["test_det.py"]["named_by"] = entries
+        p = cli(["--tests", "--jobs", "1"], root, "lay7", tests=four[:2], layers=doc3, bodies=bodies)
+        check(f"layers: named_by, {label}: {fails} FAIL line(s), the outside note {'once' if note else 'absent'}, files run, exit {int(bool(fails))}",
+              p.stdout.count("FAIL tests: named_by:") == fails and p.returncode == int(bool(fails)) and len(ran_names(p.stdout)) == 2
+              and p.stdout.count("name a file outside this package") == int(note)
+              and (fails == 0 or label != "a line number" or "no line numbers" in p.stdout), p.stdout)
     pinned = layers_doc(["test_keep.py"], [])
     pinned["pin_holds"] = {"test_pin.py": "role pin"}
     p = cli(["--tests", "--jobs", "1"], root, "lay5", tests=["test_keep.py", "test_pin.py"], layers=pinned)

@@ -44,9 +44,8 @@
    "layer": "detector",
    "why": "AR-1/AR-2 detector; SIBLING_MAP axes",
    "named_by": [
-    "design/architecture.md:51",
-    "docs/SIBLING_MAP.md:240",
-    "docs/SIBLING_MAP.md:278"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -104,7 +103,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (the awaiting state of a story held for code and its archive exit)",
    "named_by": [
-    "design/state-exits.md:73"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -124,7 +123,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:132"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -153,8 +152,8 @@
    "layer": "detector",
    "why": "AR-1/AR-2 detector; SIBLING_MAP probe-language axis",
    "named_by": [
-    "design/architecture.md:51",
-    "docs/SIBLING_MAP.md:148"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -229,7 +228,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:35"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -295,8 +294,8 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md; FR-57 proof of refusal registry row(s) PT-plugin-read",
    "named_by": [
-    "design/state-exits.md:57",
-    "scripts/refusal_registry.py:490"
+    "design/state-exits.md",
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -383,10 +382,8 @@
    "layer": "detector",
    "why": "AR-27 detector; SIBLING_MAP bug-records axis",
    "named_by": [
-    "design/architecture.md:164",
-    "design/architecture.md:270",
-    "docs/SIBLING_MAP.md:154",
-    "docs/SIBLING_MAP.md:221"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -444,7 +441,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP: shrink-only census BARE_LINK_READERS",
    "named_by": [
-    "docs/SIBLING_MAP.md:189"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -473,7 +470,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) PT-case-store",
    "named_by": [
-    "scripts/refusal_registry.py:383"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -488,7 +485,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:56"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -606,7 +603,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SG-ambiguous-task, SG-explicit-no-story",
    "named_by": [
-    "scripts/refusal_registry.py:174"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -637,9 +634,8 @@
    "layer": "detector",
    "why": "AR-5 detector; SIBLING_MAP axis 19",
    "named_by": [
-    "design/architecture.md:79",
-    "design/architecture.md:164",
-    "docs/SIBLING_MAP.md:403"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -729,7 +725,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) CS-conductor-wake",
    "named_by": [
-    "scripts/refusal_registry.py:684"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -748,8 +744,7 @@
    "layer": "detector",
    "why": "sole AR-3 detector (config migration)",
    "named_by": [
-    "design/architecture.md:65",
-    "design/architecture.md:67"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -774,7 +769,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP config axis: K-G1 unclassified key",
    "named_by": [
-    "docs/SIBLING_MAP.md:188"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -885,7 +880,7 @@
    "layer": "detector",
    "why": "AR-9 detector: controller blocks against the source both ways",
    "named_by": [
-    "design/architecture.md:109"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -945,8 +940,8 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md; FR-57 proof of refusal registry row(s) CTRL-decision",
    "named_by": [
-    "design/state-exits.md:22",
-    "scripts/refusal_registry.py:701"
+    "design/state-exits.md",
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -970,7 +965,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:32"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -996,7 +991,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_controller_rework.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:32"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1022,7 +1017,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_controller_rework.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:32"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1048,7 +1043,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_controller_rework.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:32"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1074,7 +1069,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:42"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1096,8 +1091,8 @@
    "layer": "detector",
    "why": "AR-25 detector (one of two)",
    "named_by": [
-    "design/architecture.md:256",
-    "docs/SIBLING_MAP.md:125"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1125,7 +1120,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP detector (task-root flag)",
    "named_by": [
-    "docs/SIBLING_MAP.md:220"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1154,7 +1149,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP money axis detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:337"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1167,7 +1162,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP money axis detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:339"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1186,7 +1181,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP money axis detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:338"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1226,7 +1221,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP money axis detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:337"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1245,7 +1240,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:100"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1290,8 +1285,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP dispatch identity detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:573",
-    "docs/SIBLING_MAP.md:577"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1325,7 +1319,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP axis 22 detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:425"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1342,7 +1336,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) PT-doctor-probe",
    "named_by": [
-    "scripts/refusal_registry.py:563"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -1357,7 +1351,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SG-probe-evidence, SG-probe-role",
    "named_by": [
-    "scripts/refusal_registry.py:156"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -1375,7 +1369,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:26"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1429,7 +1423,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP jsonl-row axis member",
    "named_by": [
-    "docs/SIBLING_MAP.md:455"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1470,7 +1464,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:63"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1549,7 +1543,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:55"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1562,8 +1556,8 @@
    "layer": "detector",
    "why": "AR-18 detector; SIBLING_MAP exit-gate axis",
    "named_by": [
-    "design/architecture.md:199",
-    "docs/SIBLING_MAP.md:378"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1580,7 +1574,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) EG-text-end",
    "named_by": [
-    "scripts/refusal_registry.py:674"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -1596,7 +1590,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:221"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1618,7 +1612,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SG-explore-both, SG-explore-missing, SG-explore-name, SG-explore-role and more",
    "named_by": [
-    "scripts/refusal_registry.py:192"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -1669,7 +1663,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:199"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1791,8 +1785,8 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) PT-artifact-rewrite, PT-plan-md-rewrite, PT-plan-rewrite; also named by docs/SIBLING_MAP.md",
    "named_by": [
-    "scripts/refusal_registry.py:401",
-    "docs/SIBLING_MAP.md:402"
+    "scripts/refusal_registry.py",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1816,7 +1810,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) EG-s3-requests",
    "named_by": [
-    "scripts/refusal_registry.py:664"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -1832,7 +1826,7 @@
    "layer": "detector",
    "why": "AR-12 detector (friction)",
    "named_by": [
-    "design/architecture.md:130"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -1922,7 +1916,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SG-gate-ordered",
    "named_by": [
-    "scripts/refusal_registry.py:283"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -1999,9 +1993,6 @@
   "test_gate_preflight_question_status.py": {
    "layer": "data_join",
    "why": "gate A reads a question's answer from the question register (the join gate_preflight.check_open_questions <-> question_register.matches, shared with gate_brief.still_open; the first row of an id owns the answer)",
-   "named_by": [
-    "design/architecture.md:161"
-   ],
    "replaced_by": null,
    "covers": [
     "gate_brief.py",
@@ -2015,7 +2006,7 @@
    "layer": "detector",
    "why": "AR-16 detector (one question form)",
    "named_by": [
-    "design/architecture.md:185"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2109,7 +2100,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) GS-gate-message-shown",
    "named_by": [
-    "scripts/refusal_registry.py:694"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -2125,7 +2116,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) CTRL-decision, CTRL-dispatch, SG-stage-rules",
    "named_by": [
-    "scripts/refusal_registry.py:247"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -2184,7 +2175,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) PT-big-read",
    "named_by": [
-    "scripts/refusal_registry.py:366"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -2209,7 +2200,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP command-guard axis detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:278"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2227,7 +2218,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) PT-handoff-code-file, PT-handoff-edit-pending, PT-handoff-rewrite, PT-handoff-values and more",
    "named_by": [
-    "scripts/refusal_registry.py:355"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -2261,8 +2252,8 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md; FR-57 proof of refusal registry row(s) PT-window-file",
    "named_by": [
-    "design/state-exits.md:52",
-    "scripts/refusal_registry.py:471"
+    "design/state-exits.md",
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -2296,7 +2287,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:90"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2350,7 +2341,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:114"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2366,7 +2357,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_handoff_values.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:125"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2399,7 +2390,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_handoff_values.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:125"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2432,7 +2423,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_handoff_values.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:125"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2465,7 +2456,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) PT-big-read, PT-git-config, PT-human-word, PT-manifest-shrink and more",
    "named_by": [
-    "scripts/refusal_registry.py:337"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -2481,7 +2472,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP jsonl appender axis detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:455"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2493,8 +2484,8 @@
    "layer": "detector",
    "why": "SIBLING_MAP command-guard axis detector",
    "named_by": [
-    "design/architecture.md:178",
-    "docs/SIBLING_MAP.md:278"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2523,7 +2514,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP axis 22 detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:425"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2758,7 +2749,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP install axis member",
    "named_by": [
-    "docs/SIBLING_MAP.md:76"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2800,7 +2791,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:199"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2847,7 +2838,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:104"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2881,7 +2872,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP line-break axis: LE-8 mutation guard",
    "named_by": [
-    "docs/SIBLING_MAP.md:190"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2936,7 +2927,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:80"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2964,7 +2955,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:67"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -2992,7 +2983,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:89"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3007,7 +2998,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:87"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3027,7 +3018,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:69"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3059,7 +3050,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:69"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3109,7 +3100,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SS-needs-author",
    "named_by": [
-    "scripts/refusal_registry.py:593"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -3160,8 +3151,8 @@
    "layer": "detector",
    "why": "AR-17 detector: no-move seam (part of test_no_move_seam.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:192",
-    "docs/SIBLING_MAP.md:123"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3200,8 +3191,8 @@
    "layer": "detector",
    "why": "AR-17 detector: no-move seam (part of test_no_move_seam.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:192",
-    "docs/SIBLING_MAP.md:123"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3240,8 +3231,8 @@
    "layer": "detector",
    "why": "AR-17 detector: no-move seam (part of test_no_move_seam.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:192",
-    "docs/SIBLING_MAP.md:123"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3280,8 +3271,8 @@
    "layer": "detector",
    "why": "AR-17 detector: no-move seam (part of test_no_move_seam.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:192",
-    "docs/SIBLING_MAP.md:123"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3320,8 +3311,8 @@
    "layer": "detector",
    "why": "AR-17 detector: no-move seam (part of test_no_move_seam.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:192",
-    "docs/SIBLING_MAP.md:123"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3360,7 +3351,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:183"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3448,7 +3439,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:81"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3464,7 +3455,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) ON-close-first-reader",
    "named_by": [
-    "scripts/refusal_registry.py:795"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -3494,7 +3485,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP onboarding axis (doc keys)",
    "named_by": [
-    "docs/SIBLING_MAP.md:153"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3661,7 +3652,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:80"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3834,7 +3825,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:106"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -3993,7 +3984,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:84"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4023,7 +4014,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:85"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4058,7 +4049,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:85"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4176,8 +4167,8 @@
    "layer": "detector",
    "why": "AR-20 ratchet in the file; SIBLING_MAP profile-commands reader census",
    "named_by": [
-    "docs/SIBLING_MAP.md:459",
-    "scripts/tests/test_profile_reader.py:565"
+    "docs/SIBLING_MAP.md",
+    "scripts/tests/test_profile_reader.py::CENSUS_EXEMPT"
    ],
    "replaced_by": null,
    "covers": [
@@ -4208,7 +4199,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP axis 21 detector (table cell reader)",
    "named_by": [
-    "docs/SIBLING_MAP.md:413"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4276,8 +4267,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md: the registry of assumptions (provisional[])",
    "named_by": [
-    "design/state-exits.md:95",
-    "design/state-exits.md:96"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4292,9 +4282,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP test-path axes detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:143",
-    "docs/SIBLING_MAP.md:240",
-    "docs/SIBLING_MAP.md:278"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4316,7 +4304,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) PT-external-writes",
    "named_by": [
-    "scripts/refusal_registry.py:477"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -4357,8 +4345,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:140",
-    "design/state-exits.md:141"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4427,7 +4414,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:192"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4493,7 +4480,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:36"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4517,7 +4504,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:61"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4532,7 +4519,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:100"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4673,7 +4660,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:33"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4689,7 +4676,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SG-resume-stopped",
    "named_by": [
-    "scripts/refusal_registry.py:129"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -4707,8 +4694,8 @@
    "layer": "detector",
    "why": "AR-5 detector; SIBLING_MAP axis 20",
    "named_by": [
-    "design/architecture.md:79",
-    "docs/SIBLING_MAP.md:409"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4724,7 +4711,7 @@
    "layer": "detector",
    "why": "AR-12 detector (retro numbers)",
    "named_by": [
-    "design/architecture.md:130"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4767,7 +4754,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) EG-digest-form",
    "named_by": [
-    "scripts/refusal_registry.py:527"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -4800,7 +4787,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP command-guard axis detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:278"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4868,7 +4855,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:142"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4892,7 +4879,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SD-managed-stage",
    "named_by": [
-    "scripts/refusal_registry.py:785"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -4932,8 +4919,8 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md; FR-57 proof of refusal registry row(s) CTRL-s5-grown-close, CTRL-s5-plan-accept",
    "named_by": [
-    "design/state-exits.md:50",
-    "scripts/refusal_registry.py:621"
+    "design/state-exits.md",
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -4953,7 +4940,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:23"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -4987,8 +4974,8 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md; FR-57 proof of refusal registry row(s) CTRL-s5-plan-accept, CTRL-s5-plan-order, EG-s5-plan-outputs",
    "named_by": [
-    "design/state-exits.md:44",
-    "scripts/refusal_registry.py:608"
+    "design/state-exits.md",
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -5020,8 +5007,8 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md; FR-57 proof of refusal registry row(s) CTRL-s5-plan-order",
    "named_by": [
-    "design/state-exits.md:49",
-    "scripts/refusal_registry.py:608"
+    "design/state-exits.md",
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -5094,7 +5081,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:25"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5128,7 +5115,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:30"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5194,7 +5181,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:37"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5326,7 +5313,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:38"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5381,7 +5368,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:58"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5456,7 +5443,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP onboarding axis detector (oh1_10)",
    "named_by": [
-    "docs/SIBLING_MAP.md:153"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5472,7 +5459,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SD-stage-close",
    "named_by": [
-    "scripts/refusal_registry.py:774"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -5491,7 +5478,7 @@
    "layer": "detector",
    "why": "shrink-only ratchet NO_CARD in the file (AR-20)",
    "named_by": [
-    "scripts/tests/test_stage_cards.py:39"
+    "scripts/tests/test_stage_cards.py::NO_CARD"
    ],
    "replaced_by": null,
    "covers": [
@@ -5508,7 +5495,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:41"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5671,7 +5658,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SG-role-stage-unset",
    "named_by": [
-    "scripts/refusal_registry.py:235"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -5698,7 +5685,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:90"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5714,7 +5701,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP test-path axis member",
    "named_by": [
-    "docs/SIBLING_MAP.md:143"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5750,7 +5737,7 @@
    "layer": "detector",
    "why": "factory-rules.md names it (stand lease rule)",
    "named_by": [
-    "design/factory-rules.md:432"
+    "design/factory-rules.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5763,7 +5750,7 @@
    "layer": "detector",
    "why": "AR-25 detector: projection states both directions",
    "named_by": [
-    "design/architecture.md:256"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5787,8 +5774,8 @@
    "layer": "detector",
    "why": "AR-4 and AR-20 detector; owns the env-facts-baseline.json ratchet",
    "named_by": [
-    "design/architecture.md:72",
-    "docs/SIBLING_MAP.md:217"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5805,7 +5792,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:33"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -5931,7 +5918,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:176"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -6102,7 +6089,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_story_run_loop_b.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:57"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -6148,7 +6135,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_story_run_loop_b.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:57"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -6193,7 +6180,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_story_run_loop_b.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:57"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -6238,8 +6225,8 @@
    "layer": "detector",
    "why": "AR-4 detector (a git top above the project)",
    "named_by": [
-    "design/architecture.md:72",
-    "docs/SIBLING_MAP.md:259"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -6283,8 +6270,7 @@
    "layer": "detector",
    "why": "its census of controller actions vs story_run branches (AR-25); the file leaves in phase 2 when the census is extracted (part of test_story_run_refusals.py split, TD-11c)",
    "named_by": [
-    "scripts/tests/test_story_run_refusals_core.py:472",
-    "scripts/tests/test_story_run_refusals_core.py:475"
+    "scripts/tests/test_story_run_refusals_core.py::refusal_every_action_has_a_move"
    ],
    "replaced_by": null,
    "covers": [
@@ -6333,8 +6319,7 @@
    "layer": "detector",
    "why": "its census of controller actions vs story_run branches (AR-25); the file leaves in phase 2 when the census is extracted (part of test_story_run_refusals.py split, TD-11c)",
    "named_by": [
-    "scripts/tests/test_story_run_refusals_core.py:472",
-    "scripts/tests/test_story_run_refusals_core.py:475"
+    "scripts/tests/test_story_run_refusals_core.py::refusal_every_action_has_a_move"
    ],
    "replaced_by": null,
    "covers": [
@@ -6383,8 +6368,7 @@
    "layer": "detector",
    "why": "its census of controller actions vs story_run branches (AR-25); the file leaves in phase 2 when the census is extracted (part of test_story_run_refusals.py split, TD-11c)",
    "named_by": [
-    "scripts/tests/test_story_run_refusals_core.py:472",
-    "scripts/tests/test_story_run_refusals_core.py:475"
+    "scripts/tests/test_story_run_refusals_core.py::refusal_every_action_has_a_move"
    ],
    "replaced_by": null,
    "covers": [
@@ -6433,8 +6417,7 @@
    "layer": "detector",
    "why": "its census of controller actions vs story_run branches (AR-25); the file leaves in phase 2 when the census is extracted (part of test_story_run_refusals.py split, TD-11c)",
    "named_by": [
-    "scripts/tests/test_story_run_refusals_core.py:472",
-    "scripts/tests/test_story_run_refusals_core.py:475"
+    "scripts/tests/test_story_run_refusals_core.py::refusal_every_action_has_a_move"
    ],
    "replaced_by": null,
    "covers": [
@@ -6483,8 +6466,7 @@
    "layer": "detector",
    "why": "its census of controller actions vs story_run branches (AR-25); the file leaves in phase 2 when the census is extracted (part of test_story_run_refusals.py split, TD-11c)",
    "named_by": [
-    "scripts/tests/test_story_run_refusals_core.py:472",
-    "scripts/tests/test_story_run_refusals_core.py:475"
+    "scripts/tests/test_story_run_refusals_core.py::refusal_every_action_has_a_move"
    ],
    "replaced_by": null,
    "covers": [
@@ -6533,8 +6515,7 @@
    "layer": "detector",
    "why": "its census of controller actions vs story_run branches (AR-25); the file leaves in phase 2 when the census is extracted (part of test_story_run_refusals.py split, TD-11c)",
    "named_by": [
-    "scripts/tests/test_story_run_refusals_core.py:472",
-    "scripts/tests/test_story_run_refusals_core.py:475"
+    "scripts/tests/test_story_run_refusals_core.py::refusal_every_action_has_a_move"
    ],
    "replaced_by": null,
    "covers": [
@@ -6583,7 +6564,7 @@
    "layer": "detector",
    "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:125"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -6622,7 +6603,7 @@
    "layer": "detector",
    "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:125"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -6662,7 +6643,7 @@
    "layer": "detector",
    "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:125"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -6701,7 +6682,7 @@
    "layer": "detector",
    "why": "AR-6 detector (S0 read routes) (part of test_story_run_s0.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:125"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -6740,7 +6721,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:43"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -7065,8 +7046,7 @@
    "layer": "detector",
    "why": "TR3-9 C.1: `manual.walkers` 1 keeps today's S6 road byte for byte (calls, events, state keys, console), against a frozen capture of one stub-driven manual story",
    "named_by": [
-    "docs/tasks/specs/t-2147-tr3-9-walker-lanes.md:334",
-    "docs/tasks/specs/t-2147-tr3-9-walker-lanes.md:370"
+    "docs/tasks/specs/t-2147-tr3-9-walker-lanes.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -7365,7 +7345,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md; also named by docs/TESTING.md",
    "named_by": [
-    "design/state-exits.md:34",
+    "design/state-exits.md",
     "docs/TESTING.md"
    ],
    "replaced_by": null,
@@ -7488,8 +7468,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP test-path axes detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:143",
-    "docs/SIBLING_MAP.md:240"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -7509,7 +7488,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:83"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -7533,7 +7512,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:105"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -7562,7 +7541,7 @@
    "layer": "detector",
    "why": "SIBLING_MAP triage axis detector",
    "named_by": [
-    "docs/SIBLING_MAP.md:154"
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -7578,7 +7557,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:103"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -7626,7 +7605,7 @@
    "layer": "detector",
    "why": "AR-26 detector (validator hook C0 rules)",
    "named_by": [
-    "design/architecture.md:263"
+    "design/architecture.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -7645,7 +7624,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:192"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -7954,7 +7933,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) WV-placeholder-block",
    "named_by": [
-    "scripts/refusal_registry.py:742"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -7981,7 +7960,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SG-stage-rules",
    "named_by": [
-    "scripts/refusal_registry.py:248"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -8027,7 +8006,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:59"
+    "design/state-exits.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -8088,7 +8067,7 @@
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) WV-carry-form, WV-carry-source, WV-carry-target",
    "named_by": [
-    "scripts/refusal_registry.py:751"
+    "scripts/refusal_registry.py"
    ],
    "replaced_by": null,
    "covers": [
@@ -8117,9 +8096,8 @@
    "layer": "detector",
    "why": "sole AR-24 detector (part of test_words_doors.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:164",
-    "design/architecture.md:249",
-    "docs/SIBLING_MAP.md:141"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -8183,9 +8161,8 @@
    "layer": "detector",
    "why": "sole AR-24 detector (part of test_words_doors.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:164",
-    "design/architecture.md:249",
-    "docs/SIBLING_MAP.md:141"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -8249,9 +8226,8 @@
    "layer": "detector",
    "why": "sole AR-24 detector (part of test_words_doors.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:164",
-    "design/architecture.md:249",
-    "docs/SIBLING_MAP.md:141"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [
@@ -8315,9 +8291,8 @@
    "layer": "detector",
    "why": "sole AR-24 detector (part of test_words_doors.py split, TD-11c)",
    "named_by": [
-    "design/architecture.md:164",
-    "design/architecture.md:249",
-    "docs/SIBLING_MAP.md:141"
+    "design/architecture.md",
+    "docs/SIBLING_MAP.md"
    ],
    "replaced_by": null,
    "covers": [

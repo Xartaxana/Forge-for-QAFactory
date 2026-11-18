@@ -122,7 +122,7 @@ A change that meets no axis writes the one line `variety: none -- <reason>` inst
 **AR-6 — Data is read by every route; an LLM agent is never a read route.**
 - Invariant: ticket, links, comments, attachments and repositories are read by API, git, SSH or browser in a light form. An agent only writes, and only where the project writes that way. What the factory's own probe proves unreachable is a reported gap, not a question. A person is asked only for access they can give, with three answers.
 - Carriers: FR-50, P5 (D-06, D-0043); `scripts/ticket_adapter.py`; `references/mr-access-routes.md`; `references/adapters-read.md`; `question-prices.json` `s0.ticket_read`.
-- Detector: `test_story_run_s0_snapshot.py` K5 (no agent-read names in `story_run.py`, positive control); `dev:experiments/measurers/stage_compare.py` (manual).
+- Detector: `test_story_run_s0_snapshot.py` (parts `test_story_run_s0_source_list.py`, `test_story_run_s0_paste_owners.py`, `test_story_run_s0_c29.py`) K5 (no agent-read names in `story_run.py`, positive control); `dev:experiments/measurers/stage_compare.py` (manual).
 - Breakage: TP1-15045 (01.10). An S0 that read the ticket through an agent lost 15 of 15 acceptance criteria, plus the attachments and comments.
 - Change check: a new ticket field or source is read by the API route, and its snapshot is compared with an LLM run (`stage_compare.py <stage>`). Anything less than the LLM output stops the change (`dev:PROJECT.md`, acceptance rule 5).
 
