@@ -317,7 +317,6 @@ def part_live_registry() -> None:
                                               "('unknown', WHY_RUN_NO_IDENTITY)",
                                               "('unknown', why or WHY_RUN_NOT_COMPARED)",
                                               "how in ('instance_code', 'file_code')",
-                                              # RD1-26 (t-1309): the E11 narrowing of green_on_current_bytes_why and the unknown state of _compare_shas
                                               "word == 'raw'",
                                               "('unknown', 'unknown', _first_sha(red), _first_sha(green))"])
 
@@ -1135,11 +1134,9 @@ D13_TRIPLES = [
 # `window_record.review_note` (an `acceptable(...)` call, role `accept` under `s5_window`), so the triple `("window_record.py", "build", "s5_window")`
 # leaves the set (54 -> 53 triples) and the count falls by that one comparison. Measured with `gate_registry.py --sites` before (151) and after (150).
 # The new row `critic_review` (six sites) adds no counted comparison: its sites ask `acceptable` and compare no row word.
-# 150 -> 152 (RD1-26, t-1309, AR-20): card estimate +2 to +4 items / +2 triples, measured +2 / +2 (53 -> 55 triples) with `gate_registry.py --sites`
-# before (150) and after (152). Row by row, all under `test_identity` and both allowed: `acceptance.green_on_current_bytes_why`
-# `word == 'raw'` (the E11 narrowing, declared at the site, F3 (a)) and `run_history._compare_shas` `('unknown', 'unknown', _first_sha(red),
-# _first_sha(green))` (a state returned to the caller). `_bound_to` and `_job_contract` add none: `_bound_to` compares no word, and `_job_contract`'s
-# `basis == 'content'` is a basis word of no row.
+# 150 -> 152 (RD1-26, t-1309, AR-20; `--sites` 150 / 53 triples before, 152 / 55 after), both allowed under `test_identity`: `green_on_current_bytes_why`
+# `word == 'raw'` (the E11 narrowing, F3 (a)) and `_compare_shas` `('unknown', 'unknown', ...)` (a state returned to the caller).
+# `_bound_to` and `_job_contract` add none (`basis == 'content'` is a word of no row).
 D13_ITEM_COUNT = 152
 
 
