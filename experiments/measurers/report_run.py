@@ -23,6 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import compare  # noqa: E402
+import journal_kinds  # noqa: E402
 import paths  # noqa: E402
 
 BASE = paths.BASE
@@ -139,15 +140,18 @@ def stage_times(name: str, ticket: str) -> dict:
 
 
 def journal(name: str, ticket: str) -> dict:
-    path = task_root(name, ticket) / "state" / "driver-runs.jsonl"
+    found = journal_from(task_root(name, ticket) / "state" / "driver-runs.jsonl")
+    return found[0] if found else {}
+
+
+def journal_from(path: Path):
+    """(buckets of calls, bookkeeping row count) of one journal file; None when there is no file.
+    Service kinds (journal_kinds.py) are not calls; a non-JSON line is skipped as before."""
     if not path.is_file():
-        return {}
+        return None
     buckets = collections.defaultdict(lambda: {"calls": 0, "cost": 0.0, "turns": 0, "seconds": 0})
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
+    call_rows, bookkeeping = journal_kinds.split_rows(path.read_text(encoding="utf-8"))
+    for row in call_rows:
         key = ("conductor" if row.get("kind") == "conductor"
                else "role resumed" if row.get("resumed") else "role first work")
         bucket = buckets[key]
@@ -155,7 +159,7 @@ def journal(name: str, ticket: str) -> dict:
         bucket["cost"] += float(row.get("total_cost_usd") or 0)
         bucket["turns"] += int(row.get("num_turns") or 0)
         bucket["seconds"] += int((row.get("duration_ms") or 0) / 1000)
-    return dict(buckets)
+    return dict(buckets), bookkeeping
 
 
 def table(rows: list, head: list) -> None:
@@ -213,15 +217,17 @@ def main() -> int:
     table(rows, ["stage", f"{a.left} span", f"{a.right} span", f"{a.right} status", f"{a.right} finished"])
 
     for name in (a.left, a.right):
-        rows_journal = journal(name, a.ticket)
-        if not rows_journal:
+        found = journal_from(task_root(name, a.ticket) / "state" / "driver-runs.jsonl")
+        if found is None:
             continue
+        rows_journal, bookkeeping = found
         print(f"## Control layer — {name} (state/driver-runs.jsonl)\n")
         total = sum(v["cost"] for v in rows_journal.values()) or 1
         table([[key, v["calls"], f"${v['cost']:.2f}", f"{v['cost'] / total * 100:.0f}%",
                 v["turns"], clock(v["seconds"])]
                for key, v in sorted(rows_journal.items(), key=lambda kv: -kv[1]["cost"])],
               ["kind", "calls", "cost", "share", "turns", "wall clock"])
+        print(f"bookkeeping rows: {bookkeeping}\n")
     return 0
 
 

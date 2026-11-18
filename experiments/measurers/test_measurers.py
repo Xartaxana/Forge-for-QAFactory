@@ -3472,6 +3472,41 @@ def test_scoreboard_bar_file(tmp_path, case):
     sb_bar_file_case(tmp_path, case)
 
 
+def _jl(*kinds):
+    return [json.dumps({"kind": k, "role": "r", "total_cost_usd": 1}, ensure_ascii=False) for k in kinds]
+
+
+JK_SERVICE = ("window_round", "process", "launched", "gate_repair")
+# (id, journal lines, calls, bookkeeping rows); both readers must agree on every row
+JOURNAL_KIND_CASES = [
+    ("call plus four service kinds", _jl("role", *JK_SERVICE), 1, 4),
+    ("held is service", _jl("held"), 0, 1),
+    ("empty journal", [], 0, 0),
+    ("absent kind is a call", [json.dumps({"role": "r"})], 1, 0),
+    ("empty kind is a call", _jl(""), 1, 0),
+    ("unknown kind is a call", _jl("brand_new"), 1, 0),
+    ("10000 service rows only", _jl("window_round") * 10000, 0, 10000),
+    ("odd case is a call", _jl("Window_Round"), 1, 0),
+    ("non-ascii kind is a call", _jl("window_roundé", "журнал"), 2, 0),
+    ("non-JSON line is skipped", ["{broken", *_jl("process")], 0, 1),
+]
+
+
+@_parametrize(JOURNAL_KIND_CASES)
+def test_journal_service_rows(tmp_path, case):
+    import compare
+    import report_run
+    _, lines, calls, bookkeeping = case
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "driver-runs.jsonl").write_text("\n".join(lines), encoding="utf-8")
+    drv = compare.driver_report(tmp_path)
+    assert (sum(v["calls"] for v in drv["by_kind"].values()), drv["bookkeeping_rows"]) == (calls, bookkeeping)
+    assert sum(v["calls"] for v in drv["by_role"].values()) == calls
+    buckets, rows = report_run.journal_from(state / "driver-runs.jsonl")
+    assert (sum(v["calls"] for v in buckets.values()), rows) == (calls, bookkeeping)
+
+
 def scoreboard_tests(root: Path) -> None:
     """The self-running form of the scoreboard tables: every case in its own folder, one `check` line each."""
     for number, (group, cases, runner) in enumerate(SB_GROUPS):
