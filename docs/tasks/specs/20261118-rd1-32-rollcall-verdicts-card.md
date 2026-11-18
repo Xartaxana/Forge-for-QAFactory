@@ -356,5 +356,6 @@ and the plan critic checks every line against this table. Hand greps (Grep tool)
   D13, the triples and the allow pin on the merged tree.
 - F5 = (a): not in this node; a finding in the zone of `acceptance.py` (Lead writes it).
 - F6 = (b): `ImportError` leaves the `accepted` branch and returns `partial`; `OSError` stays; one test row.
-- §7: `tools/owns_readers.py` run by the Lead on origin/main b6682c31: 519 readers outside owns, none of the listed names
-  absent from the reading set beyond the designer's table; `test_gate_registry.py` is slow (canon judges). Accepted on basis lead.
+- §7: `tools/owns_readers.py` run by the Lead on origin/main b6682c31: 519 readers outside owns (the table of §7 stands);
+  the `--names` list was passed comma-joined and read as ONE name (reported "absent"), so the name check is the designer's hand
+  greps, not the tool; `test_gate_registry.py` is slow (canon judges). Accepted on basis lead.
