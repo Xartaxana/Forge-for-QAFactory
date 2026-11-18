@@ -1692,6 +1692,9 @@ _FILES27 = {
     "bold.md": (b"**ONE ROAD**: none\n", _IN27),
     "binary.md": (b"\xff\xfe\x00 ONE ROAD\n", _IN27),
     "late.md": (b"verdict\n", "2026-11-25T10:00:00+0000"),
+    "at_floor.md": (b"verdict\n", "2026-11-17T13:51:09+0100"),       # wall clock == ONE_ROAD_SINCE: listed
+    "mid.md": (b"verdict\n", "2026-11-12T10:00:00+0000"),            # between the estimate 11-11 and the floor
+    "at_end.md": (b"verdict\n", "2026-11-20T00:00:00+0000"),         # == _END27: exclusive
     "draft.md": (b"verdict\n", None),
 }
 
@@ -1728,6 +1731,9 @@ def repo27(tmp_path_factory):
     ("draft.md", _END27, False, None),
     ("late.md", _END27, False, None),
     ("late.md", None, True, "2026-11-25T10:00:00"),
+    ("at_floor.md", None, True, "2026-11-17T13:51:09"),
+    ("mid.md", None, False, None),
+    ("at_end.md", _END27, False, None),
 ])
 def test_fg7_27_one_road_cases(repo27, name, end, listed, added):
     got = {i["path"]: i for i in cc.verdicts_without_one_road(repo27, None, cc.parse_ts(end))["listed"]}
