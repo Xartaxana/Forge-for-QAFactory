@@ -2399,7 +2399,7 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md (part of test_handoff_values.py split, TD-11c)",
    "named_by": [
-    "design/state-exits.md:112"
+    "design/state-exits.md:125"
    ],
    "replaced_by": null,
    "covers": [
@@ -4357,7 +4357,8 @@
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
    "named_by": [
-    "design/state-exits.md:125"
+    "design/state-exits.md:140",
+    "design/state-exits.md:141"
    ],
    "replaced_by": null,
    "covers": [
