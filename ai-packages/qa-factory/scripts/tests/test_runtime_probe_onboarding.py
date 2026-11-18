@@ -1280,6 +1280,24 @@ def k10_a_label_equal_to_head_is_matched_and_remembered() -> None:
                      (strict["valid"], acceptable(P.provenance_word(quiet), "environment_preparation.deploy_proof"),
                       acceptable(P.provenance_word(quiet, rehearsal=True), "environment_preparation.deploy_proof")),
                      (False, False, True))
+            # critic t-1501 F1 (E-S7): the build line of that same record says the registry could not be read, never "not one I know"
+            import driver_stage_build as DSB
+            import gate_template as GT
+            me = types.SimpleNamespace(project=str(temp_project()),build_method_words=lambda q, row, name: "w",
+                                       build_fit=lambda template, slots, plain, whole: template.format(**slots))
+
+            def build_line():
+                return DSB.DriverStageBuild.build_outcome(me, "S5", "", "localhost", "api", quiet, "")[0]
+            readable = build_line()
+            real = GT._registry_and_reason
+            GT._registry_and_reason = lambda registry=None: (None, "boom")
+            try:
+                unreadable = build_line()
+            finally:
+                GT._registry_and_reason = real
+            check_eq("K10 F1: a readable registry takes the rehearsal record; an unreadable one names the registry, not the answer",
+                     ("not one I know" in readable, "the gate registry cannot be read (boom)" in unreadable,
+                      "not one I know" in unreadable), (False, True, False))
         finally:
             r.close()
     finally:

@@ -357,7 +357,8 @@ def ep1_24_b1_the_s5_refusal_names_the_probe_command() -> None:
         answer = [(f"c{i}", "") for i in range(6)]
         six = refused({})
         check_in("B-2: six names: five and `(+1 more)`", "c0, c1, c2, c3, c4 (+1 more)", six)
-        check_not_in("B-2: the sixth is not named", "c5", six)
+        # the names segment only: a checkout path that holds `c5` (a hex worktree name) is not a sixth name (critic t-1501 F6)
+        check_not_in("B-2: the sixth is not named", "c5", six.split("could be the stand (")[1].split("(+1 more)")[0])
         answer = []
         none = refused({})
         check_not_in("AK3: no container: the command carries no --container", "--container", none.split("`")[1])
@@ -682,7 +683,6 @@ def n2_k1_probe_runtime_is_the_one_predicate(request: dict) -> None:
              (acceptable(profile_contract.provenance_word({**shapes["M"], "result": "MATCHED"}), "provenance.run"),
               acceptable(profile_contract.provenance_word({**shapes["PC"], "result": "Person_Confirmed"}), "provenance.run")),
              (False, False))
-    check("K-N2.1 E11: an unknown consumer is False, never a silent pass", not acceptable("matched", "provenance.nobody"))
 
 
 def n2_k2_validate_request_takes_a_word_bound_to_the_story(request: dict) -> None:

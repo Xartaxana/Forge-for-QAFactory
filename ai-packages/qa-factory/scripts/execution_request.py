@@ -2583,7 +2583,7 @@ def stand_probe_spec(cfg: dict, profile: str, environment: str = "", story: str 
     reason there is none, in words a person reads: no recorded checkout (`remedy_no_checkout`), two repositories or two
     stands that cannot be told apart (the refusal of `pick_checkout` / `pick_environment`, as it says it).
     DIRECTION OF ERROR (D-0021): the default can only ask more often, never pass more: its answer goes through the same
-    `acceptable_provenance`, and without a container and without an entry a probe cannot say `matched`."""
+    `acceptable(provenance_word(..), "provenance.rehearsal")`, and without a container and without an entry a probe cannot say `matched`."""
     spec = registered_probe(cfg, profile)
     if spec is not None:
         return spec, ""

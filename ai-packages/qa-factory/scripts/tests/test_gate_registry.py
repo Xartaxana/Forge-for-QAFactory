@@ -1200,7 +1200,9 @@ D13_TRIPLES = [
 # 180 -> 173 (RD1-14 k3, t-1434, AR-20; 68 -> 67 triples): `_run_step` (whole triple) and the literal copies of four manual/baseline sites leave; allow pin +4.
 # 173 -> 166 (RD1-14 k4, AR-20; GR.analyse before 173 / 67 triples, after 166 / 66): `acceptable_provenance` (whole triple) and the tuple `ACCEPTS` leave
 # with the deletion D13 names; the allow pin is unchanged.
-D13_ITEM_COUNT = 166
+# 166 -> 167 (merge of origin/main after RD1-41, 8eb1067e: one more comparison in proof_level.py, no new triple; k4's own
+# fix round adds none: `build_outcome` still counts 5 items).
+D13_ITEM_COUNT = 167
 
 
 def part_site_attribution() -> None:

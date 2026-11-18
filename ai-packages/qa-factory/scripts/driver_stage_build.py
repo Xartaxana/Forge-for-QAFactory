@@ -387,8 +387,11 @@ class DriverStageBuild:
         prov = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
         if result in ("matched", "person_confirmed", "not_applicable"):
             import profile_contract
-            from gate_template import acceptable   # RD1-14: the word is made by `provenance_word`, judged by the registry
+            from gate_template import acceptable, registry_problem, registry_why   # RD1-14: the word is made by `provenance_word`, judged by the registry
             if not acceptable(profile_contract.provenance_word(record, rehearsal=True), "provenance.rehearsal"):
+                problem = registry_problem()
+                if problem:   # an unreadable registry judged nothing: say that, not "unrecognised" (critic t-1501 F1, E-S7)
+                    return line("probe_failed", why=registry_why(problem, "the probe's answer was not judged")), None
                 return line("probe_unrecognised"), None
             if result == "not_applicable":
                 return line("not_applicable"), None
