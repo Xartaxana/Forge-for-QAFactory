@@ -4,6 +4,7 @@
 
 - [manifest_put:assertion_line] Every `assertion_id` `<file>:<line>` stands on a line that holds a check (`probe_by_code.check_on_line`). Door: point the id at the assertion's line.
 - [manifest_put:base_outcome] `base_outcome` is `{"outcome": refused|working, "run": <non-empty run id>}`. Door: run the same command again with the fixed value.
+- [manifest_put:claim_then_pairs] `claim_then_pairs` is a non-empty list of {"case": "TC-n", "then": n} members (a positive Then number) whose cases a row of the manifest names. Door: send a `claim_then_pairs` list of {"case": "TC-n", "then": n} naming a case the manifest holds, or run `manifest_put.py --task <T> --open-oracle <case>#<n> --question <ref>`.
 - [manifest_put:colliding_ids] Two rows of one fragment that resolve to one instance id never name different test files. Door: rename one function or split the fragment, then `manifest_put.py` again.
 - [manifest_put:ghost_rows] A fragment never binds a Then to an id it retracts in the same fragment, and never sends a ghost row of an instance the manifest retracted. Door: drop the row or the retract.
 - [manifest_put:helper_rows] An `introduced_helpers[]` row has `file`, `name` and the four role fields as strings, `novelty` (new, changed or unknown) only when the writer sent it, and no other key. Door: run the same command again with the fixed row.

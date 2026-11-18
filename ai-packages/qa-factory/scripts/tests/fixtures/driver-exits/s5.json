@@ -219,6 +219,10 @@
    "reach": "unwalked",
    "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
   },
+  "manifest_put:claim_then_pairs": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
   "manifest_put:obligation_hash": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
@@ -407,7 +411,8 @@
    "unwalked | joints/validate_artifacts:check_marker_in_file | L1c census catch-up, 2026-11-17",
    "unwalked | joints/validate_artifacts:check_self_fixes | L1c census catch-up, 2026-11-17",
    "unwalked | joints/s5_precheck:sides.provisional | T1r-cards-a, 2026-11-17",
-   "unwalked | joints/s5_precheck:sides.pending | T1r-cards-a, 2026-11-17"
+   "unwalked | joints/s5_precheck:sides.pending | T1r-cards-a, 2026-11-17",
+   "unwalked | joints/manifest_put:claim_then_pairs | RD1-34, 2026-11-18"
   ]
  }
 }

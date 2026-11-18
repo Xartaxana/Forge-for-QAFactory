@@ -36,8 +36,8 @@
     "qa-retro-analyst": 14642
   },
   "native_headroom": {
-    "qa-automator": 79970,
-    "qa-code-critic": 75268,
+    "qa-automator": 80324,
+    "qa-code-critic": 75622,
     "qa-test-strategist": 55103
   },
   "target_tokens": 6000,
