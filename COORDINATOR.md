@@ -254,7 +254,8 @@ a rule.
    as findings, not dissolved into chat. Enforcing (b): the commit-msg hook (.githooks/ + tools/mechanism_gate.py)
    rejects commits to mechanism paths that lack an axis block in the commit message or in the decision text
    (DECISIONS.md); a non-mechanism edit to those files is legitimate only with the line "axes: not a mechanism
-   (<reason>)" in the COMMIT MESSAGE. A mechanism commit also carries a separate "tier: <model>" line
+   (<reason>)" in the COMMIT MESSAGE plus a Lead-tier "tier:" line. A mechanism commit also carries a separate
+   "tier: <model>" line
    (tier-declaration rule): the gate rejects a tier below the lead binding (delegation.config.yaml) with a
    queue-to-Lead instruction; calibration reconciles the declarations against transcripts. Recognition: a mechanism
    is any change that adds or alters a duty for future sessions/workers, or a machine check (a rule, a role, a log

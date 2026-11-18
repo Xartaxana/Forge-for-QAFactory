@@ -189,9 +189,10 @@ for the period, and diffs to DECISIONS.md.
    declaration written by a below-lead session is a violation (the
    recognized-then-did-it-anyway class: the gate forces the
    declaration, this check judges its truth); "axes: not a mechanism"
-   lines are also audited as a potential bypass of the tier
-   requirement (a substantive mechanism relabeled to avoid declaring
-   the tier).
+   lines carry a Lead-tier `tier:` line too (the gate refuses a bare
+   skip, FG7-72), so their tier line is judged the same way, and the
+   label is audited for a substantive mechanism relabeled to skip the
+   axis block.
 9. **SIBLING_MAP — class-wide completeness.** Commits that close a
    finding name the axes it touches; "new axis for SIBLING_MAP" lines
    noted anywhere in your logs get folded into the map.

@@ -536,7 +536,7 @@ def _label_refusal(hits: list[str], problems: list[tuple[dict, str]],
                "  axis N -- <key>: covered / queued / n/a <why>\n"
                "There is no door for a wrong label -- write the label from the map "
                "(the only waiver is the commit-message line \"axes: not a mechanism "
-               "(<reason>)\").")
+               "(<reason>)\" with a \"tier: <lead-tier model>\" line).")
     return "\n".join(out)
 
 
@@ -746,7 +746,7 @@ def _decide_core(msg: str, block_extra: str, staged: list[str],
                    "every axis of the map (in the commit message or in the "
                    "decision text, DECISIONS.md), or an explicit skip in the "
                    "COMMIT MESSAGE: \"axes: not a mechanism (<reason>)\" "
-                   "(rule 10(b)).")
+                   "with a \"tier: <lead-tier model>\" line (rule 10(b)).")
     return 0, ""
 
 

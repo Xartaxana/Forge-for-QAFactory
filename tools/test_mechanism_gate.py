@@ -1218,6 +1218,7 @@ def test_wrong_label_is_refused_with_the_real_heading_and_the_accepted_forms():
     assert "axis N (<key>): covered / queued / n/a <why>" in reason
     assert "axis N -- <key>: covered / queued / n/a <why>" in reason
     assert "no door for a wrong label" in reason
+    assert 'with a "tier: <lead-tier model>" line' in reason  # G1: the waiver needs the tier line
 
 
 def test_label_that_is_the_key_of_another_axis_names_that_axis():
@@ -1546,6 +1547,7 @@ def test_incomplete_block_refusal_prints_the_transition_date_from_the_constant(m
     code, reason = _decide_labels("axis 1: n/a\naxis 2: n/a\n")
     assert code == 1 and "no verdict for axes: 3" in reason
     assert "accepted only before 2031-01-02" in reason and "2026-10-16" not in reason
+    assert 'with a "tier: <lead-tier model>" line' in reason  # G1
 
 
 # --- F2 (t-777): the audit on real git ------------------------------------
