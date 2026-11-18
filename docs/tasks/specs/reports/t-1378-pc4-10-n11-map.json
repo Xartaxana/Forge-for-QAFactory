@@ -1,0 +1,371 @@
+{
+ "source": "test_story_run_refusals.py",
+ "common": "story_run_refusals_common",
+ "shim": true,
+ "parts": [
+  "test_story_run_refusals_core",
+  "test_story_run_refusals_sources",
+  "test_story_run_refusals_resume",
+  "test_story_run_refusals_t667_c21",
+  "test_story_run_refusals_cc",
+  "test_story_run_refusals_c24_n5"
+ ],
+ "names": [
+  {
+   "name": "recording_stub",
+   "kind": "def",
+   "home": "story_run_refusals_common"
+  },
+  {
+   "name": "refusal_round_trip_gate_and_routing",
+   "kind": "def",
+   "home": "test_story_run_refusals_core"
+  },
+  {
+   "name": "refusal_table",
+   "kind": "def",
+   "home": "test_story_run_refusals_core"
+  },
+  {
+   "name": "refusal_markers",
+   "kind": "def",
+   "home": "test_story_run_refusals_core"
+  },
+  {
+   "name": "refusal_dispatch_field",
+   "kind": "def",
+   "home": "test_story_run_refusals_core"
+  },
+  {
+   "name": "refusal_judge_and_source_gaps",
+   "kind": "def",
+   "home": "test_story_run_refusals_core"
+  },
+  {
+   "name": "refusal_every_action_has_a_move",
+   "kind": "def",
+   "home": "test_story_run_refusals_core"
+  },
+  {
+   "name": "refusal_active_dispatch",
+   "kind": "def",
+   "home": "test_story_run_refusals_core"
+  },
+  {
+   "name": "refusal_structured_artifact",
+   "kind": "def",
+   "home": "test_story_run_refusals_core"
+  },
+  {
+   "name": "refusal_gate_stage_row",
+   "kind": "def",
+   "home": "test_story_run_refusals_core"
+  },
+  {
+   "name": "refusal_committed_event_recovers",
+   "kind": "def",
+   "home": "test_story_run_refusals_core"
+  },
+  {
+   "name": "git_fixture",
+   "kind": "def",
+   "home": "story_run_refusals_common"
+  },
+  {
+   "name": "refusal_left_out_sources",
+   "kind": "def",
+   "home": "test_story_run_refusals_sources"
+  },
+  {
+   "name": "refusal_adapter_forms_links_and_prefix",
+   "kind": "def",
+   "home": "test_story_run_refusals_sources"
+  },
+  {
+   "name": "refusal_launch_warns_on_a_task_that_is_no_key",
+   "kind": "def",
+   "home": "test_story_run_refusals_sources"
+  },
+  {
+   "name": "refusal_person_words_kept_whole",
+   "kind": "def",
+   "home": "test_story_run_refusals_sources"
+  },
+  {
+   "name": "RES_DISPATCH",
+   "kind": "assign",
+   "home": "story_run_refusals_common"
+  },
+  {
+   "name": "RES_DIGEST",
+   "kind": "assign",
+   "home": "story_run_refusals_common"
+  },
+  {
+   "name": "RES_PLAIN",
+   "kind": "assign",
+   "home": "story_run_refusals_common"
+  },
+  {
+   "name": "res_errors",
+   "kind": "def",
+   "home": "story_run_refusals_common"
+  },
+  {
+   "name": "res_fixture",
+   "kind": "def",
+   "home": "story_run_refusals_common"
+  },
+  {
+   "name": "res_driver",
+   "kind": "def",
+   "home": "story_run_refusals_common"
+  },
+  {
+   "name": "res_entry",
+   "kind": "def",
+   "home": "story_run_refusals_common"
+  },
+  {
+   "name": "refusal_resume_once_per_finding_set",
+   "kind": "def",
+   "home": "test_story_run_refusals_resume"
+  },
+  {
+   "name": "refusal_resume_record_edges",
+   "kind": "def",
+   "home": "test_story_run_refusals_resume"
+  },
+  {
+   "name": "refusal_exit_limit_routes",
+   "kind": "def",
+   "home": "test_story_run_refusals_resume"
+  },
+  {
+   "name": "refusal_exit_limit_order_the_mechanical_third_turn_runs_before_the_seam",
+   "kind": "def",
+   "home": "test_story_run_refusals_resume"
+  },
+  {
+   "name": "refusal_call_class_stays_with_the_conductor",
+   "kind": "def",
+   "home": "test_story_run_refusals_resume"
+  },
+  {
+   "name": "refusal_resumed_halt_is_heard",
+   "kind": "def",
+   "home": "test_story_run_refusals_resume"
+  },
+  {
+   "name": "refusal_answer_filed_by_the_field",
+   "kind": "def",
+   "home": "test_story_run_refusals_resume"
+  },
+  {
+   "name": "refusal_persons_carry_their_dispatch",
+   "kind": "def",
+   "home": "test_story_run_refusals_resume"
+  },
+  {
+   "name": "refusal_o1_the_handoffs_own_resumes_are_the_saved_result",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "env_of",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "refusal_o2_the_text_reading_is_for_the_two_refusal_kinds_only",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "refusal_t667_take_answer_branches_no_other_file_reaches",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "refusal_t667_dispatch_action_branches_no_other_file_reaches",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "C21_STALE",
+   "kind": "assign",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "C21_DONE",
+   "kind": "assign",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "C21_IDENTITY",
+   "kind": "assign",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "c21_composite",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "c21_forms",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "refusal_c2_1_route_known_routes_a_list_item_by_item",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "refusal_c2_1_the_dry_run_routes_by_the_same_function",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "refusal_c2_1_the_texts_carry_the_whole_list",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "refusal_t809_f1_the_head_promises_a_file_only_when_it_was_written",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "refusal_t809_f2_the_s1_stops_are_evaluated_again_on_the_resumed_set",
+   "kind": "def",
+   "home": "test_story_run_refusals_t667_c21"
+  },
+  {
+   "name": "CC_MEASURED",
+   "kind": "assign",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "CCRig",
+   "kind": "class",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "refusal_cc_the_record_of_a_stage_the_code_closed_is_asked_not_called",
+   "kind": "def",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "refusal_cc_the_s9_record_and_the_door_of_s0",
+   "kind": "def",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "refusal_cc_the_factory_file_and_the_words_that_are_not_a_token",
+   "kind": "def",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "refusal_cc_the_moves_of_code_stay_and_the_unknown_is_asked_with_what_is_known",
+   "kind": "def",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "refusal_cc_fix_round_two_blocks_two_episodes_full_retro_and_s6_closes",
+   "kind": "def",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "CC9_WATCHED",
+   "kind": "assign",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "CC9_SITE_FREE",
+   "kind": "assign",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "CC9_SITE_ARG",
+   "kind": "assign",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "cc9_findings",
+   "kind": "def",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "refusal_cc9_every_close_of_s6_s7_s9_goes_through_the_one_record",
+   "kind": "def",
+   "home": "test_story_run_refusals_cc"
+  },
+  {
+   "name": "K9_LENGTH",
+   "kind": "assign",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "K9_CUT",
+   "kind": "assign",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "k9_driver",
+   "kind": "def",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "k9_handoff",
+   "kind": "def",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "refusal_c2_4_a_length_is_cut_by_code_not_resumed_for",
+   "kind": "def",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "k9_door_rig",
+   "kind": "def",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "k9_refusal",
+   "kind": "def",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "refusal_c2_4_the_doors_of_code_run_before_every_resume",
+   "kind": "def",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "refusal_c2_4_s4_keeps_open_only_when_the_round_will_run",
+   "kind": "def",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "refusal_c2_4_an_owed_s4_repair_round_starts_instead_of_a_new_critic",
+   "kind": "def",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "refusal_n5_the_driver_refuses_as_the_hook_does_and_uses_the_one_packet",
+   "kind": "def",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "refusal_s4_critic_finish_survivors",
+   "kind": "def",
+   "home": "test_story_run_refusals_c24_n5"
+  },
+  {
+   "name": "story_run_refusal",
+   "kind": "def",
+   "home": "test_story_run_refusals_sources"
+  }
+ ],
+ "statements": []
+}

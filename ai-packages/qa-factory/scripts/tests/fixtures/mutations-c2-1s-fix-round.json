@@ -1,6 +1,6 @@
 {
   "target": "story_run.py",
-  "test": "tests/test_story_run_refusals.py",
+  "test": "tests/test_story_run_refusals_t667_c21.py",
   "mutations": {
     "f1-promise-regardless": {
       "old": "reach = unsaved or \"they are all listed here\"",

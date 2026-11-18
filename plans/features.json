@@ -496,6 +496,8 @@
         "scripts/person_words.py",
         "scripts/tests/test_person_words.py",
         "scripts/tests/test_words_doors.py",
+        "scripts/tests/test_words_doors_*.py",
+        "scripts/tests/words_doors_common.py",
         "scripts/tests/test_scoped_review_verdict.py",
         "scripts/tests/test_reporter_contract_format.py",
         "scripts/tests/test_whole_identifier.py",

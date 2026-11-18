@@ -881,7 +881,7 @@ def do_probe(args, root: Path, rules: dict, found: dict, golden: Path, name: str
     with tempfile.TemporaryDirectory(prefix="driver-golden-probe-") as tmp:
         copy = Path(tmp) / "pkg"
         shutil.copytree(root, copy, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git"))
-        file_name = "test_story_run_refusals.py"
+        file_name = "test_story_run_refusals_resume.py"
         if file_name not in found:
             raise Refusal(f"the probe runs {file_name}, which this package does not have.")
         refusing, _allowed = provenance(copy, manifest, rules)

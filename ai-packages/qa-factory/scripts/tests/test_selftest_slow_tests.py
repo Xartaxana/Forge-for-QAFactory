@@ -74,7 +74,7 @@ def refused(path: Path) -> str | None:
 def loader_cases(root: Path) -> None:
     shipped = S.slow_tests()
     check("the shipped data file loads and lists the two files the old tuple led with",
-          {"test_words_doors.py", "test_story_run_words.py"} <= set(shipped["files"]))
+          {"test_words_doors_flight_launcher.py", "test_story_run_words.py"} <= set(shipped["files"]))
     check_eq("the shipped thresholds are the 10 s / 5 s rule", shipped["thresholds"],
              {"slow_over_s": 10, "fast_under_s": 5})
     # The nightly measurement of 2026-10-23 measured `test_story_run_words.py` (8.5 s), so no shipped row is null any more;
