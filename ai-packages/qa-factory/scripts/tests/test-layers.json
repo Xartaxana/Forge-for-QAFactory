@@ -1983,6 +1983,7 @@
     "README.md",
     "skills/qa-story/phases/s4.md",
     "tests/harness.py",
+    "tests/story_run_common.py",
     "tests/test_http_client.py",
     "tests/test_bug_records.py"
    ]
