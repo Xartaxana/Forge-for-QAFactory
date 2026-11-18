@@ -534,6 +534,15 @@ def rebind_writes_only_known_ids():
         stub.dry_ids = []
         fresh_settle(w, stub)
         check_eq("a dry run that would write nothing: no write, no probe", stub.kinds(), ["dry"])
+        # RD1-35 (F3, E15): the store renamed the row to the collected spelling and kept the source one as `asked`
+        asked = {"node_id_check": {"status": "verified", "note": "renamed", "asked": "test_a"}}
+        for extra, want in (([], ["dry", "write", "probe:test_a[chromium]"]), ([row(w, "test_a[firefox]", **asked)], ["dry"])):
+            put_manifest(w, [row(w, "test_a[chromium]", bound=STALE, **asked)] + extra)
+            record(w, "test_a[chromium]", measured=STALE)
+            stub = Stub(w)
+            stub.dry_ids = ["test_a"]
+            fresh_settle(w, stub)
+            check_eq(f"asked spelling held by {1 + len(extra)} row(s): rebound only when one row holds it", stub.kinds(), want)
     finally:
         cleanup(w.project)
 

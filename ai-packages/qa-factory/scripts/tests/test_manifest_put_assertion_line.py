@@ -243,12 +243,18 @@ NODE_ROWS = [
 ]
 
 
+# RD1-35 (F1 (b), E8): the writer's row and a hand row that copied `generated_from` (a forged mark on it) take the same ask
+SENDERS = {"hand": {}, "writer": {"generated_from": ["x"]},
+           "hand, copied generated_from, forged mark": {"generated_from": ["x"], "node_id_check": {"status": "verified", "note": "x"}}}
+
+
+@pytest.mark.parametrize("sender", SENDERS)
 @pytest.mark.parametrize("label,typed,file,stored,status,asked", NODE_ROWS, ids=[r[0][:40] for r in NODE_ROWS])
-def test_a_hand_typed_id_joins_the_collect_of_its_file(stand, label, typed, file, stored, status, asked):
+def test_a_hand_typed_id_joins_the_collect_of_its_file(stand, label, typed, file, stored, status, asked, sender):
     """Kill: the id stored as typed with no mark (the TP1-15045 defect), a `missing` said about a file that yielded nothing, the class
-    added to the manifest's spelling, a path split at a space, or `file` rewritten."""
+    added to the manifest's spelling, a path split at a space, or `file` rewritten; a writer row exempted from the ask (RD1-35)."""
     with_pytest(stand)
-    code, out, err = put(stand, node_row(typed, file))
+    code, out, err = put(stand, node_row(typed, file, **SENDERS[sender]))
     assert code == 0, (label, out, err)
     row = stand.manifest()["tests"][0]
     assert row["instance_id"] == stored and row["file"] == file, (label, row)
@@ -286,11 +292,16 @@ def test_the_persons_recorded_word_passes_a_missing_id(stand):
     assert mark["status"] == "passed_by_person" and "the person knows" in mark["note"], mark
 
 
-@pytest.mark.parametrize("label", ["no command", "the switch", "not startable"])
+@pytest.mark.parametrize("label", ["no command", "the switch", "not startable", "a .ts row beside it (F4)"])
 def test_no_collect_is_never_a_refusal_and_never_verified(stand, label):
     """Kill: an id nobody checked stored `verified` or refused (E1): no pytest-shaped command, the switch off, a command that cannot
-    start; the reason is the mark's note and one printed line."""
+    start, a non-Python row in the same collect (RD1-35 F4: pytest collects nothing of the batch); the reason is the mark's note and
+    one printed line."""
     cfg = stand.root / "qa-factory" / "config.json"
+    more = [node_row("t one", "tests/x.spec.ts")] if "F4" in label else []
+    if more:
+        with_pytest(stand)
+        (stand.root / "tests" / "x.spec.ts").write_text("test('t one', async () => {});\n", encoding="utf-8")
     if label == "the switch":
         with_pytest(stand, verify_node_ids=False)
     elif label == "not startable":
@@ -298,10 +309,11 @@ def test_no_collect_is_never_a_refusal_and_never_verified(stand, label):
         data = json.loads(cfg.read_text(encoding="utf-8"))
         data["test_command_templates"] = {"quiet": "no_such_runner_xyz -m pytest"}
         cfg.write_text(json.dumps(data), encoding="utf-8")
-    code, out, err = put(stand, node_row("test_plain"))
+    code, out, err = put(stand, node_row("test_plain"), *more)
     assert code == 0, (label, out, err)
-    mark = mark_of(stand, "test_plain")
-    assert mark["status"] == "not_verified" and mark["note"], (label, mark)
+    for instance in ["test_plain"] + [r["instance_id"] for r in more]:
+        mark = mark_of(stand, instance)
+        assert mark["status"] == "not_verified" and mark["note"], (label, mark)
     assert out.count("stored not_verified") == 1, (label, out)
 
 
@@ -321,7 +333,7 @@ def test_a_role_sent_mark_is_dropped_and_rows_not_asked_keep_their_state(stand, 
     assert mark_of(stand, typed)["status"] == "not_verified", "no collect existed: the role's `verified` is gone"
     assert put(stand, {"instance_id": "test_w", "file": MOD, "covers": [CASE], "status": "green", "generated_from": "x"})[0] == 0
     writer = [r for r in stand.manifest()["tests"] if r.get("instance_id") == "test_w"]
-    assert len(writer) == 1 and "node_id_check" not in writer[0], ("a writer row is stored and not asked", writer)
+    assert len(writer) == 1 and writer[0]["node_id_check"]["status"] == "not_verified", ("a writer row is asked (RD1-35)", writer)
     assert put(stand, {"instance_id": typed, "why": "patch"})[0] == 0
     patched = next(r for r in stand.manifest()["tests"] if r.get("instance_id") == typed)
     assert patched.get("why") == "patch" and patched["node_id_check"]["status"] == "not_verified", ("a no-file patch keeps the mark", patched)

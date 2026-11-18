@@ -21,6 +21,7 @@ manifest another window already wrote. What is proved:
 import contextlib
 import copy
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -250,6 +251,41 @@ def fv1_19_marker_through_the_stamp() -> None:
         harness.cleanup(root)
 
 
+def fr16_store_road() -> None:
+    """FR-16 on the ONE road (RD1-35): the writer's rows take the store's collect; `--collect` is accepted and inert (TP1-15045)."""
+    import manifest_from_tests as MFT
+    import node_ids
+    root, kept, argv = harness.temp_project("qa-mft-fr16-"), node_ids.collect, sys.argv
+    try:
+        task, cfg = seed(root), root / "qa-factory" / "config.json"
+        dry = run(root, "--dry-run", "--json", "--collect")
+        notes = json.loads(dry.stdout)["notes"] if dry.returncode == 0 else [dry.stderr]
+        check_eq("--dry-run --collect, no command: exit 0, the inert note, the unverified note; none without the flag",
+                 (dry.returncode, MFT.INERT_COLLECT_NOTE in notes, MFT.UNVERIFIED_NOTE in notes,
+                  MFT.INERT_COLLECT_NOTE in run(root, "--dry-run").stdout), (0, True, True, False))
+        cfg.write_text(json.dumps(dict(json.loads(cfg.read_text(encoding="utf-8")), test_command_templates={"quiet": "python -m pytest"})))
+        manifest = task / "work" / "automation-manifest.json"
+        before, ids = manifest.read_bytes(), ["test_limit", "test_region[chromium-eu]", "test_region[us]", "test_from_data[zero]",
+                                              "test_from_data[five]", "TestGroup::test_empty", "TestGroup::test_full"]
+        harness.use_project(root)
+        for answer in (ids[1:], ids):     # first `test_limit` is not collected: refused; then the plugin rename
+            node_ids.collect = lambda *a, _ids=answer, **k: [f"tests/test_coupon.py::{i}" for i in _ids]
+            sys.argv = ["manifest_from_tests.py", "--task", TICKET, "--dispatch", DISPATCH, "--file", "tests/test_coupon.py", "--json"]
+            with contextlib.redirect_stdout(io.StringIO()) as buf:
+                code = MFT.main()
+            if answer is not ids:
+                check_eq("an id pytest does not collect: the store refuses (exit 3), the manifest unchanged", (code, manifest.read_bytes() == before), (3, True))
+        out, held = json.loads(buf.getvalue()), json.loads(manifest.read_text(encoding="utf-8"))
+        row = next((t for t in held["tests"] if t.get("instance_id") == "test_region[chromium-eu]"), {})
+        check_eq("a plugin rename: stored as collected, `asked` kept, Then and row form follow, the store's line printed",
+                 (code, row.get("node_id_check", {}).get("asked"), "test_region[eu]" in [b.get("instance_id") for b in held["then_bindings"]],
+                  "test_region[chromium-eu]" in [t["instance_id"] for t in out["row_form"]["tests"]],
+                  "pytest collects test_region[eu] as test_region[chromium-eu]" in out["manifest_put"]), (0, "test_region[eu]", False, True, True))
+    finally:
+        node_ids.collect, sys.argv = kept, argv
+        harness.cleanup(root)
+
+
 def main() -> None:
     tq1_18_the_marker_takes_base_checked()
     fv1_19_marker_through_the_stamp()
@@ -437,62 +473,9 @@ def main() -> None:
         helped = harness.run_script("manifest_from_tests.py", "--help", cwd=root, env=env)
         check_in("--help tells the project how to register the markers", "addinivalue_line", helped.stdout)
 
-        # --- FR-16: the id written is the id pytest collects ------------------------------
-        # The source is not the last word on a parameter id: a project's own plugins rename it
-        # before pytest collects it. On TP1-15045 the manifest kept the author's spelling and
-        # 15 of 27 run rows never joined it, which surfaced at S8.
-        unverified = json.loads(run(root, "--dry-run", "--json").stdout)
-        check("without --collect the output says the ids are unverified",
-              any("NOT verified against pytest" in note for note in unverified["notes"]),
-              str(unverified["notes"]))
-        check_in("and names the flag that verifies them", "--collect -- <your test command>",
-                 " ".join(unverified["notes"]))
-        needs_command = harness.run_script(
-            "manifest_from_tests.py", "--task", TICKET, "--dispatch", DISPATCH,
-            "--file", "tests/test_coupon.py", "--dry-run", "--collect", cwd=root, env=env)
-        check_eq("--collect without a test command is refused", needs_command.returncode, 2)
-        check_in("naming the shape", "-- python -m pytest", needs_command.stderr)
-
-        import manifest_from_tests as MFT
-        import node_ids
-        fragment = {"tests": [{"instance_id": "test_region[eu]", "case": "TC-002",
-                               "file": "tests/test_coupon.py"},
-                              {"instance_id": "test_limit", "case": "TC-001",
-                               "file": "tests/test_coupon.py"}],
-                    "then_bindings": [{"case": "TC-002", "then": 1,
-                                       "instance_id": "test_region[eu]"}]}
-        collected = ["tests/test_coupon.py::test_region[chromium-eu]",
-                     "tests/test_coupon.py::test_limit"]
-        kept = node_ids.collect
-        node_ids.collect = lambda *a, **k: list(collected)
-        try:
-            notes = []
-            MFT.resolve_through_pytest(fragment, ["python", "-m", "pytest"], str(root), notes)
-            check_eq("the collected spelling replaces the author's in tests[]",
-                     [row["instance_id"] for row in fragment["tests"]],
-                     ["test_region[chromium-eu]", "test_limit"])
-            check_eq("and in then_bindings, so the join at S6 finds the row",
-                     fragment["then_bindings"][0]["instance_id"], "test_region[chromium-eu]")
-            check("the rewrite is reported, not silent",
-                  any("pytest collects test_region[eu] as test_region[chromium-eu]" in n
-                      for n in notes), str(notes))
-
-            # An id pytest does not collect at all is a refusal: writing it is the run-5 defect.
-            node_ids.collect = lambda *a, **k: ["tests/test_coupon.py::test_limit"]
-            try:
-                MFT.resolve_through_pytest(
-                    {"tests": [{"instance_id": "test_typo[eu]", "file": "tests/test_coupon.py"}]},
-                    ["python", "-m", "pytest"], str(root), [])
-                check("an uncollected id refuses", False, "no refusal raised")
-            except MFT.Refusal as exc:
-                check_in("an uncollected id refuses, with the nearest real ids",
-                         "is not collected by pytest", str(exc))
-                check_in("and says it is a repair, not a question for the person",
-                         "This is a repair", str(exc))
-        finally:
-            node_ids.collect = kept
     finally:
         harness.cleanup(root)
+    fr16_store_road()
     the_marker_names_come_from_data()
     p20_expectation_unconfirmed()
     novelty_switch()
@@ -1923,23 +1906,13 @@ def hf_k7() -> None:
         harness.cleanup(root)
     root, task = _form_root()      # a fresh story: no row of it is filled yet
     try:
-        print("-- K7 (e): --collect rewrote an id: the form carries the new one")
-        import node_ids
         story = MFT.Story(TICKET, task)
         with patched(Counting(answer=canned("none", "new"))):
             built = MFT.build(story, [MFT.TestFile(root / f, f) for f in ("tests/test_coupon.py", "tests/data_coupon.py")], DISPATCH, project=root)
-        kept_collect = node_ids.collect
-        node_ids.collect = lambda *a, **k: [f"{t['file']}::{t['instance_id'].replace('[eu]', '[chromium-eu]')}" for t in built["fragment"]["tests"]]
-        try:
-            fragment = MFT.resolve_through_pytest(built["fragment"], ["python", "-m", "pytest"], str(root), [])
-        finally:
-            node_ids.collect = kept_collect
+        fragment = built["fragment"]   # K7 (e), the form after a store rename, is `fr16_store_road` (RD1-35)
         harness.use_project(root)
         notes: list = []
-        form_dry, lines = MFT._form_after_write(task, story, fragment, True, 0, notes)
-        check("K7 (e): the form names the id pytest collects and not the author's",
-              "test_region[chromium-eu]" in json.dumps(form_dry["tests"]) and "test_region[eu]" not in json.dumps(form_dry["tests"]),
-              json.dumps(form_dry["tests"])[:300])
+        MFT._form_after_write(task, story, fragment, True, 0, notes)
         check_in("K7 (d'): a dry run says the rows are not in the manifest yet", "send it after the write: these rows are not in the manifest yet", notes)
 
         print("-- F-2: an empty `wanted` prints no header with nothing under it; a non-empty one keeps its form (pinned by K7 (a), text mode)")
@@ -2226,7 +2199,7 @@ def ep1_37() -> None:
     """EP1-37 p. 1 (t-544 section 3): a file that is not Python is read by `test_source` by the data of its language. A language with
     no row is a NOTE with a door (exit 0, no row, `manifest_put` not called), never a refusal and never a pass; a file with a row and a
     marker gives rows without Then bindings; a row and no marker is a note; a row and a part it could not read is ONE refusal; `.py`
-    beside `.kt` keeps its rows; `--collect` with such a file is the pytest-only door."""
+    beside `.kt` keeps its rows; `--collect` with such a file is inert (RD1-35)."""
     root = harness.temp_project("qa-mft-ep137-")
     try:
         task = seed(root)
@@ -2311,18 +2284,18 @@ def ep1_37() -> None:
         code, bad, err = _dry(root, "tests/bad.spec.ts", "tests/a.spec.ts")
         check_eq("an unread test: refused", code, 2)
         check_in("an unread test: the file and line and the reason", "tests/bad.spec.ts:2: test not read: its title is not a string literal", err + json.dumps(bad))
-        # --- --collect is pytest's ----------------------------------------------------------------------------------------------------
+        # --- --collect is inert, no language name branches the road (RD1-35, F2 (a1), E4) ---------------------------------------------
         done = run(root, "--collect", "--", sys.executable, "-m", "pytest", files=("tests/A.kt",))
-        check_eq("--collect with a .kt: refused", done.returncode, 2)
-        check_in("--collect with a .kt: the door", "applies to pytest only", done.stderr + done.stdout)
-        done = run(root, "--collect", "--", sys.executable, "-m", "pytest", files=("tests/a.spec.ts",))
-        check_eq("--collect with a .ts that has a row: refused too", done.returncode, 2)
+        check_eq("--collect with a .kt: exit 0, the language note and the inert note",
+                 (done.returncode, NO_ROW_NOTE in done.stdout, MFT.INERT_COLLECT_NOTE in done.stdout), (0, True, True))
         # --- the real write of ts rows goes through manifest_put ---------------------------------------------------------------------
         real = run(root, files=("tests/a.spec.ts",))
         check("ts: the real write is accepted by manifest_put", real.returncode == 0, real.stderr + real.stdout[-400:])
         held = json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8"))
         check("ts: the manifest holds the rows", {"TC-002 adds one", "TC-003 loop"} <= {t.get("instance_id") for t in held["tests"]},
               str([t.get("instance_id") for t in held["tests"]]))
+        check_eq("ts: the store asked them like any row - not_verified, never refused (RD1-35 E4)", {t.get("node_id_check", {}).get("status")
+                 for t in held["tests"] if t.get("file") == "tests/a.spec.ts"}, {"not_verified"})
     finally:
         harness.cleanup(root)
 

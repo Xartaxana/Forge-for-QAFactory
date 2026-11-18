@@ -3598,7 +3598,7 @@
       "stages": [
         "S5"
       ],
-      "requirement": "A hand-written `tests[]` `instance_id` is the id pytest collects in the row's `file`; where no collect answers, the row is stored marked `not_verified`.",
+      "requirement": "Every `tests[]` `instance_id` is the id pytest collects in the row's `file`; where no collect answers, the row is marked `not_verified`.",
       "door": "send the collected id (the refusal lists the nearest), or the class path `<Class>::<function>`",
       "door_needs": "shell",
       "when": [
