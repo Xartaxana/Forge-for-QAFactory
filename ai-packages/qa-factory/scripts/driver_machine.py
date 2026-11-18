@@ -2245,8 +2245,7 @@ class DriverMachine:
         file = words_file or self.answer_file()
         self.answer_row(f"{stage} code close ({token}): ", words.strip(), what="your answer about the closed stage")
         if token == "stop":
-            self.answer_file()
-            self.record_answer_row(token)           # FV3-16 P4: the row before the Person below
+            self.record_answer(token)   # FV3-16 P4: the row before the Person below
             # remains: `stop` holds the question that was asked (the person's own word); it is no state without a move
             raise self.held_question(self.stop_held("If you want the factory to go on after all, answer one of the other answers."))
         if token == "retry":
@@ -2387,7 +2386,7 @@ class DriverMachine:
             self.unread(kind, stage, dispatch, self.generic_prompt(kind, stage, qtext), words=words, block=str(asked.get("block") or ""))
             return False
         move = by_token[token]
-        self.answer_file()          # the token's own words file: the audit trail row of driver-answers.jsonl names it (E6)
+        self.record_answer(token)   # the token's own words file and its row NOW (E6): every move below may raise a Person (FV3-16 P4)
         self.answer_row(f"{stage} ({token}): ", words.strip(), what="your answer to the question")
         if move == "approve_gate" and kind in GATE_KINDS:
             self.approve_by_option(kind, stage, asked)
@@ -2395,7 +2394,6 @@ class DriverMachine:
             print(f"{stage}: nothing is passed; the step runs again" if kind not in GATE_KINDS
                   else f"gate {kind[-1]}: nothing is recorded; the gate is shown again")
         elif move == "stop_here":
-            self.record_answer_row(token)       # FV3-16 P4: the token is read; the held question below is a Person, which skips take_answer's row
             others = " or ".join(f"`{offered}`" for offered in asked.get("offered") or () if offered != token)
             raise self.held_question(self.stop_held(f"If you want the factory to go on after all, answer {others}." if others else ""))
         else:
@@ -3593,8 +3591,7 @@ class DriverMachine:
             # the WHOLE answer, and BEFORE `judged_reply` / `unread` - the conductor is not called and the words are not filed
             # for the role (no `pending_words`): `stop please` is other words and takes the unread road below, as today.
             self.answer_row(f"{stage} halt (stop): ", words.strip(), what="your answer at the halt")
-            self.answer_file()
-            self.record_answer_row("stop")      # FV3-16 P4: the row before the Person below skips take_answer's end
+            self.record_answer("stop")   # FV3-16 P4: the row before the Person below
             raise self.held_question(self.stop_held("If you want the role to go on after all, answer in your own words."))
         elif kind in ("halt", "s1_review"):
             self._unread_halt_or_review(kind, stage, dispatch, qtext, words)
@@ -3880,8 +3877,7 @@ class DriverMachine:
                 self.unread(kind, stage, "", qtext, words=words, doors=doors, lead=self.unread_lead(words),
                             again=lambda said: self.held_question(said))
             return ""
-        self.answer_file()
-        self.record_answer_row(token)
+        self.record_answer(token)   # FV3-16 P4: the row before the Person below
         if token == "stop":
             # remains: `stop` holds the question as every closed question does (`stop_held`, FR-7); nothing runs
             raise self.held_question(self.stop_held(self.delivery_stop_door(doors)))
@@ -3942,8 +3938,7 @@ class DriverMachine:
             return False
         # A6: the typed carrier - the audit row holds the TOKEN (`run again` / `leave` / `stop`), never the whole answer read back;
         # the words file is made first, so the row names the file that holds the whole answer (the row is written once)
-        self.answer_file()
-        self.record_answer_row(token)
+        self.record_answer(token)   # FV3-16 P4: the row before the Person below
         note = _answer_note(f"closed story, work that never started ({token}): ", words.strip())
         # remains: the journal row of the person's words (FR-8); the answer is carried out whatever the row does
         self.py("log_append.py", "--event", "human_answer", "--task", self.task,
@@ -4071,8 +4066,7 @@ class DriverMachine:
         token = self.s0_normalize(words)
         if token == "reapprove" and "reapprove" in offered:
             scope = [str(case) for case in (self.state.get("gate_a_dry") or {}).get("cases") or []]
-            self.answer_file()
-            self.record_answer_row(token)
+            self.record_answer(token)   # FV3-16 P4: the row before the Person below
             self.answer_row("gate A recorded dry (reapprove): ", words.strip(), what="the person's choice to approve gate A again")
             if not scope:
                 # remains: the person's own question comes back with the reason; nothing was changed (an older state names no cases)

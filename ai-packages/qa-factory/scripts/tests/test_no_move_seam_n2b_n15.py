@@ -460,63 +460,54 @@ def n15_a_gave_up_stop_files_the_free_answer_for_its_dispatch() -> None:
 
 FV316_WORDS, FV316_MORE = "please try the second window\r\n", "or use the other stand\r\n"
 FV316_GO = (("retry", "person_does"), ("go on", "go_on_as_is"), ("stop", "stop_here"))
+FV316_P1, FV316_P2 = "please try the second window", "or use the other stand"
 
 
 def fv316_unread_answer_row() -> None:
     """FV3-16 card P (t-1244): the audit row of an answer the seam read and the conductor asked back (Person) is written BEFORE the
     Person leaves `take_answer` - once per answer, one writer - and a halt's free words are filed for the role before the seam."""
-    def cases():
-        # (label, kind, stage, dispatch, first-answer verdicts, turns) - a turn is (answer bytes, rows so far, pending_words)
-        yield ("1 halt, free words, asked back", "halt", "S1", "S1-qa-x-1", [], [(FV316_WORDS.encode(), 1, "please try the second window")])
-        yield ("2 stand, free words, asked back", "environment", "S5", "", [], [(FV316_WORDS.encode(), 1, None)])
-        yield ("3 halt, asked back, then `go on`", "halt", "S1", "S1-qa-x-1", [verdict(FV316_GO), {"action": "continue", "did": "went on"}],
-               [(FV316_WORDS.encode(), 1, "please try the second window"), (b"go on\r\n", 2, "please try the second window")])
-        yield ("4 halt, asked back, then free words again", "halt", "S1", "S1-qa-x-1", [verdict(FV316_GO)],
-               [(FV316_WORDS.encode(), 1, "please try the second window"), (FV316_MORE.encode(), 2, "or use the other stand")])
-        yield ("7 conductor `continue` (control)", "halt", "S1", "S1-qa-x-1", [{"action": "continue", "did": "done"}],
-               [(FV316_WORDS.encode(), 1, "please try the second window")])
-    for label, kind, stage, dispatch, verdicts, turns in cases():
-        root, task_root, driver = logged_rig(answers=verdicts)
-        try:
+    def ask(kind, stage, dispatch):
+        def setup(driver):
             driver.ask(story_run.Person(kind, "What now?", stage, dispatch))
             if kind == "environment":
                 driver.state["stand_question"] = stage
+        return setup
+
+    def ticket(driver):
+        driver.ticket_changed_from_files = lambda lead="": story_run.Person("ticket_changed", lead + "The ticket changed.", "S0", "")
+        driver.ask(story_run.Person("ticket_changed", "The ticket changed.", "S0", ""))
+    halt = ask("halt", "S1", "S1-qa-x-1")
+    # (label, dispatch, setup, verdicts, turns) - a turn is (answer bytes, rows so far as (kind, token), pending_words of the dispatch)
+    cases = (
+        ("1 halt, free words, asked back", "S1-qa-x-1", halt, [], [(FV316_WORDS, [("halt", "")], FV316_P1)]),
+        ("2 stand, free words, asked back", "", ask("environment", "S5", ""), [], [(FV316_WORDS, [("environment", "")], None)]),
+        ("3 halt, asked back, then `go on` asked back again (the seam token road)", "S1-qa-x-1", halt, [verdict(FV316_GO), verdict(FV316_GO)],
+         [(FV316_WORDS, [("halt", "")], FV316_P1), ("go on\r\n", [("halt", ""), ("halt", "go on")], FV316_P1)]),
+        ("4 halt, asked back, then free words again", "S1-qa-x-1", halt, [verdict(FV316_GO)],
+         [(FV316_WORDS, [("halt", "")], FV316_P1), (FV316_MORE, [("halt", ""), ("halt", "")], FV316_P2)]),
+        ("5 a halt answered `stop`", "S1-qa-x-1", halt, [], [("stop\r\n", [("halt", "stop")], None)]),
+        ("6 a seam question answered `stop`", "S5-qa-x-1", lambda d: seam_asked(d), [], [("stop\r\n", [("conductor", "stop")], None)]),
+        ("7 `ticket_changed` unread: one row", "", ticket, [], [("something else entirely\r\n", [("ticket_changed", "")], None)]),
+        ("8 conductor `continue` (control)", "S1-qa-x-1", halt, [{"action": "continue", "did": "done"}], [(FV316_WORDS, [("halt", "")], FV316_P1)]),
+    )
+    for label, dispatch, setup, verdicts, turns in cases:
+        root, task_root, driver = logged_rig(answers=verdicts)
+        try:
+            setup(driver)
             for n, (data, rows, pending) in enumerate(turns, 1):
-                person = take(driver, answer(task_root, f"a{n}.md", data))
+                person = take(driver, answer(task_root, f"a{n}.md", data.encode()))
                 if person is not None and n < len(turns):
                     driver.ask(person)
                 got = jsonl(task_root / "state" / "driver-answers.jsonl")
-                check_eq(f"FV3-16 {label}: turn {n} rows", len(got), rows)
+                check_eq(f"FV3-16 {label}: turn {n} rows (kind, token)", [(r["kind"], r["token"]) for r in got], rows)
                 check_eq(f"FV3-16 {label}: turn {n} pending_words", driver.state["pending_words"].get(dispatch), pending)
             check_eq(f"FV3-16 {label}: the last row is the last answer's (file whole)", (task_root / got[-1]["words_file"]).read_bytes(),
-                     turns[-1][0])
-            if label[0] == "1":
-                check_eq("FV3-16 1: token empty, the halt question's sha", (got[0]["token"], got[0]["kind"]), ("", "halt"))
+                     turns[-1][0].encode())
         finally:
             harness.cleanup(root)
-    # 5 a seam question answered `stop`: one row with the token; 6 `ticket_changed` unread: one row, no duplicate
-    root, task_root, driver = logged_rig()
-    try:
-        seam_asked(driver)
-        person = take(driver, answer(task_root, "s.md", b"stop\r\n"))
-        got = jsonl(task_root / "state" / "driver-answers.jsonl")
-        check("FV3-16 5: the stop is held", person is not None)
-        check_eq("FV3-16 5: one row, token stop", [r["token"] for r in got], ["stop"])
-    finally:
-        harness.cleanup(root)
-    root, task_root, driver = logged_rig()
-    try:
-        driver.ticket_changed_from_files = lambda lead="": story_run.Person("ticket_changed", lead + "The ticket changed.", "S0", "")
-        driver.ask(story_run.Person("ticket_changed", "The ticket changed.", "S0", ""))
-        person = take(driver, answer(task_root, "t.md", b"something else entirely\r\n"))
-        got = jsonl(task_root / "state" / "driver-answers.jsonl")
-        check("FV3-16 6: a Person came back", person is not None)
-        check_eq("FV3-16 6: one row for the ticket_changed unread answer", [(r["kind"], r["token"]) for r in got], [("ticket_changed", "")])
-    finally:
-        harness.cleanup(root)
 
 
-S4_CRITIC, S4_DESIGNER ="S4-qa-case-critic-1", "S4-qa-case-designer-1"
+S4_CRITIC, S4_DESIGNER = "S4-qa-case-critic-1", "S4-qa-case-designer-1"
 S4_BUDGET = {"counted": 2, "cap": 2, "passes": {"qa-case-designer": "round pass 3 for qa-case-designer on S4:aaa",
                                                  "qa-case-critic": "round pass 3 for qa-case-critic on S4:bbb"}}
 S4_HEAD = "# Critic findings — round 3\n\nVerdict: reject\n\n## Roll-call\n\n| plan row | case | reviewed | verdict | note | fix |\n|---|---|---|---|---|---|\n"

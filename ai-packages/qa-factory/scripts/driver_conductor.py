@@ -256,9 +256,14 @@ class DriverConductor:
         held = self._answer
         if not held or held.get("row") or "kind" not in held:
             return ""
-        path = self.answer_file()
-        self.record_answer_row("")
-        return path
+        self.record_answer("")
+        return self.answer_file()
+
+    def record_answer(self, token: str, dispatch: str | None = None) -> None:
+        """The answer's words file, THEN its row (the row names the file; without the first call `words_file` is ''): the one pair of
+        every site that reads an answer and then raises a Person, which skips `take_answer`'s end (FV3-16 P4)."""
+        self.answer_file()
+        self.record_answer_row(token, dispatch)
 
     def conductor(self, refusal: str, *, words: str = "", files=None, words_file: str | None = None) -> dict:
         """One conductor session. Called ONLY from `no_move` (I-one). The cap raises `ConductorSpent`, which only `no_move`
