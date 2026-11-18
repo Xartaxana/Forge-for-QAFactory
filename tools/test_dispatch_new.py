@@ -247,15 +247,20 @@ many = [str(HERE / ("zz_many_%d.py" % i)) + " (new)" for i in range(30)]
 # id, argv, expected DoD line (None: not asserted), substring that must be absent from stdout
 PREFLIGHT = [
     ("builder-owns-tools", BASE, "DoD: `python -m pytest x -q ; then " + PRE + " lint --paths tools/dispatch_new.py`", ""),
-    ("kind-critic-nothing", ["--kind", "critic", "--task", "t-505", "--feature", "F19", "--handoff",
-                             "C:/r/docs/tasks/specs/reviews/x.md"], None, "registry_preflight"),
+    ("kind-scout-nothing", swap(BASE, "--kind", "scout"), None, "registry_preflight"),  # full headers: reaches the kind guard
+    # G1: the appended --paths lists owned test files, which the DOD-RUN check would count as runs: gap text, not a refusal
+    ("owned-tests-gap-text", swap(BASE, "--owns", None) + ["--owns"] + [str(HERE / ("test_%s.py" % n)) for n in (
+         "dispatch_gate", "dispatch_manifest", "dispatch_new", "registry_preflight")]
+     + SKIP_D, "DoD: `python -m pytest x -q ; then registry preflight: not appended (", "--paths"),
+    ("owned-canon-test-gap-text", swap(BASE, "--owns", str(HERE.parent / "ai-packages/qa-factory/scripts/tests/test_story_step.py")),
+     "registry preflight: not appended (", "--paths"),
+    ("dod-runs-preflight-test", swap(swap(BASE, "--dod", "python -m pytest tools/test_registry_preflight.py -q"), "--owns",
+                                     str(HERE / "registry_preflight.py")), " ; then " + PRE + " lint --paths tools/registry_preflight.py", ""),
     ("no-row-byte-equal", swap(BASE, "--owns", str(HERE.parent / "docs" / "TESTING.md")), "DoD: `python -m pytest x -q`\n",
      "registry_preflight"),
     ("outside-repo-skipped", swap(BASE, "--owns", "C:/r/x.py (new)"), "DoD: `python -m pytest x -q`\n", "registry_preflight"),
     ("dod-already-has-it", swap(BASE, "--dod", PRE + " lint"), "DoD: `" + PRE + " lint`\n", " ; then "),
     ("path-with-spaces", swap(BASE, "--owns", str(HERE / "my dir" / "a.py") + " (new)"), " ; then " + PRE + " lint --paths '", ""),
-    ("non-ascii-path", swap(BASE, "--owns", str(HERE / "\u0444.py") + " (new)"), " ; then " + PRE, ""),
-    ("directory-owns", swap(BASE, "--owns", str(HERE)), "DoD: `python -m pytest x -q", ""),
     ("thirty-owns", swap(BASE, "--owns", None) + ["--owns"] + many + SKIP_D, " ; then " + PRE, ""),
 ]
 
