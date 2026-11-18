@@ -650,7 +650,7 @@ def u7_r9_s0_readiness_pays_no_conductor_turn() -> None:
 
 
 @contextlib.contextmanager
-def e7_world(cases=("TC-1",), ended="2020-01-01T00:00:00+00:00", why="start a second browser session", status="completed", need=True):
+def e7_world(cases=("TC-1",), ended="2020-01-01T00:00:00+00:00", why="start a second browser session", status="completed", need=True, stand="staging"):
     """A driver over a run report whose cases carry a need record (stand `staging`); `rework`, `walk_before` and `failures_to_triage` are stand-ins."""
     from unittest import mock
     import manual_evidence as ME
@@ -673,7 +673,7 @@ def e7_world(cases=("TC-1",), ended="2020-01-01T00:00:00+00:00", why="start a se
             kw["on_request"]("S6-qa-runner-9")
             driver.reworks.append((stage, role, list(block), kw.get("complete"), list(kw["extra"])))
         driver.rework = rework
-        with mock.patch("stand_gaps.stand_name", lambda tr: "staging"):
+        with mock.patch("stand_gaps.stand_name", lambda tr: stand):
             yield root, task_root, driver
     finally:
         harness.cleanup(root)
@@ -755,8 +755,12 @@ def e7_extra_instance_trigger() -> None:
     for token, want in (("Start It", True), ('"by hand"', False), ("  start it ", True)):
         with e7_world() as (root, task_root, driver):
             check("E7: the question is asked", getattr(e7_step(driver, "S6-x"), "kind", "") == "extra_instance")
-            driver._answer = {"text": token, "rel": None}
-            driver._answer_extra_instance(token, "", "S7", "")
+            if token.startswith(" "):       # F2: through the machine's own answer door (`take_answer`, kind `extra_instance`)
+                driver.state["asked"] = {"kind": "extra_instance", "stage": "S7", "dispatch": ""}
+                take(driver, answer(task_root, "ans.txt", token.encode()))
+            else:
+                driver._answer = {"text": token, "rel": None}
+                driver._answer_extra_instance(token, "", "S7", "")
             got = PK.instance_answer(root, "staging", "another_instance")
             check_eq(f"E7 AR-24: `{token}` -> the driver's registry row, the words whole", (got["authorized"], got["row"]["provenance"]["words"], got["row"]["provenance"]["by"]), (want, token.strip(), "driver"))
     with e7_world() as (root, task_root, driver):
@@ -776,6 +780,31 @@ def e7_extra_instance_trigger() -> None:
         except story_run.Person:
             pass
         check_eq("E7: free words -> the `unread` road once, no row", (len(driver.calls) - calls, PK.instance_answer(root, "staging", "another_instance")["authorized"]), (1, None))
+    with e7_world(stand="this stand") as (root, task_root, driver):        # F3: no stand chosen -> the answer is held for this story
+        person = e7_step(driver, "S6-x")
+        text = str(person.text)
+        check("E7 F3: the story-only lead and door words", "on the stand of this story" in text and "holds for this story only" in text
+              and "for this story only; the checks above" in text and "`ask again`" not in text)
+        driver._answer = {"text": "start it", "rel": None}
+        driver._answer_extra_instance("start it", "", "S7", "")
+        held = driver.state.get("extra_instance_held", {}).get("this stand|another_instance", {})
+        check_eq("E7 F3: no registry row, the yes is held under the key the step reads", (PK.instance_answer(root, "this stand", "another_instance")["authorized"], held.get("authorized")), (None, True))
+        check_eq("E7 F3: the NEXT step reads the held yes and starts the one re-walk", (e7_step(driver, "S6-x"), len(driver.reworks)), (True, 1))
+    with e7_world() as (root, task_root, driver):        # F1: the real stage_S7, world B (S6 completed, an accepted fresh triage), a need with no answer
+        def never(*a, **k):
+            raise AssertionError("a close, a repair or an analyst ran over a need")
+        driver.run_role = driver.s7_repairs = driver.s7_close = driver.close_by_code = never
+        driver.pipeline, driver.s7_fresh, driver.consumer_pending = (lambda: {}), (lambda: True), (lambda stage: False)
+        triaged = {"S7-qa-failure-analyst-1": {"stage": "S7", "role": "qa-failure-analyst", "status": "accepted"}}
+        driver.controller_state = lambda: {"stages": {"S6": {"status": "completed"}}, "dispatches": triaged}
+        for label, pending in (("accepted fresh triage", False), ("M9: a scribe accept pending", True)):
+            driver.consumer_pending = lambda stage, pending=pending: pending
+            try:
+                driver.stage_S7()
+                kind = None
+            except story_run.Person as person:
+                kind = person.kind
+            check_eq(f"E7 F1: stage_S7, world B, {label} -> the Person, no close, no analyst", kind, "extra_instance")
     with e7_world() as (root, task_root, driver):
         driver.run_role = lambda *a, **k: None
         driver.pipeline = lambda: {}

@@ -479,9 +479,7 @@ class DriverStageS7:
             self.s7_rejudge_round(row, ident, life)
         # E7-3b F-r2-1 (a), M6. POSITION INVARIANT: after the re-judge loop (a runner of that round may have written a need record the old
         # triage row binds, so S7 would close unasked) and before `open_work` / `s7_close`: no close over a need with no answer; True -> this entry ends
-        import acceptance
-        ctl = self.controller_state()
-        if self.s7_extra_instance_step(ctl, True, acceptance.awaits_acceptance(ctl, "S6", self.pipeline())):
+        if self.s7_extra_instance_step(None, True, None):        # state and awaiting are read inside, only once a need record exists (F7)
             return
         if "open_work" in decided and not self.s7_open_answer(life):
             self.s7_open_work_ask(plan, life, decided["open_work"])
@@ -539,19 +537,23 @@ class DriverStageS7:
 
     # --- E7-3b: a check that needs another instance of the stand or device (spec U7 / E7 r2) ------------------------------------------------
 
-    def s7_extra_instance_step(self, state: dict, analyst_done: bool, awaiting: str) -> bool:
+    def s7_extra_instance_step(self, state: "dict | None", analyst_done: bool, awaiting: "str | None") -> bool:
         """True = this entry is over (a question raised, or ONE re-walk ran); False = nothing to do here. A manual-run record whose `need` counts
         (`manual_evidence.unprepared_rows`: the key `need` is on a row only while its need record counts) names a check that wants another
         instance of the stand or device. No answer about it for the stand (`PK.instance_answer`, else the answer held for this story) -> ONE
         closed question (`s7_extra_instance_ask`); a yes -> the checks whose record is STRICTLY older than the answer are walked again once per
         (case, answer id); a no -> a note, the analyst triages them and delivery says the person said no. INVARIANT: no record with a need ->
         nothing read beyond the run report and no `failures_to_triage` call; a halted run is never turned into the question (its Refusal rises);
-        an unknown moment is never a paid round; `analyst_done` is part of the call's shape only - the answer never depends on who triaged."""
+        an unknown moment is never a paid round; `state=None` (the call of `s7_repairs`) reads the controller state and `awaiting` AFTER that need check; `analyst_done` is part of the call's shape only - the answer never depends on who triaged."""
         import manual_evidence as ME
         every = ME.unprepared_rows(_read_json(self.task_root / "work/run-report.json"))
         rows = [row for row in every if row.get("need")]
         if not rows:
             return False
+        if state is None:
+            import acceptance
+            state = self.controller_state()
+            awaiting = acceptance.awaits_acceptance(state, "S6", self.pipeline())
         self.failures_to_triage(awaiting=awaiting)          # a halted run raises its own Refusal here (pure read)
         import environment_record as ER
         import project_knowledge as PK
