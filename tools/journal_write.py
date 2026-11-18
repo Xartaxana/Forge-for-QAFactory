@@ -15,7 +15,9 @@ Order of one write (POSITIONAL, BL-2): arguments are checked; the witness is pro
 `--witness-file` is read); the `journal` machine lock is taken; the journal and the counter are read; the id is issued and
 `ts` stamped; `journal_validator` judges the line (a violation writes nothing, exit 2); the line is appended through
 `hooklib.append_jsonl_line` and the counter updated; the lock is released; only then the echo and the warnings are made.
-The lock is never held across a subprocess, a file read other than the journal / the registry-free counter, or the echo.
+`next` also records each id with its session in `reservations.json` under the same lock; a typed new-task id another session
+reserved is refused (FG7-71).
+The lock is never held across a subprocess, a file read other than the journal / the registry-free counter / its reservations, or the echo.
 
 The counter is first built (no file, or a damaged one) from THIS logical journal (`current_path` and its seed) in every worktree
 of the clone -- never another developer's file, which the validator's jump cap (rule 9a'') does not measure against. KNOWN
@@ -69,6 +71,9 @@ REGISTRY_REL = "logs/journal-letters.json"
 COUNTER_NAME = "counter.json"
 CLONE_ID_NAME = "clone-id"
 CLAIM_DOOR = "python -B tools/journal_write.py clone --claim"
+RESERVATIONS_NAME = "reservations.json"   # FG7-71: who reserved which id, beside the counter (whose schema never changes)
+RESERVATIONS_MAX = 500                     # records kept, oldest dropped first (a dropped one reads as no record)
+SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 
 # data rows (AR-1): the category of an event by the agent that did the work, and of the lead's own events
 AGENT_ROWS = {"scout": "recon", "builder": "implementation", "critic": "review", "designer": "spec"}
@@ -244,8 +249,12 @@ def load_counter(path: Path):
 
 
 def save_counter(path: Path, counter: dict) -> None:
-    tmp = path.with_name(f"{COUNTER_NAME}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(counter, sort_keys=True), encoding="utf-8")
+    _replace_text(path, json.dumps(counter, sort_keys=True))
+
+
+def _replace_text(path: Path, text: str) -> None:
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
     deadline = time.monotonic() + SAVE_RETRY_SECONDS
     while True:
         try:
@@ -255,6 +264,60 @@ def save_counter(path: Path, counter: dict) -> None:
             if time.monotonic() >= deadline:
                 raise
             time.sleep(0.02)
+
+
+def caller_session(obj=None):
+    """FG7-71: the calling session -- `obj["session"]` when valid (the caller passes obj only for a via=hook line; critic t-1381 F1), else the env session, else None. The 8-char
+    rule is journal_hooks._session, the one session reader (imported lazily: each module imports the other only lazily)."""
+    import journal_hooks
+    for value in ((obj or {}).get("session"), os.environ.get(SESSION_ENV)):
+        short = journal_hooks._session({"session_id": value})
+        if short:
+            return short
+    return None
+
+
+def load_reservations(path: Path):
+    """FG7-71: ([[id, session-or-None], ...] oldest first, note-or-None). Absent -> no note; damaged or unreadable -> read as
+    absent WITH a note, never a refusal and never a raise (an older tool copy never writes this file)."""
+    try:
+        if not path.is_file():
+            return [], None
+        rows = _read_json(path)["reservations"]
+        if not isinstance(rows, list) or not all(isinstance(r, list) and len(r) == 2 and isinstance(r[0], str)
+                                                 and (r[1] is None or isinstance(r[1], str)) for r in rows):
+            raise ValueError("not a list of [id, session] pairs")
+        return rows, None
+    except Exception:  # noqa: BLE001 -- the edge: a damaged file is no record, not a failure
+        return [], f"{RESERVATIONS_NAME} is damaged or unreadable; read as absent (typed ids are judged by the counter alone)"
+
+
+def _record_reservations(path: Path, ids: list, session, used: set, notes: list) -> None:
+    """FG7-71, under the journal lock of `next`: drop the records whose id is in this journal, append `ids` with `session`,
+    keep the newest RESERVATIONS_MAX. A failed save is a WARN: the ids read as unrecorded (accepted as before FG7-71)."""
+    rows, note = load_reservations(path)
+    if note:
+        notes.append(note)
+    rows = [r for r in rows if r[0] not in used] + [[tid, session] for tid in ids]
+    try:
+        _replace_text(path, json.dumps({"reservations": rows[-RESERVATIONS_MAX:]}))
+    except Exception as exc:  # noqa: BLE001
+        notes.append(f"WARN {RESERVATIONS_NAME} not updated ({type(exc).__name__}); these ids are not bound to this session")
+
+
+def _check_reserver(tid: str, path: Path, obj, notes: list) -> None:
+    """FG7-71 (scout t-1358, road 1): `next` gave 501cb4e0 t-1339 after peer session 1d2edd69 had reserved it, and the
+    counter check alone let both write it. A typed id reserved by ANOTHER session (or met by a caller with no session) is
+    refused; no record, or a record with no session, is accepted as before."""
+    rows, note = load_reservations(path)
+    if note:
+        notes.append(note)
+    owner = next((s for i, s in reversed(rows) if i == tid), None)
+    caller = caller_session(obj)
+    if owner is not None and caller != owner:
+        who = f"session {caller}" if caller else "no session"
+        raise Refused(2, f"{tid} was reserved by session {owner}, and this call comes from {who}; nothing written; "
+                         f"take your own id from `{jk.JOURNAL_WRITE_DOOR}`")
 
 
 def scan_worktrees(root: Path, rel: str) -> dict:
@@ -375,7 +438,10 @@ def reserve_ids(root, n: int = 1, *, lock_timeout: float = CLI_LOCK_TIMEOUT) -> 
                 raise Refused(2, f"the id numbers of letter {letter or '(none)'} are used up")
             counter[letter] = first + n - 1
             save_counter(pre.counter_path, counter)
-        return Result(True, ids=[fmt_id(first + i, letter) for i in range(n)], errors=notes)
+            ids = [fmt_id(first + i, letter) for i in range(n)]
+            _record_reservations(pre.counter_path.with_name(RESERVATIONS_NAME), ids, caller_session(),
+                                 jv.extract_task_ids(seed + file_lines), notes)
+        return Result(True, ids=ids, errors=notes)
     except Refused as exc:
         return Result(False, code=exc.code, messages=[exc.text])
     except journal_lock.LockBusy as exc:
@@ -514,6 +580,7 @@ def _write_event(root: Path, obj: dict, via: str, lock_timeout: float) -> Result
                 tid = obj["task_id"]
                 if not (isinstance(tid, str) and tid in jv.extract_task_ids(state)):
                     _check_new_task(tid, pre, counter)
+                    _check_reserver(tid, pre.counter_path.with_name(RESERVATIONS_NAME), obj if via == "hook" else None, result.errors)
         now = _now()
         ordered = {"ts": now.isoformat(timespec="seconds")}
         for key in ("event", "agent", "model", "task_id"):      # the order the journal's own lines read in

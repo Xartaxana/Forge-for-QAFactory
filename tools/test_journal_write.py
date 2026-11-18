@@ -340,6 +340,50 @@ def jw_delegated_line(tid):
                        "category": "implementation", "worker_ref": "agent:hand", "feature": "F19", "notes": "by hand"}) + "\n"
 
 
+# FG7-71: a reserved id is bound to the session that reserved it (pre: None | "gone" | file text | N preloaded records)
+@pytest.mark.parametrize("pre,reserver,env,obj_session,via,want", [
+    (None, "aaaaaaaa-1", "bbbbbbbb-2", None, "hook", "reserved by session aaaaaaaa"),   # red before FG7-71 (scratch probe t-1375)
+    (None, "aaaaaaaa-1", "aaaaaaaa-9", None, "hook", "ok"),
+    (None, "aaaaaaaa-1", "aaaaaaaa-9", "bbbbbbbb", "hook", "reserved by session aaaaaaaa"),   # a hook line's session wins
+    (None, None, "bbbbbbbb-2", None, "hook", "ok"),
+    ("gone", "aaaaaaaa-1", "bbbbbbbb-2", None, "hook", "ok"),
+    (None, "aaaaaaaa-1", None, None, "hook", "from no session"),
+    ("{broken", "aaaaaaaa-1", "bbbbbbbb-2", None, "hook", "damaged"),
+    ("prune", "aaaaaaaa-1", "aaaaaaaa-1", None, "hook", "ok"),
+    (499, "aaaaaaaa-1", "bbbbbbbb-2", None, "hook", "reserved by session zzzzzzzz"),
+    (500, "aaaaaaaa-1", "bbbbbbbb-2", None, "hook", "ok"),
+    (None, "aaaaaaaa-1", "bbbbbbbb-2", "aaaaaaaa", "cli", "reserved by session aaaaaaaa")],   # critic t-1381 F1
+    ids=["other-session", "same-session", "obj-session-wins", "recorded-without-session", "no-record", "caller-without-session",
+         "damaged-file", "prune-on-journal", "cap-at-500", "cap-beyond-500", "cli-line-session-ignored"])
+def test_fg7_71_a_typed_id_reserved_by_another_session_is_refused(repo, monkeypatch, pre, reserver, env, obj_session, via, want):
+    path = repo / ".git/forge-journal" / jw.RESERVATIONS_NAME
+    records = lambda: json.loads(path.read_text())["reservations"]                       # noqa: E731
+    if isinstance(pre, int):
+        (repo / ".git/forge-journal/counter.json").write_text('{"": 1000}')
+        path.write_text(json.dumps({"reservations": [[jw.fmt_id(i, ""), "zzzzzzzz"] for i in range(1, pre + 1)]}))
+    def as_session(session):
+        monkeypatch.setenv(jw.SESSION_ENV, session) if session else monkeypatch.delenv(jw.SESSION_ENV, raising=False)
+    as_session(reserver)
+    tid = jw.reserve_ids(repo, 1).ids[0]
+    as_session(env)
+    if isinstance(pre, int):
+        assert len(records()) == min(pre + 1, jw.RESERVATIONS_MAX)
+        tid = "t-001"                                                                   # the oldest preloaded record
+    elif pre == "gone":
+        path.unlink()                                                                   # an older tool copy never wrote it
+    elif pre and pre != "prune":
+        path.write_text(pre)
+    obj = {"event": "delegated", "agent": "builder", "model": "m", "task_id": tid, "worker_ref": "agent:t",
+           "category": "implementation", "feature": "F19", "notes": "n", **({"session": obj_session} if obj_session else {})}
+    res = jw.write_event(repo, obj, via=via)
+    assert res.written == (want in ("ok", "damaged")), res.messages
+    assert want == "ok" or want in " ".join(res.messages + res.errors)
+    assert res.written or jw.jk.JOURNAL_WRITE_DOOR in res.messages[0]
+    if pre == "prune":
+        jw.reserve_ids(repo, 1)
+        assert tid not in [r[0] for r in records()] and len(records()) == 1
+
+
 # ------------------------------------------------------------------ returned, clone letters
 
 def test_returned_takes_model_and_agent_from_the_delegated_and_never_closes(repo):
