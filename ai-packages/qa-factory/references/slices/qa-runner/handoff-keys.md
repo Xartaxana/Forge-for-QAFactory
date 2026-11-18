@@ -16,7 +16,8 @@ Your witness artifact (stages.json `witness`): `work/run-report.json`.
 
 Contract `s6-runner-to-analyst` (fill `work/handoffs/<dispatch>.yaml`; `handoff_check.py` reads it):
 
-- `inputs_read[].version` (required) - its window id
+- `inputs_read[].path` (required) - the runtime_provenance record
+- `inputs_read[].version` (required) - the application build actually probed, before and after the run
 - `inputs_read[].instances_handed` (required) - n
 - `inputs_read[].manual_cases_handed` (required) - n
 - `header.window` (required) - the block ids this dispatch ran
@@ -99,4 +100,3 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 - [validate_artifacts:check_remedy_rows] A row blocked on the environment carries a `remedy` that is the fix, and names no value of a credential key. Door: edit the file and the field the refusal line names.
 - [exit_gate:witness_errors.runner] `witness` in work/run-report.json is at least 30 characters, and a run_suite summary it names (evidence/<label>-<ts>.json) EXISTS on disk - a retelling is not a witness. `env_preflight` is pass or blocked, and `totals` is an object. `manual_checks[].result` is pass|fail|inconclusive. Door: edit the field the refusal names in work/run-report.json.
 - [validate_artifacts:check_result_rows] Every `results[]` row is an object with a status from passed|failed|error|skipped|not_run, a reason when skipped, and totals that agree with the rows. A row names ONE case, even when one test covers several, or carries only a `test_id`. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_run_report_coverage] Every case S5 automated and every manual-agent plan row is accounted for in the run report. And every case S5 automated, plus every manual-agent row of the plan, has to appear in some lane of this report: results, manual_checks, skipped, impossible, env_blocked, manual_skipped or manual_human. Where a case went is your call; saying nothing about it is not. Door: edit the file and the field the refusal line names.

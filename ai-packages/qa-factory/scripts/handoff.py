@@ -660,15 +660,36 @@ def set_list(doc: Doc, section: str, values: list) -> bool:
     return True
 
 
+def field_nodes(doc: Doc) -> dict:
+    """{generic path: node} - the ONE pick of the row that speaks for a list field (the schema and the slice both read it).
+    Rows may differ: the S5 critic's row 0 is the prefilled author form, row 1 the role's `<path exactly as ...>` (t-1325 F2/F3,
+    where row 0 alone gave every row the author row's hint). So the first row of a list whose leaves are ALL placeholders speaks
+    for that list; with no such row, the first node whose value is a whole placeholder; else row 0."""
+    groups, untouched = {}, {}
+    for path, node in doc.nodes.items():
+        groups.setdefault(re.sub(r"\[\d+\]", "[]", path), []).append((path, node))
+        row = ROW_OF.match(path)
+        if row and not isinstance(node.value, (dict, list)):
+            key = (row.group(1), row.group(2))
+            untouched[key] = untouched.get(key, True) and is_placeholder(node.value)
+    speaker = {}
+    for (lst, index), clean in untouched.items():
+        if clean:
+            speaker.setdefault(lst, index)
+    out = {}
+    for generic, items in groups.items():
+        row = ROW_OF.match(items[0][0])
+        pool = [n for p, n in items if row and ROW_OF.match(p).group(2) == speaker.get(row.group(1))] or [n for _p, n in items]
+        out[generic] = next((n for n in pool if is_placeholder(n.value)), pool[0])
+    return out
+
+
+ROW_OF = re.compile(r"^(.*?)\[(\d+)\]")          # the outermost list of a path and its row index
+
+
 def spec_of(doc: Doc) -> dict:
     """{path: FieldSpec} of one parsed contract text - pure, so a detector can read a synthetic contract."""
-    out = {}
-    for path, node in doc.nodes.items():
-        generic = re.sub(r"\[\d+\]", "[]", path)
-        if generic in out:
-            continue
-        out[generic] = _spec_of_value(generic, node.value)
-    return out
+    return {generic: _spec_of_value(generic, node.value) for generic, node in field_nodes(doc).items()}
 
 
 def spec(contract_id: str) -> dict:

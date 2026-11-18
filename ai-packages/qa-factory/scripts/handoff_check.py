@@ -1724,6 +1724,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                       f"`{said['word']}` says {said['means']}, and `{section}` lists {rows_in_scope} row(s). "
                       f"`{said['word']}` belongs only to the empty `{section}` of the null outcome."),
                 f'--set {path}="{handoff.template(contract).get(path) or "<the value of the field>"}"'))
+    leaves = handoff.template(contract).nodes
     for path, node in list(doc.nodes.items()):
         if handoff.owned_by_contract(path) or any(path == p or path.startswith(p + "[") for p in empty_sections):
             continue
@@ -1732,7 +1733,10 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
         if not field:
             continue                                  # a value the role added: never refused
         value = doc.get(path)
-        blank = handoff.is_placeholder(value)
+        # t-1325 F4: a list-row value equal to its template leaf when that leaf carries a `<...>` token (`work/handoffs/<the author's
+        # dispatch>.yaml`, the S4/S5 critic's author row in the unknown-author world) names no file: unfilled (`only_template`'s rule);
+        # literal template text with no `<...>` stays a value
+        blank = handoff.is_placeholder(value) or ("[" in path and handoff.only_template(value, getattr(leaves.get(path), "value", None)))
         underived = ""
         if blank and fix and path.startswith("claims.") and path[len("claims."):] in CLAIMS:
             continue            # a claim with a verifier is filled (or left open with a reason) by `_fill_claims`, after this loop

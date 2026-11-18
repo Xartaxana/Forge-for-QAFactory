@@ -19,9 +19,10 @@ Your witness artifact (stages.json `witness`): `work/requirements-readiness.json
 
 Contract `s2-tester-to-strategist` (fill `work/handoffs/<dispatch>.yaml`; `handoff_check.py` reads it):
 
+- `inputs_read[].path` (required) - each source the scout marked `relevant`
 - `inputs_read[].handed` (required) - the scout's `implementation.diff.hunks`
 - `inputs_read[].read` (required) - how many hunks were actually opened
-- `inputs_read[].version` (required) - the bundle revision or hash
+- `inputs_read[].version` (required) - the revision the register cites
 - `header.window` (required) - TICKET
 - `header.verdict` (required) - one of vocabulary.header_verdicts
 - `scope[].id` (required) - R-n

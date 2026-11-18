@@ -19,7 +19,8 @@ Your witness artifact (stages.json `witness`): `work/automation-manifest.json`.
 
 Contract `s5-critic-to-automator` (fill `work/handoffs/<dispatch>.yaml`; `handoff_check.py` reads it):
 
-- `inputs_read[].version` (optional) - hash, or omit
+- `inputs_read[].path` (required) - path exactly as the author listed it
+- `inputs_read[].version` (optional) - pinned case version, content hash, or the file's sha256
 - `header.window` (required) - the case ids under review
 - `header.verdict` (required) - one of vocabulary.header_verdicts
 - `review.outcome` (required) - one of vocabulary.critic_verdicts
@@ -87,4 +88,3 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 - [execution_request:place_rows] Every test file the manifest names for an asked case exists under the run directory or the project root (a path relative to the project root). Door: correct `file` through `manifest_put.py` (path relative to the project root), or pass `--cwd` when the test lives in a sandbox.
 - [execution_request:profile] The execution profile of the run is known without a guess: a profile named by `--profile` or a manifest row's `profile_id` is one `qa-factory/config.json` holds; the asked cases run under one profile; a row that names no profile and whose file lies under another profile's test root, or a root several profiles share, names its `profile_id`; when nothing else tells, `--profile` names it. Door: `profile_id` on the manifest row through `manifest_put.py --fragment`, or `--profile ID` (only where the caller takes it: `run_suite --mine`, never `probe_by_code`); cases of two profiles: one `--mine` per profile.
 - [execution_request:profile.none] When no manifest row names a profile and the earlier runs of this story do not all name one, `qa-factory/config.json` holds at least one execution profile (a `profiles[]` entry with a `profile_id`); with none, `--mine` cannot build the run. Door: report it in your digest: the gate-A rehearsal asks the person about the onboarding gap.
-- [execution_request:profile_command] The profile's one-test command in `qa-factory/config.json` is readable: `commands.one_test.argv` present and in shape, its `env` in shape, and a `selectors.join` rule (when the profile has one) of the form `{"option", "separator", "group"?}`. Door: report it in your digest as an onboarding gap, and write this one run with `run_suite.py --template request`.

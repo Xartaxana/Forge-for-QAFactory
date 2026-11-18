@@ -2473,6 +2473,11 @@ def s5_reviewed_dispatch_rows() -> None:
             with contextlib.redirect_stderr(err):
                 check_eq("FV3-31 S5 reviewed_dispatch: " + name, brief_pack.reviewed_dispatch("S5", "qa-code-critic", st, {}, crit), want)
         brief_pack._stages = real
+        # card row 2 / t-1325 F5: the `reviewed_by` branch sits after S4's own-stage branch and before the consumer search (§2.1 invariant)
+        others = world(rec("D1", "qa-case-designer", ["C1"]) | {"stage": "S4"}, rec("R1", "qa-runner", ["C1"]) | {"stage": "S6"}, two[3])
+        check_eq("FV3-31 S4 critic answer unchanged", brief_pack.reviewed_dispatch("S4", "qa-case-critic", others, {}, two[3]), ("S4", "D1", True))
+        check_eq("FV3-31 S7 analyst answer unchanged", brief_pack.reviewed_dispatch("S7", "qa-failure-analyst", others,
+                 {"acceptance_awaits": {"S6": "R1"}}, two[3]), ("S6", "R1", False))
         line = brief_pack.reviewed_dispatch_lines("S5", "qa-code-critic", state, {}, two[5])
         check("FV3-31 S5 brief line names the critic's own automator path", len(line) == 1 and "work/handoffs/A2.yaml" in line[0], str(line))
         check_eq("FV3-31 S5 no match: no line, not the none-yet line", brief_pack.reviewed_dispatch_lines("S5", "qa-code-critic", world(two[1]), {}, two[5]), [])

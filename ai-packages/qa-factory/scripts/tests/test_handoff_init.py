@@ -114,11 +114,17 @@ AUTHOR_ROWS = [("usual form + author", [], "S5-qa-automator-4"), ("plan form + a
                ("usual form, no author: the token stays", [], None), ("plan form, no author: the token stays", ["--purpose", "s5_plan"], None)]
 
 
+def _checked(art, dispatch, *argv) -> str:
+    form = art / "work" / "handoffs" / f"{dispatch}.yaml"
+    return run_script("handoff_check.py", "--file", str(form), "--task-root", str(art), "--no-judge", *argv).stdout
+
+
 def test_author_table() -> None:
     root = temp_project()
     try:
         art = root / "artifacts" / "QA-9"
         (art / "work").mkdir(parents=True)
+        (art / "work" / "x.txt").write_text("x", encoding="utf-8")
         for number, (name, argv, author) in enumerate(AUTHOR_ROWS):
             dispatch = f"S5-{CRITIC}-author-{number}"
             run = run_script("handoff_init.py", "--task", "QA-9", "--stage", "S5", "--role", CRITIC, "--dispatch", dispatch,
@@ -128,6 +134,13 @@ def test_author_table() -> None:
             check(f"FV3-31 S5 critic {name}", run.returncode == 0 and lines.count(row) == 2 and lines[at + 1] == row
                   and lines[at + 3] == "  - path: <path exactly as the author listed it>" and "header:" in lines and "review:" in lines
                   and ("# inputs_read[0] names the author's form" in lines[at - 1]) == bool(author), "\n".join(lines[:40]))
+            # t-1325 F4: an untouched author token names no file (refused); a real row 1 with no version passes
+            said = _checked(art, dispatch, "--set", "inputs_read[1].path=work/x.txt")
+            check(f"FV3-31 S5 critic {name}: token row refused iff no author", ("inputs_read[0].path: not filled" in said) == (not author)
+                  and "inputs_read[1]" not in said, said)
+        run_script("handoff_init.py", "--task", "QA-9", "--stage", "S4", "--role", "qa-case-critic", "--dispatch", "S4-c", "--task-root", str(art))
+        said = _checked(art, "S4-c", "--set", "inputs_read[1].path=work/x.txt")      # alone, the token row is the empty list (refused before)
+        check("FV3-31 S4 critic, no author, a real row added: the token row is refused", "inputs_read[0].path: not filled" in said, said)
     finally:
         cleanup(root)
 
