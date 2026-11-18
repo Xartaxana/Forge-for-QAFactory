@@ -26,8 +26,10 @@ PRODUCT_PREFIXES = ("ai-packages/", "tools/", "gateway/", MEASURERS_PREFIX)
 DOOR_RE = re.compile(r"^\s*tests-over:(.*)$", re.IGNORECASE)
 
 WARN_TEXT = (
-    "TEST VOLUME (WARN, the commit goes on): +{t} test lines vs +{p} product lines in this commit; name the "
-    'reason in a line "tests-over: <reason>" of the message and in your report (docs/TESTING.md «Бюджет / Объём»).'
+    "TEST VOLUME (WARN, the commit goes on): +{t} test lines vs +{p} product lines in this commit. A builder cuts "
+    'rows to the budget and reports them as "tests not written: <row> -- over budget"; `wave.py merge` refuses a '
+    'branch over the budget; a Lead\'s direct commit names the reason in a line "tests-over: <reason>" '
+    "(docs/TESTING.md «Бюджет / Объём»)."
 )
 
 
@@ -130,7 +132,7 @@ def _git(*args):
 
 def run(msg_file):
     try:
-        r = _git("diff", "--cached", "--numstat", "-M")
+        r = _git("-c", "core.quotepath=false", "diff", "--cached", "--numstat", "-M")
         if r.returncode != 0:
             print("test_volume: not measured -- git diff failed: " + r.stderr.strip()[:200], file=sys.stderr)
             return
