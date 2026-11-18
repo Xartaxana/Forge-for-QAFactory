@@ -39,12 +39,13 @@ EXPECTED_IDS = [
     "stand_identity", "provenance_acceptance", "request_shape", "inputs_unchanged", "test_identity",
     "collected_ids", "executor_present", "live_check_demand", "s5_coverage", "s5_window",
     "critic_review",      # RD1-29 (t-1235): the critic's review word AFTER the window (the row `s5_window` holds it inside)
+    "case_rollcall",      # RD1-32 (t-1335): the S4 case critic's approving words (`approve*`)
     "delivery",
     "manual_evidence_shape", "case_preconditions", "environment_preparation", "baseline_identity",
     "witness_backstop", "equivalence_metric", "then_oracle",
     "exploratory_oracle",   # MR !10 W4 (t-1594): the exploratory findings oracle that accepts person_confirmed (F2(a)); unknown branch debt
     "stand_login_gate", "stand_check",
-    "s5_stand_limits", "reporter_rehearsal_identity", "environment_property_cover", "source_freshness",
+    "reporter_rehearsal_identity", "environment_property_cover", "source_freshness",
     "probe_verdict",      # B-373 (c) adds the probe verdict (t-531, integration batch 0.9)
     "finish_exit_gate",   # GW1-8 (t-1264): `story_step finish` re-runs the stage's exit gate; unknown branch refuse_with_door
     "branch_accounting",  # TQ1-20 / G2-11 (S6.01): the S2 exit detector of branch accounting; unknown branch refuse_with_door
@@ -64,9 +65,9 @@ EXPECTED_IDS = [
 # Merged (t-1083): both cards on one branch; 6 -> 4 debt rows.
 # C3-g (t-1157, AR-20): baseline_identity converted (B-281; the receipt's status word through the predicate); 4 -> 3 debt rows.
 # C3-h (RD1-11, t-1179, AR-20): stand_identity converted (B-257; no code, the probe's own result words); 3 -> 2 debt rows.
+# C3-j2, t-1269: s5_stand_limits deleted (owner, 17.11.2026); 2 -> 1 debt rows, 33 -> 32 rows in all, converted unchanged.
 EXPECTED_DEBT = {
-    "provenance_acceptance": "B-255",
-    "s5_stand_limits": "B-282"}
+    "provenance_acceptance": "B-255"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
 EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "stand_check", "probe_verdict",
@@ -82,6 +83,7 @@ EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "st
                       "test_identity",          # C3-b2 (t-1080): the reuse sites accept through the predicate
                       "baseline_identity",      # C3-g (t-1157, AR-20): the receipt's status word through the predicate
                       "critic_review",          # RD1-29 (t-1235): the post-window readers accept the review word through the predicate
+                      "case_rollcall",          # RD1-32 (t-1335): the S4 readers of the case critic's approving words accept through the predicate
                       "stand_identity"]         # C3-h (t-1179, AR-20): the probe's own result words; the unknown branch pinned by test
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
@@ -260,7 +262,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "2 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "1 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -318,7 +320,9 @@ def part_live_registry() -> None:
                                               "('unknown', why or WHY_RUN_NOT_COMPARED)",
                                               "how in ('instance_code', 'file_code')",
                                               "word == 'raw'",
-                                              "('unknown', 'unknown', _first_sha(red), _first_sha(green))"])
+                                              "('unknown', 'unknown', _first_sha(red), _first_sha(green))",
+                                              "row['verdict'] in CASE_CRITIC_VERDICTS",         # RD1-32 (t-1335): known-word checks of the case critic's list
+                                              "declared not in CASE_CRITIC_VERDICTS"])
 
     # NEG: the registry minus provenance_acceptance, in memory -> F-a findings naming the S-sites
     minus = copy.deepcopy(registry)
@@ -343,7 +347,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the two rows left after C3-R, its fix round, C3-b1, C3-d, C3-b2, C3-g and C3-h", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the one row left after C3-R, its fix round, C3-b1, C3-d, C3-b2, C3-g, C3-h and C3-j2", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -362,8 +366,9 @@ def part_live_registry() -> None:
     # merged (t-1083): converted 21 -> 23, debt 6 -> 4
     # C3-g (t-1157): baseline_identity converted, converted 23 -> 24, debt 4 -> 3
     # C3-h (t-1179): stand_identity converted, converted 24 -> 25, debt 3 -> 2
-    check_eq("K-T1.14 the registry file's rows split 26 converted / 2 debt / 6 exempt (C3-R converted six debt rows for good)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 26, "debt": 2, "exempt": 6})
+    # C3-j2 (t-1269): s5_stand_limits deleted (owner, 17.11.2026), debt 2 -> 1, converted unchanged
+    check_eq("K-T1.14 the registry file's rows split 27 converted / 1 debt / 6 exempt (C3-R converted six debt rows for good; RD1-32 adds case_rollcall)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 27, "debt": 1, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -815,6 +820,7 @@ def part_fix_pass() -> None:
                      "baseline_identity",   # C3-g (t-1157): target -> code (the receipt's words `captured` / `inconclusive`)
                      "stand_identity",      # C3-h (t-1179): target -> code (the probe's own `result` words)
                      "critic_review",       # RD1-29 (t-1235): new row, `code` (the critic's four words)
+                     "case_rollcall",       # RD1-32 (t-1335): new row, `code` (the case critic's three approving words)
                      "stand_login_gate", "stand_check", "probe_verdict", "finish_exit_gate", "exploratory_oracle", "branch_accounting",
                      "s3_grounding", "regression_on_main", "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base"]))
     check("F4 no live converted row says target",
@@ -1029,6 +1035,11 @@ D13_TRIPLES = [
     ("contract.py", "resolve_then_oracle", "then_oracle"),
     ("contract.py", "then_oracle_errors", "then_oracle"),
     ("coverage_contract.py", "validate_manual_current", "provenance_acceptance"),
+    # RD1-32 (t-1335, AR-20): the row `case_rollcall`; see the comment above D13_ITEM_COUNT
+    ("critic_rollcall.py", "_merge_concern_errors", "case_rollcall"),
+    ("critic_rollcall.py", "_row_outcome", "case_rollcall"),
+    ("critic_rollcall.py", "findings_errors", "case_rollcall"),
+    ("critic_rollcall.py", "scoped_verdict", "case_rollcall"),
     ("delivery_verdict.py", "decide", "delivery"),
     ("driver_stage_build.py", "build_outcome", "stand_identity"),
     ("environment_preparation.py", "_facts", "environment_preparation"),
@@ -1137,7 +1148,12 @@ D13_TRIPLES = [
 # 150 -> 152 (RD1-26, t-1309, AR-20; `--sites` 150 / 53 triples before, 152 / 55 after), both allowed under `test_identity`: `green_on_current_bytes_why`
 # `word == 'raw'` (the E11 narrowing, F3 (a)) and `_compare_shas` `('unknown', 'unknown', ...)` (a state returned to the caller).
 # `_bound_to` and `_job_contract` add none (`basis == 'content'` is a word of no row).
-D13_ITEM_COUNT = 152
+# 152 -> 158 (RD1-32, t-1335, AR-20): card estimate +6 items / +4 triples, measured with `gate_registry.py --sites` before (152 / 55) and after
+# (158 / 59). The new row `case_rollcall` registers `critic_rollcall.py` accept/validate sites, so the scan counts the comparisons of the case
+# critic's words there: `_row_outcome` `row['verdict'] in CASE_CRITIC_VERDICTS` (allowed), `scoped_verdict` `declared not in CASE_CRITIC_VERDICTS` (allowed),
+# `findings_errors` `verdict not in CASE_CRITIC_VERDICTS`, `verdict == 'approve_with_fixes'`, `verdict not in ('approve_with_fixes', '')`, and
+# `_merge_concern_errors` `word == 'approve_with_concerns'` (the last four are `validate` sites, allowed by role). Triples added: those four functions.
+D13_ITEM_COUNT = 158
 
 
 def part_site_attribution() -> None:

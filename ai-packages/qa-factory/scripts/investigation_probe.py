@@ -416,7 +416,7 @@ def run_http(task: Path, args) -> int:
     cfg, project = MC.load_config(task)
     env = MC.environment_of(args.url, cfg, root=project)
     headers = _headers_of(args.header, args.url, cfg)
-    timeout_s = MC.timeout_for(env)
+    timeout_s = MC.timeout_for(project, cfg, env)
     if not any(k.lower() == "user-agent" for k in headers):
         headers["User-Agent"] = http_client.user_agent()
     MC.login_recipe(cfg, spec_data, "http")      # a malformed recipe is refused before any attempt exists

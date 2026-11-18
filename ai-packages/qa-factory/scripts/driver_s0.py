@@ -12,8 +12,7 @@ import adapter_forms as AF
 import no_move as NM
 import person_words
 import ticket_light as TL
-from driver_core import DriverCore, Person, Refusal, _append_jsonl, _now, _read_answer, _read_json, _write_json, gate_refusal, json_record
-from driver_dialog import question_body_sha
+from driver_core import DriverCore, Person, Refusal, _now, _read_answer, _read_json, _write_json, gate_refusal, json_record
 
 
 # The three answers `phases/s0.md` section 2b gives for a ticket whose requirements moved while the story waited, word
@@ -397,16 +396,15 @@ class DriverS0:
         (FR-8): every later brief reads a `human_answer` note as their standing instruction. `how` says which road it took."""
         self.answer_row(f"{stage} {what} ({how}): ", words.strip(), what="your answer about the ticket")
 
-    def ticket_ask_again(self, words: str, qtext: str, stage: str, lead: str, *, unread: bool = False) -> None:
+    def ticket_ask_again(self, words: str, qtext: str, stage: str, lead: str, token: str = "", *, unread: bool = False) -> None:
         """The answer could not be carried out, or was not one of the three: the words are recorded FIRST (FR-8: the
         journal's `human_answer` and `driver-answers.jsonl`, whole), then the question comes back changed (FR-7) -
         `lead` says what the answer did not settle - rebuilt from the files, never from the tracker. `unread`: the words are
         not a token, so the seam reads them first (D-0041; its doors are the three tokens, its fallback this same question). A
         conductor `continue` / `retry` brings the question back too - never `--adopt`: an unread answer adopts nothing (G1)."""
         self.ticket_record_words(stage, "asked again", words)
-        _append_jsonl(self.state_dir / "driver-answers.jsonl",
-                      {"ts": _now(), "kind": "ticket_changed", "stage": stage, "dispatch": "",
-                       "question_sha": question_body_sha(qtext), "words": words})
+        # One writer for the audit row (AR-14, FV3-16): the answer's own idempotent row, never a second raw one beside `unread`'s.
+        self.record_answer(token)
         if unread:
             self.unread("ticket_changed", stage, "", qtext, words=words, doors=TICKET_CHANGED_TOKENS, lead=lead.strip(),
                         again=lambda said: self.ticket_changed_from_files(said + "\n\n"))
@@ -422,6 +420,7 @@ class DriverS0:
         token = self.s0_normalize(words)
         self.ticket_record_words(stage, token if token in ("retry", "go on", "stop") else "unread", words, "ticket login lost")
         if token == "stop":
+            self.record_answer(token)   # FV3-16 P4: the row before the Person below
             raise self.held_question(self.stop_held("If you want the factory to go on after all, answer `retry` or `go on`."))
         if token == "go on":
             self.ticket_unchecked("the tracker login is lost and the person said to go on without the look")
@@ -448,7 +447,7 @@ class DriverS0:
         if token not in TICKET_CHANGED_TOKENS:
             self.ticket_ask_again(words, qtext, stage, self.unread_lead(words) + "\n\n", unread=True)
         if token == "stop":
-            self.ticket_ask_again(words, qtext, stage, self.stop_held("Answer `new text` or `old text` when you decide.") + "\n\n")
+            self.ticket_ask_again(words, qtext, stage, self.stop_held("Answer `new text` or `old text` when you decide.") + "\n\n", token)
         import ticket_adapter as TA
         flags = ["--decline", *self.words_args(words, "ticketdecline")] if token == "old text" else ["--adopt"]
         code, out, err = self.py_stdout("ticket_adapter.py", "freshness", self.task, "--task-root", str(self.task_root),
@@ -463,7 +462,7 @@ class DriverS0:
             self.ticket_record_words(stage, f"{token}, nothing waited", words)
             return
         if code:
-            self.ticket_ask_again(words, qtext, stage, f"Your choice could not be carried out: {said}\n\n")
+            self.ticket_ask_again(words, qtext, stage, f"Your choice could not be carried out: {said}\n\n", token)
         if token == "old text":
             print(f"{self.task}: the story goes on with the old ticket text; your words are kept for gate B and the "
                   "new text is not asked about again")

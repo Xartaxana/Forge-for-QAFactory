@@ -58,7 +58,7 @@ LOCAL = "http://localhost:8080"
 
 def patch_backends(browser=None, http=None, probes=None):
     MC.BACKEND_FACTORY = (lambda: browser) if browser is not None else None
-    # the landing loop runs on the fake's own clock (it moves only when the loop pauses): a 100 s limit costs no time
+    # the landing loop runs on the fake's own clock (it moves only when the loop pauses): a 180 s limit costs no time
     MC.MONOTONIC = browser.monotonic if browser is not None and hasattr(browser, "monotonic") else None
     MC.HTTP = http
     MC.PROBE = probes or (lambda spec: S.probe("api" if spec["argv"] == ["probe-api"] else "e2e-ui"))
@@ -167,18 +167,126 @@ def case_ids_and_hosts():
         check_in("no environments[] is refused, naming the key", "environments[]", str(exc))
 
 
+def _record_page_load(t, load_s, at_least=False, days_ago=0):
+    """What `check_stand_page_load` keeps: one registry row of the stand `localhost` (the expectation is the card's, not the code's)."""
+    import datetime
+    import project_knowledge as PK
+    import stand_identity
+    cfg = S.config()
+    stand = cfg["environments"][0]
+    at = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days_ago)).isoformat(timespec="seconds")
+    value = {"load_s": load_s, "at_least": at_least, "address": "http://localhost:5173", "definition_sha": stand_identity.definition_sha(stand),
+             "at": at}
+    row, problem, _ = PK.record(t.project, key=PK.PAGE_LOAD_KEY, environment="localhost", element=PK.PAGE_LOAD_ELEMENT, state=PK.KNOWN,
+                                scope="stand", value=value, words=PK.HOW_PAGE_LOAD, source="measured", story="T", by="gate")
+    check_eq(f"a page load of {load_s} s is recorded", problem, "")
+    return row
+
+
 def timeouts():
-    env = {"measured": {"e2e_page_load_s": {"value": 70}}}
-    check_eq("timeout = measured page load + 30 s", MC.timeout_for(env), 100)
-    check_eq("a bare number is read too", MC.timeout_for({"measured": {"e2e_page_load_s": 12.5}}), 42.5)
-    for label, value in (("absent", {}), ("zero", {"measured": {"e2e_page_load_s": {"value": 0}}}),
-                         ("negative", {"measured": {"e2e_page_load_s": {"value": -5}}}),
-                         ("a string", {"measured": {"e2e_page_load_s": {"value": "70"}}}),
-                         ("a bool", {"measured": {"e2e_page_load_s": {"value": True}}}),
-                         ("NaN", {"measured": {"e2e_page_load_s": {"value": float("nan")}}}),
-                         ("infinite", {"measured": {"e2e_page_load_s": {"value": float("inf")}}}),
-                         ("not an object", {"measured": "70"})):
-        check_eq(f"timeout when the measured load is {label}: 180 s", MC.timeout_for(value), 180)
+    cfg = S.config()
+    stand = cfg["environments"][0]
+    t = S.make_task()
+    try:
+        # the config's own `measured` is no longer read: 180 s, whatever it says
+        check_eq("a hand-written config measured 70 is not read: 180 s",
+                 MC.timeout_for(t.project, cfg, dict(stand, measured={"e2e_page_load_s": {"value": 70}})), 180)
+        check_eq("nothing measured: 180 s", MC.timeout_for(t.project, cfg, stand), 180)
+        check_eq("no project root: 180 s (a missing measurement never shortens a limit)", MC.timeout_for(None, cfg, stand), 180)
+        check_eq("no stand: 180 s", MC.timeout_for(t.project, cfg, None), 180)
+        row = _record_page_load(t, 70)
+        check_eq("a recorded 70 s load: the limit is still 180 s (the measurement only lengthens)", MC.timeout_for(t.project, cfg, stand), 180)
+        import project_knowledge as PK
+        PK.revoke(t.project, row["id"], "replaced")
+        _record_page_load(t, 160)
+        check_eq("a recorded 160 s load: 190 s", MC.timeout_for(t.project, cfg, stand), 190)
+        _record_page_load(t, 180, at_least=True)
+        check_eq("a load recorded as AT LEAST 180 s: 210 s", MC.timeout_for(t.project, cfg, stand), 210)
+        check_eq("another stand has no measurement: 180 s", MC.timeout_for(t.project, cfg, cfg["environments"][1]), 180)
+        t.project.joinpath("qa-factory", "records", "project-knowledge.json").write_text("{not json", encoding="utf-8")
+        check_eq("an unreadable registry: 180 s", MC.timeout_for(t.project, cfg, stand), 180)
+    finally:
+        S.cleanup(t)
+
+
+class _LoadBrowser:
+    """A backend for `measure_page_load`: `goto` returns seconds or raises; `events_since` says what the route guard saw."""
+
+    def __init__(self, goto=12.34, events=()):
+        self.goto_result, self.events, self.closed, self.opened = goto, list(events), False, None
+
+    def open(self, timeout_s, allowed_hosts, local_storage=None, element_wait_s=None):
+        self.opened = (timeout_s, sorted(allowed_hosts))
+
+    def event_mark(self):
+        return 0
+
+    def events_since(self, mark):
+        return list(self.events)
+
+    def goto(self, url):
+        if isinstance(self.goto_result, BaseException):
+            raise self.goto_result
+        return self.goto_result
+
+    def close(self):
+        self.closed = True
+
+
+def measure_page_load_table():
+    cfg = S.config()
+    t = S.make_task()
+    try:
+        def measure(browser=None, factory=None, config=None, stand="localhost"):
+            MC.BACKEND_FACTORY = factory or ((lambda: browser) if browser is not None else None)
+            try:
+                return MC.measure_page_load(config or cfg, stand, t.project)
+            finally:
+                MC.BACKEND_FACTORY = None
+
+        def unavailable():
+            raise MC.BrowserUnavailable("playwright is not installed")
+
+        def constructed():
+            built.append(1)
+            return _LoadBrowser()
+
+        built = []
+        cases = [
+            ("12.34 s -> 12.3", _LoadBrowser(12.34), ("measured", 12.3, False)),
+            ("179.9 s AT the cap is a measurement", _LoadBrowser(179.9), ("measured", 179.9, False)),
+            ("a load under 0.1 s is written as 0.1", _LoadBrowser(0.01), ("measured", 0.1, False)),
+            ("StepTimeout is the cap, at least", _LoadBrowser(MC.StepTimeout(180.2)), ("measured", 180.0, True)),
+        ]
+        for label, browser, (state, load, at_least) in cases:
+            got = measure(browser)
+            check_eq(f"measure_page_load: {label}", (got["state"], got["load_s"], got["at_least"]), (state, load, at_least))
+            check_eq(f"measure_page_load: {label}: the browser was closed and opened with the cap", (browser.closed, browser.opened[0]),
+                     (True, MC.DEFAULT_TIMEOUT_S))
+            check_eq(f"measure_page_load: {label}: the address is the safe one", got["address"], "http://localhost:5173")
+        import stand_identity
+        check_eq("measure_page_load: the definition sha of the stand travels", got["definition_sha"],
+                 stand_identity.definition_sha(cfg["environments"][0]))
+        for label, browser, cause in (
+                ("StepFailed with a blocked event", _LoadBrowser(MC.StepFailed("net::ERR_ABORTED"), events=[{"kind": "blocked"}]), "outside_hosts"),
+                ("StepFailed without one", _LoadBrowser(MC.StepFailed("net::ERR_CONNECTION_REFUSED")), "unreachable"),
+                ("a RuntimeError in goto", _LoadBrowser(RuntimeError("boom")), "factory")):
+            got = measure(browser)
+            check_eq(f"measure_page_load: {label} -> {cause}, nothing measured, close still called",
+                     (got["state"], got["cause"], "load_s" in got, browser.closed), ("failed", cause, False, True))
+        got = measure(factory=unavailable)
+        check_eq("measure_page_load: no browser -> no_browser", (got["state"], got["cause"]), ("failed", "no_browser"))
+        check_eq("measure_page_load: a frontend-less stand is n/a", measure(_LoadBrowser(), config=S.config(environments=[{"name": "api", "base_url": "http://localhost:8080"}]), stand="api")["state"], "n/a")
+        device = S.config(environments=[{"name": "phone", "base_url": "http://localhost:8080", "frontend_url": "http://localhost:5173", "surface": "app"}])
+        check_eq("measure_page_load: a device stand is n/a", measure(_LoadBrowser(), config=device, stand="phone")["state"], "n/a")
+        secret = S.config(environments=[{"name": "creds", "base_url": "http://localhost:8080", "frontend_url": "http://user:pw@localhost:5173"}])
+        got = measure(factory=constructed, config=secret, stand="creds")
+        check_eq("measure_page_load: user:pw@ in the address is refused, the backend is never built, no address is returned",
+                 (got["state"], got["cause"], built, "address" in got, "pw" in json.dumps(got)), ("failed", "credentials_in_address", [], False, False))
+        got = measure(_LoadBrowser(), stand="nowhere")
+        check_eq("measure_page_load: an unknown stand is the factory's defect", (got["state"], got["cause"]), ("failed", "factory"))
+    finally:
+        S.cleanup(t)
 
 
 def ui_happy_path():
@@ -191,8 +299,8 @@ def ui_happy_path():
         check("ui: stdout is ONE JSON object, ASCII-escaped", out.strip().startswith("{") and out.isascii() and json.loads(out), out[:200])
         summary = json.loads(out)
         check_eq("ui: attempt a1 of the case", (summary["case"], summary["attempt"]), (UI_CASE, "a1"))
-        check_eq("ui: the browser opened with the measured limit (70 + 30) on the stand's hosts",
-                 (browser.opened[0], ("http", "localhost", 5173) in [tuple(h) for h in browser.opened[1]]), (100, True))
+        check_eq("ui: the browser opened with the default limit 180 s on the stand's hosts",
+                 (browser.opened[0], ("http", "localhost", 5173) in [tuple(h) for h in browser.opened[1]]), (180, True))
         check_eq("ui: logged in by code, with the .env values the browser was handed",
                  browser.credentials_seen, (S.USER, S.PASSWORD))
         check("ui: the browser was closed", browser.closed)
@@ -245,7 +353,7 @@ def ui_failures():
         check("selector not found: the stand was still probed at the end", "end" in
               [p["when"] for p in jsonl(t.attempt_dir(UI_CASE) / "probes.jsonl")])
         # -- the limit: AT passes, BEYOND is a timeout with a log ref and NO image
-        for label, seconds, expect in (("AT the limit", 100, "ok"), ("just beyond the limit", 100.001, "timeout")):
+        for label, seconds, expect in (("AT the limit", 180, "ok"), ("just beyond the limit", 180.001, "timeout")):
             fresh = S.make_task()
             try:
                 code, out, err, _ = ui_run(fresh, steps=f"goto {UI}\ncapture post_action completion\n",
@@ -259,21 +367,21 @@ def ui_failures():
                 else:
                     check_eq(f"timeout {label}: a timeout line and a `timeout` log ref, and NO image",
                              (code, (summary["failed"] or {}).get("outcome"), kinds), (1, "timeout", [("log", "supporting", ["timeout"])]))
-                    check_in(f"timeout {label}: the detail names the elapsed time and the limit", "the limit is 100 s",
+                    check_in(f"timeout {label}: the detail names the elapsed time and the limit", "the limit is 180 s",
                              (summary["failed"] or {}).get("detail", ""))
                     log = next(((fresh.task / c["path"]).read_text(encoding="utf-8") for c in summary["captures"]
                                 if c["kind"] == "log"), "")
-                    check_in(f"timeout {label}: the log file says the limit", "limit_s: 100", log)
+                    check_in(f"timeout {label}: the log file says the limit", "limit_s: 180", log)
             finally:
                 S.cleanup(fresh)
-        # a wait longer than the limit is a timeout without waiting (AT: a wait of exactly 100 s passes)
+        # a wait longer than the limit is a timeout without waiting (AT: a wait of exactly 180 s passes)
         fresh = S.make_task()
         try:
-            code, out, _, browser = ui_run(fresh, steps=f"goto {UI}\nwait 100000\n")
-            check_eq("wait 100000 ms with a 100 s limit is AT the limit: it runs", (code, ("wait_ms", 100000) in browser.calls), (0, True))
-            code, out, _, browser = ui_run(fresh, steps=f"goto {UI}\nwait 100001\n")
-            check_eq("wait 100001 ms is BEYOND: a timeout, and the browser never waited",
-                     (code, json.loads(out)["failed"]["outcome"], ("wait_ms", 100001) in browser.calls), (1, "timeout", False))
+            code, out, _, browser = ui_run(fresh, steps=f"goto {UI}\nwait 180000\n")
+            check_eq("wait 180000 ms with a 180 s limit is AT the limit: it runs", (code, ("wait_ms", 180000) in browser.calls), (0, True))
+            code, out, _, browser = ui_run(fresh, steps=f"goto {UI}\nwait 180001\n")
+            check_eq("wait 180001 ms is BEYOND: a timeout, and the browser never waited",
+                     (code, json.loads(out)["failed"]["outcome"], ("wait_ms", 180001) in browser.calls), (1, "timeout", False))
         finally:
             S.cleanup(fresh)
     finally:
@@ -948,14 +1056,14 @@ def http_edges():
         finally:
             S.cleanup(fresh)
         # --- the limit: AT passes, BEYOND is a `timeout` log ref and no response file
-        for label, seconds in (("AT the limit", 100), ("just beyond the limit", 100.001)):
+        for label, seconds in (("AT the limit", 180), ("just beyond the limit", 180.001)):
             fresh = S.make_task(manual=("api",))
             try:
                 http = S.FakeHttp({login: token, ("GET", get): MC.HttpResult(200, [], b"{}", seconds)})
                 code, out, err = http_run(fresh, http, "--method", "GET", "--url", get)
                 summary = json.loads(out)
                 kinds = [(c["kind"], c["proves"]) for c in summary["captures"]]
-                if seconds <= 100:
+                if seconds <= 180:
                     check_eq(f"http timeout {label}: passes - a request_response is saved", (code, kinds),
                              (0, [("request_response", ["request and response"])]))
                 else:
@@ -1037,7 +1145,7 @@ def element_wait():
                     S.cleanup(t)
             if cfg is not None:
                 break          # the configured limit is shown on one step; the default is walked on every step word
-    # goto keeps the page-load limit: 70 + 30 = 100 s, far above the 30 s element limit
+    # goto keeps the page-load limit: 180 s by default, far above the 30 s element limit
     t = S.make_task()
     try:
         code, out, err, _ = ui_run(t, steps=f"goto {UI}\n", browser=S.FakeBrowser(elapsed={"goto": 60}))
@@ -1464,7 +1572,7 @@ def one_profile_per_attempt():
 # factory's LOOP. The Playwright primitives (cookie_names, field_visible, page_words, pause) are proven only by a live
 # capture on the stand, which the Lead runs after acceptance (FR-33).
 STEPS_GOTO = f"goto {UI}\ncapture post_action completion\n"
-LANDING_LIMIT = 100          # make_task's stand: measured page load 70 s + 30 s
+LANDING_LIMIT = MC.DEFAULT_TIMEOUT_S          # make_task's stand has no recorded page load: the limit is the default
 
 
 def ui_recipe(landed="default", **over):
@@ -1555,7 +1663,7 @@ def landing_never():
         check_eq("K2: owner `user` (the stand or its test account) and do_not_retry", (row.get("owner"), row.get("do_not_retry")), ("user", True))
         step = login_step(t)
         check_eq("K2: steps.jsonl `login by code` is failed", (step["step"], step["outcome"]), ("login by code", "failed"))
-        for needle in ("/auth/sign-in", words, "AUTH_USERNAME", "harness/.env", "within 100 s", "still on a sign-in address",
+        for needle in ("/auth/sign-in", words, "AUTH_USERNAME", "harness/.env", "within 180 s", "still on a sign-in address",
                        "no cookie testproject1_access_token", "names only"):
             check_in(f"K2: the detail holds {needle!r}", needle, step["detail"])
         check_eq("K2: the same line is the env_blocked probe line", row.get("probe_line"), "login by code: " + step["detail"])
@@ -1657,8 +1765,8 @@ def landing_proofs():
 def landing_limit():
     """K5: AT the limit lands; one poll beyond fails; the last look is AT the limit and never later."""
     polls_to_limit = int(LANDING_LIMIT / MC.LANDING_POLL_S)
-    for label, lands_at, expect in (("first true AT the limit (poll 400, 100 s)", polls_to_limit, 0),
-                                    ("first true one poll beyond the limit (poll 401, 100.25 s)", polls_to_limit + 1, 3)):
+    for label, lands_at, expect in (("first true AT the limit (poll 720, 180 s)", polls_to_limit, 0),
+                                    ("first true one poll beyond the limit (poll 721, 180.25 s)", polls_to_limit + 1, 3)):
         browser = S.FakeBrowser(lands_at=lands_at)
         t, code, out, err = landing_run(browser)
         try:
@@ -1671,11 +1779,11 @@ def landing_limit():
     patch_backends(browser)
     result = MC.await_landing(browser, ui_recipe(), set(MC.stand_hosts(S.config())), LANDING_LIMIT)
     check_eq("K5 loop: not landed, elapsed <= the limit", (result["landed"], result["elapsed_s"] <= LANDING_LIMIT), (False, True))
-    check_eq("K5 loop: and the last poll was poll 400 (AT the limit)", browser.polls, polls_to_limit + 1)
+    check_eq("K5 loop: and the last poll was poll 720 (AT the limit)", browser.polls, polls_to_limit + 1)
     browser = S.FakeBrowser(lands_at=polls_to_limit)
     patch_backends(browser)
     result = MC.await_landing(browser, ui_recipe(), set(MC.stand_hosts(S.config())), LANDING_LIMIT)
-    check_eq("K5 loop: landed AT the limit, elapsed 100.0", (result["landed"], result["elapsed_s"]), (True, 100.0))
+    check_eq("K5 loop: landed AT the limit, elapsed 180.0", (result["landed"], result["elapsed_s"]), (True, 180.0))
     # a limit that is not a multiple of the poll: the last pause is the remainder, never more
     browser = S.FakeBrowser(lands_at=10_000)
     patch_backends(browser)
@@ -3352,6 +3460,7 @@ def main():
     ep1_28_other_profile()
     case_ids_and_hosts()
     timeouts()
+    measure_page_load_table()
     ui_happy_path()
     ui_failures()
     ui_refusals()

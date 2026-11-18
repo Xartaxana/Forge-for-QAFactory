@@ -4,7 +4,13 @@ import hashlib
 import json
 import re
 import stage_close
-from driver_core import OpenWork, Person, Refusal, ReworkRefused, _now, _read_json, open_work_reason
+from driver_core import OpenWork, Person, Refusal, ReworkRefused, _now, _read_json, _write_json, open_work_reason
+
+# E7-3b (M7): what the runner of a re-walk is told, the review's words; E7-3b (F-r2-2): the run file the delivery check reads
+ALLOWED_LINE = ("The person allowed the factory to start another instance of the stand or device for these checks: start it with the "
+                "project's own actions, write what you started in `tried.md`, and walk the checks again.")
+EXTRA_NOTE_REL = "work/extra-instance.json"
+EXTRA_LEAD_CASES = 10       # the cases the question names; the rest is "and K more"
 
 
 class DriverStageS7:
@@ -63,6 +69,11 @@ class DriverStageS7:
         # INVESTIGATION is no triage either: `author_dispatches` is the one reading of both (M4 of t-1860).
         analyst_done = any(d.get("status") == "accepted" for d in acceptance.author_dispatches(state, acceptance.stage_def_of("S7")))
         awaiting = acceptance.awaits_acceptance(state, "S6", self.pipeline())      # the runner's last dispatch when S6 awaits its consumer
+        # E7-3b M9 (`controller._rerun_stamp`: a person-chosen S6 rework, `words_given`, stales only COMPLETED stages after S6 and the S6 reviews,
+        # never an OPEN S7 or its accepted analyst, so a scribe `accept` could close S7 over a need record the rework brought). INVARIANT: no S7
+        # close of any kind over a counting need with no answer; with no accept record pending this position changes nothing
+        if self.consumer_pending("S7") and self.s7_extra_instance_step(state, analyst_done, awaiting):
+            return
         if self.s7_closed_by_scribe(state):
             return
         if awaiting:
@@ -78,6 +89,11 @@ class DriverStageS7:
             analyst_done = False
         elif analyst_done and self.state.pop("s7_retriage", None):      # a fresh triage ends the chain
             self.save_state()
+        # E7-3b (N2). POSITION INVARIANT: on EVERY entry, after the settle / scribe-close / freshness reads and before the no-failures close,
+        # the pre-triage, the analyst and the repairs: no S7 close, no pre-triage row and no analyst dispatch over a need record with no
+        # answer about starting another instance; a known answer never raises the question (a yes starts ONE re-walk per case and answer)
+        if self.s7_extra_instance_step(state, analyst_done, awaiting):
+            return
         if not analyst_done:
             reasons = self.failures_to_triage(awaiting=awaiting)
             if not reasons and not awaiting:
@@ -461,6 +477,10 @@ class DriverStageS7:
         plan_rejudge = [(row, self.s7_ident(row)) for row in self.s7_rejudge_rows()]
         for row, ident in plan_rejudge:
             self.s7_rejudge_round(row, ident, life)
+        # E7-3b F-r2-1 (a), M6. POSITION INVARIANT: after the re-judge loop (a runner of that round may have written a need record the old
+        # triage row binds, so S7 would close unasked) and before `open_work` / `s7_close`: no close over a need with no answer; True -> this entry ends
+        if self.s7_extra_instance_step(None, True, None):        # state and awaiting are read inside, only once a need record exists (F7)
+            return
         if "open_work" in decided and not self.s7_open_answer(life):
             self.s7_open_work_ask(plan, life, decided["open_work"])
         self.s7_close(plan, life, plan_rejudge)
@@ -510,10 +530,229 @@ class DriverStageS7:
             return
         self.answer_row(f"{stage} open work ({token}): ", words.strip(), what="your answer about the open work")
         if token == "stop":
+            self.record_answer(token)   # FV3-16 P4: the row before the Person below
             raise self.held_question(self.stop_held("If you want the factory to close the stage after all, answer `close`."))
         rec.update(token="close", words_file=self.answer_file(), answered=_now())
         self.save_state()
         print(f"{stage}: the person's answer `close` is recorded; the stage is closed on the next step")
+
+    # --- E7-3b: a check that needs another instance of the stand or device (spec U7 / E7 r2) ------------------------------------------------
+
+    def s7_extra_instance_step(self, state: "dict | None", analyst_done: bool, awaiting: "str | None") -> bool:
+        """True = this entry is over (a question raised, or ONE re-walk ran); False = nothing to do here. A manual-run record whose `need` counts
+        (`manual_evidence.unprepared_rows`: the key `need` is on a row only while its need record counts) names a check that wants another
+        instance of the stand or device. No answer about it for the stand (`PK.instance_answer`, else the answer held for this story) -> ONE
+        closed question (`s7_extra_instance_ask`); a yes -> the checks whose record is STRICTLY older than the answer are walked again once per
+        (case, answer id); a no -> a note, the analyst triages them and delivery says the person said no. INVARIANT: no record with a need ->
+        nothing read beyond the run report and no `failures_to_triage` call; a halted run is never turned into the question (its Refusal rises);
+        an unknown moment is never a paid round; `state=None` (the call of `s7_repairs`) reads the controller state and `awaiting` AFTER that need check; `analyst_done` is part of the call's shape only - the answer never depends on who triaged."""
+        import manual_evidence as ME
+        every = ME.unprepared_rows(_read_json(self.task_root / "work/run-report.json"))
+        rows = [row for row in every if row.get("need")]
+        if not rows:
+            return False
+        if state is None:
+            import acceptance
+            state = self.controller_state()
+            awaiting = acceptance.awaits_acceptance(state, "S6", self.pipeline())
+        self.failures_to_triage(awaiting=awaiting)          # a halted run raises its own Refusal here (pure read)
+        import environment_record as ER
+        import project_knowledge as PK
+        import stand_gaps
+        stand = stand_gaps.stand_name(self.task_root)
+        unknown = float("-inf")
+        cases_of: dict = {}         # need -> case -> its LATEST need record (M8: one entry per case); any unreadable moment spoils the case
+        for row in rows:
+            moment = ER._moment(row.get("ended_at"))
+            entry = cases_of.setdefault(str(row["need"]), {}).setdefault(str(row["case"]), {"moment": moment, "why": "", "readable": True})
+            entry["readable"] = entry["readable"] and moment != unknown
+            if moment >= entry["moment"]:
+                entry.update(moment=moment, why=str(row.get("need_why") or ""))
+        answers = {}
+        for need in sorted(cases_of):
+            got = PK.instance_answer(self.project, stand, need)
+            held = (self.state.get("extra_instance_held") or {}).get(f"{stand}|{need}") if isinstance(self.state.get("extra_instance_held"), dict) else None
+            if got["authorized"] is not None:
+                answers[need] = (got["authorized"], str(got["row"]["id"]), got["row"].get("at"))
+            elif isinstance(held, dict) and isinstance(held.get("authorized"), bool):
+                answers[need] = (held["authorized"], f"held:{held.get('at')}", held.get("at"))
+        for need in sorted(cases_of):
+            if need not in answers:
+                self.s7_extra_instance_ask(stand, need, cases_of[need])         # always raises a Person (`no_move` with `call: False`)
+                return True
+        walked = self.state.get("extra_instance_rewalk")
+        walked = self.state["extra_instance_rewalk"] = walked if isinstance(walked, dict) else {}
+        for need in sorted(cases_of):
+            allowed, answer_id, answered = answers[need]
+            names = sorted(cases_of[need])
+            if not allowed:
+                self.s7_extra_instance_note(names, "no", "the person said the factory may not start one")
+                self.say_once("extra_instance_no", f"S7: {', '.join(names)} need another instance on {stand}; the person's answer is not to start one, "
+                                                   "so they go on to triage as checks left with the person")
+                continue
+            owed = []
+            for case in names:
+                mark = walked.get(f"{case}|{answer_id}")
+                if mark == "refused":
+                    continue            # the note of the refusal stands
+                if mark:
+                    self.s7_extra_instance_note([case], "yes", "the person allowed it; the runner walked it again and still could not start one")
+                elif not cases_of[need][case]["readable"] or ER._moment(answered) == unknown:
+                    self.s7_extra_instance_note([case], "yes", "the person allowed it, but the factory could not tell whether the walk came before the answer")
+                    self.say_once("extra_instance_unparseable", f"S7: {case}: the moment of its walk or of the answer cannot be read, so it is not walked "
+                                                                "again; it goes on to triage as a check left with the person")
+                elif cases_of[need][case]["moment"] < ER._moment(answered):
+                    owed.append(case)
+                else:       # equal moments are not owed either: the record is not older than the answer
+                    self.s7_extra_instance_note([case], "yes", "the person allowed it, but the runner could not start one")
+            if not owed or any(d.get("stage") == "S7" and d.get("status") == "running" for d in (state.get("dispatches") or {}).values()):
+                continue                # a running S7 dispatch: no re-walk this entry and nothing counted
+            return self.s7_extra_instance_rewalk(need, stand, answer_id, owed, every, awaiting, state)
+        return False
+
+    def s7_extra_instance_rewalk(self, need: str, stand: str, answer_id: str, owed: list, every: list, awaiting: str, state: dict) -> bool:
+        """ONE re-walk of the first block of the owed cases (`controller.manual_blocks`, r1's read): `rework` of S6 on the block with the walk
+        road of `run_manual_lane` (`walk_before` in `on_request`, lines from `manual_block_lines`) and `ALLOWED_LINE`. World A (S6 awaits its
+        consumer): `complete` is the awaits word; world B (S6 completed): False; neither -> no re-walk. INVARIANT: `complete` is never True,
+        and S6 is not re-planned: the next `where` is S7. The count is written the moment `rework` has the id (a crash costs one round)."""
+        import controller as CT
+        import manual_evidence as ME
+        block = CT.manual_blocks(owed)[0]
+        done = ((state.get("stages") or {}).get("S6") or {}).get("status") == "completed"
+        complete = self.consumer_awaits("S6", True) if awaiting else (False if done else None)
+        if complete is None or complete is True:        # neither world (or no consumer): `complete` is never True for S6 from here
+            self.s7_extra_instance_note(block, "yes", "the person allowed it, but the factory could not start a new walk from this stage")
+            self.say_once("extra_instance_neither", f"S7: {', '.join(block)} need another instance on {stand} and the person allowed it, but S6 is "
+                                                    "neither waiting for its acceptance nor completed, so they are not walked again; they go on to "
+                                                    "triage as checks left with the person")
+            return False
+        unprepared = list(dict.fromkeys((str(r["case"]), str(r["reason"])) for r in every if str(r["case"]) in block and r["reason"] != ME.NEED_REASON))
+        lines: list = []
+
+        def registered(new_id: str) -> None:
+            for case in block:
+                self.state["extra_instance_rewalk"][f"{case}|{answer_id}"] = new_id
+            self.save_state()
+            print(f"S7: {', '.join(block)} are walked again with another instance of the stand or device on {stand} (the person allowed it)")
+            walk = self.walk_before(block, new_id)
+            lines.extend(self.manual_block_lines(block, new_id, walk, unprepared) + [ALLOWED_LINE] + self.role_lines("S6", "qa-runner"))
+        try:
+            self.rework("S6", "qa-runner", block, "S7 another instance: " + ", ".join(block), cause="question_answer", complete=complete,
+                        on_request=registered, extra=lines)
+        except ReworkRefused as exc:        # raised before `on_request`: nothing was counted yet
+            why = " ".join((str(exc.text).strip().splitlines() or [""])[0].split())[:200]
+            for case in block:
+                self.state["extra_instance_rewalk"][f"{case}|{answer_id}"] = "refused"
+            self.save_state()
+            self.s7_extra_instance_note(block, "yes", f"the person allowed it, but the factory could not start the new walk: {why}")
+            print(f"S7: the new walk of {', '.join(block)} could not be started ({why}); they go on to triage as checks left with the person")
+            return False
+        return True
+
+    def s7_extra_instance_story_only(self, stand: str) -> bool:
+        """True when the answer cannot be kept for the stand: no stand chosen (the placeholder), or a story that leaves no trace."""
+        import project_knowledge as PK
+        return not stand.strip() or stand == PK.PLACEHOLDER_STAND or bool(PK._refuse_no_trace(self.task_root))
+
+    def s7_extra_instance_ask(self, stand: str, need: str, cases: dict) -> None:
+        """The ONE question (`s7.extra_instance`; no paid call, AR-17): the stand and the checks that need another instance, each with the
+        runner's words about what it would start - masked by `masked_words` (no runner word reaches the person unmasked), cut at the quote
+        limit - at most `EXTRA_LEAD_CASES` cases and "and K more". The record `extra_instance_asked` keeps what the answer reads."""
+        names = sorted(cases)
+        story_only = self.s7_extra_instance_story_only(stand)
+        prior = self.state.get("extra_instance_asked")
+        stopped = isinstance(prior, dict) and prior.get("stand") == stand and prior.get("need") == need and bool(prior.get("stopped"))
+
+        def line(case: str) -> str:
+            try:
+                words = self.masked_words(cases[case]["why"])
+            except Exception:       # noqa: BLE001 - an unknown is never shown (FR-59)
+                words = "(not shown: they look like a secret)"
+            return f'- {case}: "{self.s0_quote(words)}"'
+        shown = [line(case) for case in names[:EXTRA_LEAD_CASES]]
+        if len(names) > EXTRA_LEAD_CASES:
+            shown.append(f"- and {len(names) - EXTRA_LEAD_CASES} more (the report lists them all)")
+        lead = (("You answered `stop` earlier. " if stopped else "")
+                + f"{len(names)} check(s) {'on the stand of this story' if story_only else f'on the stand `{stand}`'} need another instance of the stand "
+                "or device, which the factory has not started:\n" + "\n".join(shown)
+                + "\n\nShould the factory start one when a check needs it? "
+                + ("Your answer holds for this story only." if story_only else
+                   f"Your answer is kept for the stand `{stand}` and is not asked again; to change it later, say `ask again`."))
+        self.state["extra_instance_asked"] = {"stand": stand, "need": need, "cases": names, "lead": lead, "at": _now(), "stopped": stopped}
+        self.save_state()
+        print(f"S7: {len(names)} check(s) need another instance of the stand or device on {stand} and nobody has said whether the factory may start "
+              "one; the person is asked")
+        self.no_move({"why": "threshold", "kind": "extra_instance", "call": False, "stage": "S7", "dispatch": "", "lead": lead,
+                      "site_doors": ("start it", "by hand"), "site_fallback": lambda said: self.s7_extra_instance_person(lead, said)})
+
+    def s7_extra_instance_person(self, lead: str, said: str = "") -> Person:
+        """The question from its words: `said` (an unread answer's lead) above the account, then the three priced answers of `s7.extra_instance`.
+        ONE literal `closed_question` (the census of question ids reads it). NO `holds`: the question never defers."""
+        lead = lead if not said.strip() or said.strip() == lead.strip() else said.strip() + "\n\n" + lead
+        stand = str((self.state.get("extra_instance_asked") or {}).get("stand") or "")
+        if self.s7_extra_instance_story_only(stand):
+            start_says = ("the factory may start another instance of the stand or device for this story only; the checks above are walked again now")
+            hand_says = ("the factory does not start one in this story; these checks are left for you to check and the report lists them")
+        else:
+            start_says = (f"the factory may start another instance of the stand or device on `{stand}` whenever a check needs one, now and in later "
+                          "stories; the checks above are walked again now")
+            hand_says = (f"the factory never starts one on `{stand}`; these checks and later ones like them are left for you to check and the report "
+                         "lists them; say `ask again` to change it")
+        start = {"answer": "start it", "token": "start it", "slots": {"role": "the runner"}, "says": start_says}
+        by_hand = {"answer": "by hand", "token": "by hand", "slots": {"what": "the checks named above"}, "says": hand_says}
+        return Person("extra_instance", self.closed_question("s7.extra_instance", lead, [start, by_hand, dict(self.STOP_OPTION)]), "S7", "")
+
+    def _answer_extra_instance(self, words: str, qtext: str, stage: str, dispatch: str) -> None:
+        """The answer to the another-instance question (FR-9: each token has an executor; FR-12: tokens only). `start it` / `by hand` are written
+        to the registry by the driver (`PK.record`, the person's words whole), or held for this story when the write is refused (an answer is
+        never lost and never widened to other stories); `stop` records nothing and holds the question (the rerun asks again, changed); any
+        other word goes to the seam once, with this question as the one shown again. The tokens are read as `_answer_open_work` reads its own."""
+        rec = self.state.get("extra_instance_asked") or {}
+        token = self.s0_normalize(words)
+        if not rec or token not in ("start it", "by hand", "stop"):
+            self.unread("extra_instance", stage, dispatch, qtext, words=words, doors=("start it", "by hand", "stop"), lead=self.unread_lead(words),
+                        again=lambda said: self.s7_extra_instance_person(rec["lead"], said) if rec else self.held_question(said))
+            return
+        self.answer_row(f"{stage} another instance ({token}): ", words.strip(), what="your answer about another instance of the stand or device")
+        if token == "stop":
+            rec["stopped"] = True
+            self.save_state()
+            raise self.held_question(self.stop_held("If you want to answer after all, say `start it` or `by hand`."))
+        import project_knowledge as PK
+        stand, need, allowed = str(rec.get("stand") or ""), str(rec.get("need") or ""), token == "start it"
+        row, problem = None, "no stand was chosen for this story"
+        if stand.strip() and stand != PK.PLACEHOLDER_STAND:       # a story that leaves no trace is refused by `PK.record` itself: held below
+            try:
+                row, problem, _ = PK.record(self.project, key=PK.EXTRA_INSTANCE_KEY, environment=stand, element=need, state=PK.KNOWN, scope="stand",
+                                            value={"authorized": allowed}, words=words, source="person", story=self.task, by="driver",
+                                            where="S7 another-instance question", task_root=self.task_root)
+            except Exception as exc:    # noqa: BLE001 - a busy lock or a broken registry: the answer is held, never lost
+                row, problem = None, f"{type(exc).__name__}: {exc}"
+        if row is None:
+            held = self.state.get("extra_instance_held")
+            self.state["extra_instance_held"] = held = held if isinstance(held, dict) else {}
+            held[f"{stand}|{need}"] = {"authorized": allowed, "words_file": self.answer_file(), "at": _now()}
+            print(f"{stage}: the answer `{token}` about another instance is kept for this story only ({' '.join(str(problem).split())[:200]})")
+        else:
+            print(f"{stage}: the person's answer `{token}` about another instance on {stand} is recorded ({row['id']})")
+        self.state.pop("extra_instance_asked", None)
+        self.save_state()
+
+    def s7_extra_instance_note(self, cases, answer: str, why: str) -> None:
+        """THE writer of `work/extra-instance.json` (`{"schema_version": 1, "cases": {case: {"answer", "why", "at"}}}`, F-r2-2, read by
+        `check_delivery.extra_instance_outcomes`): one entry per case, the LATEST note wins; a file with another schema, absent or unreadable
+        reads as `{}`. An unchanged entry is not written again. A failed write is one printed line: the delivery then says no answer was recorded."""
+        path = self.task_root / EXTRA_NOTE_REL
+        doc = _read_json(path)
+        kept = doc.get("cases") if isinstance(doc, dict) and doc.get("schema_version") == 1 and isinstance(doc.get("cases"), dict) else {}
+        fresh = {str(case): {"answer": answer, "why": why, "at": _now()} for case in cases
+                 if not (isinstance(kept.get(str(case)), dict) and kept[str(case)].get("answer") == answer and kept[str(case)].get("why") == why)}
+        if not fresh:
+            return
+        try:
+            _write_json(path, {"schema_version": 1, "cases": {**kept, **fresh}})
+        except OSError as exc:
+            print(f"S7: the note about {', '.join(sorted(fresh))} could not be written ({type(exc).__name__}); the report will say no answer was recorded")
 
     def s7_close(self, plan: list, life: str, rejudge: list = ()) -> None:
         """Every row ended in this life: finalize, then the receipt and the record, through `close_by_code` (the stage_done carries the

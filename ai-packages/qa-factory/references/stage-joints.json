@@ -3838,6 +3838,34 @@
       "joint": null
     },
     {
+      "check": "manifest_put:claim_then_pairs",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`claim_then_pairs` is a non-empty list of {\"case\": \"TC-n\", \"then\": n} members (a positive Then number) whose cases a row of the manifest names.",
+      "door": "send a `claim_then_pairs` list of {\"case\": \"TC-n\", \"then\": n} naming a case the manifest holds, or run `manifest_put.py --task <T> --open-oracle <case>#<n> --question <ref>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-code-critic"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
       "check": "manifest_put:critic_approval",
       "stages": [
         "S5"
