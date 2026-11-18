@@ -100,6 +100,7 @@
         "references/login-roads.json",
         "scripts/tests/test_probe_*.py",
         "scripts/tests/probe_entries.py",
+        "scripts/tests/probe_by_code_common.py",
         "scripts/tests/probe_by_code_languages_common.py",
         "scripts/tests/test_manifest_put_assertion_line.py",
         "scripts/tests/test_probe_by_code_alternative.py",
