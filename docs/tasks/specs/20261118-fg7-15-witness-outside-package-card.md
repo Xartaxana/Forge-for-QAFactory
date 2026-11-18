@@ -267,3 +267,4 @@ The `owns_readers` block was NOT attached (`facts: none`); I have no shell. The 
 - F5: (a) no forge canon class now.
 - The two observations (scenario glob counting test_scenario_walk/world; owns_readers docstring count) are not widened.
 The builder card of §4 stands as written.
+- Round 2 (critic t-1417 W2, option b): a relative path whose top folder exists neither in the package nor under root stays a package path. E15 changes with it: a wrong cwd now gets the package answer (deleted + the whole scenario layer), not `no witness`. Accepted: the invariant "never invents a witness" holds, since the whole layer is the over-naming direction E14 allows, never a narrower list.
