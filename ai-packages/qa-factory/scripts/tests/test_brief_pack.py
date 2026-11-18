@@ -3327,13 +3327,51 @@ def ss1_11_stand_lessons() -> None:
                  (len(many), any("more:" in l for l in many), any('op11: "words 11"' in l for l in many)), (11, False, True))
         text = brief_of()
         check_in("E54: the head holds every lesson line whole", "\n".join(many), pc8_head(text))
+        import app_card
+
+        def instance_row(allowed):      # E7-2: the line on BOTH roads' stand text (manual brief, walk card); words are data
+            if allowed is not None:
+                PK.record(root, key=PK.EXTRA_INSTANCE_KEY, environment="localhost", element="another_instance", state=PK.KNOWN, scope="stand",
+                          value={"authorized": allowed}, words="x", source="person", story="S-1", by="driver")
+            pick = lambda lines: [l for l in lines if l.startswith("- Another instance")]
+            return (pick(brief_pack.manual_stand_lines(task, root, cfg, [], "localhost")), pick(app_card._stand_lines(task, root, cfg, "")[0]))
+        check_eq("E7-2: no answer is `not answered yet`, on both roads", instance_row(None), (["- Another instance on localhost: not answered yet"],) * 2)
+        manual, card = instance_row(True)
+        check_eq("E7-2: a yes is allowed with its story and day, on both roads", (manual == card, manual[0].startswith("- Another instance on localhost: allowed (the person's answer, given in S-1 on 20")), (True, True))
+        manual, card = instance_row(False)
+        check_eq("E7-2: the newest answer, a no, is not allowed, on both roads", (manual == card, "not allowed (" in manual[0]), (True, True))
+        PK.revoke(root, PK.load(root)[0][-1]["id"], "x")
+        check_eq("E7-2: a revoke reads as `not answered yet`, on both roads", instance_row(None), (["- Another instance on localhost: not answered yet"],) * 2)
+        check_eq("E7-2: no stand, no line (silence never allows)", brief_pack.instance_lines(root, ""), [])
+        two = {"environments": [{"name": "first", "base_url": "http://a.invalid"}, {"name": "second", "base_url": "http://b.invalid"}]}
+        pipeline_path.write_text(json.dumps(dict(base, environment="second")), encoding="utf-8")
+        PK.record(root, key=PK.EXTRA_INSTANCE_KEY, environment="second", element="another_instance", state=PK.KNOWN, scope="stand",
+                  value={"authorized": True}, words="x", source="person", story="S-1", by="driver")
+        card_two = "\n".join(app_card._stand_lines(task, root, two, "")[0])
+        check_eq("B1: two stands, the pipeline names the second: the card carries its answer", ("- Another instance on second: allowed (" in card_two, "not named" in card_two), (True, False))
+        pipeline_path.write_text(saved_pipeline, encoding="utf-8")
+        real = PK.instance_answer
+        PK.instance_answer = lambda *a: {"authorized": True, "row": {"at": "garbage"}, "problem": "", "no_stand": False}
+        try:
+            check_eq("E7-2: an answer whose day cannot be read says so", brief_pack.instance_lines(root, "localhost"),
+                     ["- Another instance on localhost: allowed (the person's answer, given (date not known))"])
+        finally:
+            PK.instance_answer = real
         (root / PK.RECORD_REL).write_text("{not json", encoding="utf-8")
+        manual, card = instance_row(None)
+        check_eq("E7-2: an unreadable registry is never allowed, on both roads", (manual == card, "could not be read (" in manual[0]), (True, True))
         bad = brief_pack.stand_lesson_lines(root, "localhost")
         check_eq("E46: an unreadable registry is one line that says so",
                  (len(bad), bad[0].startswith("- Stand lessons: could not be read (")), (1, True))
         check_in("E46: the manual runner's stand says so", bad[0], "\n".join(brief_pack.manual_stand_lines(task, root, cfg, [], "localhost")))
     finally:
         harness.cleanup(root)
+
+
+def test_ss1_11_stand_lessons() -> None:     # pytest wrapper (C1, M16): only the rows this call added are judged
+    n = len(harness.RESULTS)
+    ss1_11_stand_lessons()
+    assert all(ok for ok, _ in harness.RESULTS[n:]), [name for ok, name in harness.RESULTS[n:] if not ok]
 
 
 def c3_j1_stand_page_load() -> None:
