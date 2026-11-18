@@ -15,7 +15,7 @@ ROWS = [
     ("no limit, long", "x" * 500, None, "x" * 500),
     ("exactly at the limit", "abcde", 5, "abcde"),
     ("one beyond the limit", "abcdef", 5, "abcd…"),
-    ("fold before measuring", "a  b  c  d", 5, "a b …"),
+    ("fold before measuring", "a  b  c", 5, "a b c"),
 ]
 
 

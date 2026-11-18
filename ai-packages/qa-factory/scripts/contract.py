@@ -135,14 +135,12 @@ def prefix_value(text, prefix: str) -> str | None:
 def one_line(text, limit: int | None = None) -> str:
     """The ONE fold-and-cut one-liner (FG7-1; nine copies had grown): every whitespace run becomes one space, the edges
     go; falsy input (None, "") is an empty string. `limit` None folds only; longer than `limit` is cut to `limit - 1`
-    characters plus `…` (which counts). Cut at a word instead: `gate_brief._one_line_at_word`; break-only fold:
+    characters plus `…` (which counts; a limit below 1 cuts as 1). Cut at a word instead: `gate_brief._one_line_at_word`; break-only fold:
     `detector_verdict.one_line`."""
     folded = " ".join(str(text or "").split())
     if limit is None or len(folded) <= limit:
         return folded
-    if limit < 1:
-        raise ValueError("limit must be at least 1")
-    return folded[:limit - 1] + "…"
+    return folded[:max(limit, 1) - 1] + "…"
 
 
 def names_whole(needle, text) -> bool:

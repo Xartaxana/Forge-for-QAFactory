@@ -1538,7 +1538,7 @@ def _clip_whole_spans(text: str, limit: int) -> str:
 
 def _one_line_at_word(text, limit: int) -> str:
     """Not `contract.one_line`: this cuts at a word boundary and marks it `…` (FG7-1)."""
-    text =" ".join(str(text or "").split())
+    text = " ".join(str(text or "").split())
     return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0].rstrip(",;:. ") + "…"
 
 
