@@ -147,3 +147,22 @@ def test_command_for_round_trips_through_the_check_parser(paths, lint):
     assert "`" not in cmd and chr(10) not in cmd and "test_" not in cmd.split("--paths")[0]
     a = RP._parser().parse_args(shlex.split(cmd)[3:])
     assert a.cmd == "check" and a.ids == want and (a.paths or None) == lint
+
+
+def test_check_door_on_an_empty_root_and_an_unknown_id_is_cannot_judge_never_ok(tmp_path, capsys):
+    out = []
+    rows = RP.check(["census", "read-json", "test-layers"], tmp_path, [], out=out.append)
+    rep = RP.Report()
+    rep.rows = rows
+    assert {r[1] for r in rows} == {"cannot"} and rep.code() == 2 and not any(" ok (" in ln for ln in out)
+    assert RP.main(["check", "nope", "--root", str(tmp_path)]) == 2
+    assert "unknown check nope; known: " + ", ".join(RP.IDS) in capsys.readouterr().out
+    assert RP._judge(1, "registry preflight: x RED (1.0 s)\n  a\n  +2 more\n", "") == ("red", ["  a", "  +2 more"])   # the child's format
+
+
+def test_wave_default_preflight_names_a_branch_that_is_not_found():
+    import wave
+    said = []
+    w = type("W", (), {"branch": "no-such-branch-xyz", "root": TOOLS.parent, "say": said.append})()
+    wave.registry_preflight_lines(w)
+    assert said == ["registry preflight: cannot judge (branch no-such-branch-xyz not found)"]
