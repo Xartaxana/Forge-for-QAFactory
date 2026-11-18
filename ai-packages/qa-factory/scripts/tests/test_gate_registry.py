@@ -1175,10 +1175,8 @@ D13_TRIPLES = [
 # 170 -> 184 (RD1-33 S1, t-1393, AR-20; measured with GR.analyse before (170 / 63 triples) and after (184 / 69); card estimate +13 / +6, measured
 # +14 / +6, the one extra is `probe_record_state` counting 5 not 4: `verdict == 'incomplete'`, `verdict in ('not_executed', 'incomplete')`,
 # `state == 'incomplete'`, `state == 'not_executed'` and `state in ('not_executed', 'incomplete')`). The rows `probe_verdict` and `test_identity`
-# gain sites; no allow entry (every item is allowed by role). Items: `probe_judged` 1 (`verdict in (the four judged words)`), `tooling_gap_key` 1
-# (`verdict not in ('not_executed', 'incomplete')`), `probe_record_state` 5, `held_words` 2 (`how == 'instance_code'`, `how == 'file_code'`),
-# `compare_identity` 4 (the returned tuples `('unknown', '')` twice, `('different', 'code')`, `('same', ...)`), `execution_request.same_instance_bytes` 1
-# (`compare_identity(now, before)[0] == 'same'`). Missing: none.
+# gain sites; no allow entry. Items: probe_judged 1, tooling_gap_key 1, probe_record_state 5, held_words 2, compare_identity 4 (returned
+# tuples), same_instance_bytes 1. Missing: none.
 D13_ITEM_COUNT = 184
 
 
