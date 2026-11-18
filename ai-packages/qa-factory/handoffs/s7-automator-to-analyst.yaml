@@ -8,6 +8,19 @@
 #
 # `fix_result: not_fixed` is a legitimate answer. Two rounds is the cap; a test that is still
 # failing after them is `not_verified_flaky` in the ledger, and the person decides at gate B.
+# The contract's own exception to "a required list is never empty" (handoff.null_outcomes): `rounds` may be empty only when
+# no `scope` row says `fixed`. The check reads it; it is not a field you fill.
+null_outcome:
+  rounds:
+    condition: sibling_in
+    params:
+      field: scope[].fix_result
+      in: [fixed]
+    words:
+      "scope[].fix_result":
+        word: fixed
+        means: "a repair was made"
+
 schema_version: 1
 contract: s7-automator-to-analyst
 stage: S7

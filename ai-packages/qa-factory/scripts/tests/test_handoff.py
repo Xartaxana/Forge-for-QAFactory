@@ -3015,8 +3015,12 @@ def an_untouched_list_is_empty_at_every_depth_that_crosses_no_row() -> None:
              "execution[0].preconditions", ["execution[0].preconditions[0]"]),
             ("R6 findings untouched, verdict ok: no refusal", crit, (("header.verdict", "ok"),), None, "findings", no_problem),
             ("R8 artifacts.tests untouched on a plain check: no refusal", "s5-automator-to-critic", (), None, "artifacts.tests", no_problem),
-            ("R13 rounds untouched beside fix_result fixed: today's behaviour, the priced risk", "s7-automator-to-analyst", (("scope[0].fix_result", "fixed"),), None,
+            ("R13 rounds untouched beside fix_result fixed: refused (FV3-30, sibling_in)", "s7-automator-to-analyst", (("scope[0].fix_result", "fixed"),), None,
+             "rounds", ["rounds"]),
+            ("R13b rounds untouched, no scope row fixed: legal", "s7-automator-to-analyst", (("scope[0].fix_result", "not_fixed"),), None, "rounds", no_problem),
+            ("R13c rounds untouched, fix_result in another case (Fixed): exact match only, legal", "s7-automator-to-analyst", (("scope[0].fix_result", "Fixed"),), None,
              "rounds", no_problem),
+            ("R13d rounds untouched, scope absent: legal for rounds", "s7-automator-to-analyst", (), {"scope": gone}, "rounds", no_problem),
             ("R14 findings untouched on the case critic: no refusal", "s4-case-critic-to-designer", (), None, "findings", no_problem),
             ("R15 a flow list in a map, untouched: no refusal", scribe, (), None, "delivery.reasons_by_owner", no_problem),
             ("R17 raw scalar at the nested path reads empty", crit, (), {"probes.records": "foo"}, "probes.records", no_problem),
@@ -3024,6 +3028,16 @@ def an_untouched_list_is_empty_at_every_depth_that_crosses_no_row() -> None:
         )
         for label, contract, edits, data, prefix, want in rows:
             check_eq(label, under(run(contract, edits, data), prefix), want)
+        refused = [p for p in run("s7-automator-to-analyst", (("scope[0].fix_result", "fixed"),)) if p.path == "rounds"]
+        check_eq("R13 the code is required_rows, the refusal names the fixed row and the door names the rounds row",
+                 (codes(refused, "rounds"), "no repair round is recorded" in str(refused[0].text), "verify.witness" in refused[0].fix), (["handoff_check:required_rows"], True, True))
+        # FV3-30: an investigation-shaped S7 form judges rounds by its own rule, not by the investigation view
+        was, H._investigation_dispatch = H._investigation_dispatch, lambda _art: True
+        try:
+            check_eq("R13e investigation dispatch: rounds empty, no fixed row, passes", under(run("s7-automator-to-analyst", (("scope[0].fix_result", "not_fixed"),)), "rounds"), no_problem)
+            check_eq("R13f investigation dispatch: rounds empty beside fixed, refused", under(run("s7-automator-to-analyst", (("scope[0].fix_result", "fixed"),)), "rounds"), ["rounds"])
+        finally:
+            H._investigation_dispatch = was
         fresh = run(crit)  # R4 and the R6 concerns half are pinned by test_detector_verdict T6 (same door, same form)
         for contract in (crit, plan):
             check_eq(f"R11 {contract}: inputs_read untouched is one required_rows", codes(run(contract), "inputs_read"), ["handoff_check:required_rows"])

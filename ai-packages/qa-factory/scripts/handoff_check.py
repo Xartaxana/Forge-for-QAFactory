@@ -1558,6 +1558,43 @@ def _null_outcome_view(doc, section: str, entry: dict, contract: str, art) -> tu
     return problems, openable
 
 
+def _sibling_in_view(doc, section: str, entry: dict, contract: str, art) -> tuple:
+    """`(problems, [])` for the condition `sibling_in` (FV3-30): an empty `section` is legal only when no row of the sibling
+    list carries a value of `params.in` at `params.field` (`scope[].fix_result`, `[fixed]`: no repair is claimed, so no
+    repair round is owed). Both are data (FR-13); this is the logic. A NON-empty `section` is legal here whatever the siblings
+    say (the impl itself answers "legal", so `check` needs no guard and every other contract's loop is unchanged). Exact match
+    only: `Fixed`, an absent or a null value counts as not fixed; a field path that is not `<list>[].<leaf>` refuses (fail
+    closed). Nothing is ever openable: `--fix` writes no row for it."""
+    if not _is_empty_section(doc, None, section):
+        return [], []
+    params = entry.get("params") or {}
+    field, wanted = str(params.get("field") or ""), [str(w) for w in params.get("in") or []]
+    head, sep, leaf = field.partition("[].")
+    if not (head and sep and leaf and "." not in leaf and "[" not in leaf):
+        return [Problem(section, refusal("handoff_check:required_rows",
+                                         f"no rows. `{section}` is empty, and the field `{field}` this contract reads it by is not a "
+                                         "`<list>[].<field>` path, so the empty cannot be judged."),
+                        f"write the `{section}` rows")], []
+    rows = doc.data.get(head)
+    hits = [str(row.get("id") or f"row {i + 1}") for i, row in enumerate(rows if isinstance(rows, list) else [])
+            if isinstance(row, dict) and isinstance(row.get(leaf), str) and row[leaf] in wanted]
+    if not hits:
+        return [], []
+    said = next(iter((entry.get("words") or {}).values()), None) or {"word": wanted[0] if wanted else "", "means": "a repair was made"}
+    return [Problem(section, refusal("handoff_check:required_rows",
+                                     f"no rows. `{section}` is empty, and `{said['word']}` in `{field}` says {said['means']}: "
+                                     f"{len(hits)} `{head}` row(s) say it ({_shown(hits)}), but no repair round is recorded."),
+                    f"add the `{section}` row for each (changed, verify.witness), or set `{leaf}` to what really happened")], []
+
+
+def _view_for(entry: dict, investigating: bool):
+    """The view a declared entry is judged by. An investigation hand-back replaces the view of `triage_has_no_repair`
+    only (it judges `scope` and `not_for_repair`, as before); every other condition is judged by its own."""
+    if investigating and entry["condition"] == "triage_has_no_repair":
+        return _investigation_view
+    return _null_outcome_impl(entry)
+
+
 def _null_outcome_impl(entry: dict):
     """The function the REGISTRY names for this declaration's condition (`null_outcomes.CONDITIONS[..].impl`),
     resolved in this module: one source for "what implements the condition". The registry is code, and the detector
@@ -1688,7 +1725,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
             if section in handoff.REQUIRED_LISTS:
                 if section in nulled:
                     # an empty list is this contract's own legitimate answer, on the conditions the block names
-                    problems += (_investigation_view if investigating else _null_outcome_impl(nulled[section]))(doc, section, nulled[section], contract, art)[0]
+                    problems += _view_for(nulled[section], investigating)(doc, section, nulled[section], contract, art)[0]
                     continue
                 problems.append(Problem(
                     section, refusal("handoff_check:required_rows",
@@ -1716,7 +1753,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
         # t-323 F1: a row that names several failures, or several rows for one failure, is refused on THIS path too -
         # the empty-section path says it in the condition's view; here a kept ambiguous TEST_BUG row beside a
         # non-empty repair list used to reach `s7_repairs` (the view says only that, for a non-empty section)
-        problems += (_investigation_view if investigating else _null_outcome_impl(entry))(doc, section, entry, contract, art)[0]
+        problems += _view_for(entry, investigating)(doc, section, entry, contract, art)[0]
     for section, entry in nulled.items():
         if _is_empty_section(doc, spec, section, contract):
             continue
