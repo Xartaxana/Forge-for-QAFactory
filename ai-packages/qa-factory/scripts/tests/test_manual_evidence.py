@@ -865,6 +865,8 @@ def n2_k9_the_persons_word_in_validate_and_the_baseline_that_refuses_it():
         got = errors(dict(baseline, runtime_after=wrong))
         check_in("RD1-14 k3 2b: a mismatching revision names both revisions", "'other', the approved baseline_revision is 'old'", got)
         check_in("RD1-14 k3 2b: ... and the door", "Capture again on a stand that runs that revision", got)
+        check_eq("RD1-14 k3 K2: a runtime_before-only mismatch gets ONE revision sentence",
+                 errors(dict(baseline, runtime_before=wrong)).count("the approved baseline_revision is"), 1)
         # S12: the sentences code writes into limitations[]
         sentences = M.person_sentences(word)
         check_eq("K-N2.9 S12: a `deployed` word gets one sentence: who, when, not read by the factory",
