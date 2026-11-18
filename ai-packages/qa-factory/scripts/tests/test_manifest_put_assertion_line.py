@@ -386,6 +386,33 @@ def test_the_authors_spelling_re_sent_after_a_rewrite_joins_the_stored_row(stand
     assert [r["instance_id"] for r in rows] == ["test_par[b-2]"] and rows[0]["why"] == "patched", rows
 
 
+# (label, the id the carriers hold, the row sent beside them, the seeded second claimant of the spelling, the id they hold after)
+# Expected from card E13 and critic t-1360 R3: no carrier keeps a spelling the row lost; a spelling two rows claim stays as written.
+CARRIERS = [
+    ("renamed: the collected spelling in both carriers", "test_par[2]", "test_par[2]", False, "test_par[b-2]"),
+    ("ambiguous: two stored rows claim it, as written", "test_par[2]", "test_plain", True, "test_par[2]"),
+    ("no rename: byte for byte", "test_plain", "test_plain", False, "test_plain"),
+]
+
+
+@pytest.mark.parametrize("label,held,sent,seeded,after", CARRIERS, ids=[r[0][:8] for r in CARRIERS])
+def test_the_carriers_of_a_renamed_row_follow_its_collected_spelling(stand, label, held, sent, seeded, after):
+    """Kill: `_rewrite_instance_ids` skipping `unresolved[]` or `obligation_bindings[]` (E13: a carrier keeping the spelling its row
+    lost), a name two rows claim rewritten to either or to null, a row that was not renamed touched (RD1-40, critic t-1360 R3)."""
+    with_pytest(stand)
+    if seeded:
+        claim = {"status": "verified", "note": "n", "asked": held}
+        stand.append_projected({"tests": [{"instance_id": f"test_par[{k}-2]", "file": MOD, "covers": [CASE], "status": "green",
+                                           "node_id_check": claim} for k in "xz"]}, "seed")
+    unresolved = {"case": CASE, "reason": "impossible", "detail": "d", "instance_ids": [held]}
+    binding = {"obligation_id": "OB-1", "instance_ids": [held]}
+    code, out, err = stand.put({"tests": [node_row(sent)], "unresolved": [unresolved], "obligation_bindings": [binding]})
+    assert code == 0, (label, out, err)
+    stored = stand.manifest()
+    assert stored["unresolved"][0]["instance_ids"] == [after], (label, stored["unresolved"])
+    assert stored["obligation_bindings"][0]["instance_ids"] == [after], (label, stored["obligation_bindings"])
+
+
 def test_nothing_to_ask_starts_no_process_and_replay_never_collects(stand, monkeypatch):
     """Kill: a subprocess for a fragment with nothing to ask (E11), or a collect on replay (E14: a replayed event folds to its mark)."""
     import node_ids
