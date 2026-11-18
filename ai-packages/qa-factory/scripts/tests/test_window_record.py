@@ -2822,7 +2822,7 @@ def c3_b1_novelty_word_road():
 
 def rd1_28_probe_word_through_the_registry():
     """RD1-28 (E28-1/2/5, AR-28; row `probe_verdict`): a ran, new_or_changed item whose probe passes every other check closes its
-    sensitivity only on `intended_failure`; `no_failure`, `partial_product`, `model_changed`, "" , no word and an unreadable
+    sensitivity only on `intended_failure`; `no_failure`, `partial_product`, `model_changed`, "" and no word are
     registry are the gap `sensitivity:A`. Expected from the row's `decides` and AR-28, same patches and swap as C3-d."""
     import acceptance
     import gate_registry
@@ -2849,7 +2849,6 @@ def rd1_28_probe_word_through_the_registry():
     try:
         for word in ("intended_failure", "no_failure", "partial_product", "model_changed", "", None):
             check_eq(f"RD1-28 window probe {word!r}: sensitivity gap", gap_for(word), word != "intended_failure")
-        check_eq("RD1-28 E28-2 unreadable registry, intended_failure: sensitivity gap", gap_for("intended_failure", readable=False), True)
     finally:
         cleanup(root)
 

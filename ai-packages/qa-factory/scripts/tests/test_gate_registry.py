@@ -1152,10 +1152,14 @@ def part_site_attribution() -> None:
     triples = sorted({(i["file"], i["function"], row) for i in result["items"] for row in i["rows"]})
     check_eq("D13: the set of (file, function, row) the scan attributes its comparisons to", triples, D13_TRIPLES)
     check_eq("D13: and the number of comparisons it counts", len(result["items"]), D13_ITEM_COUNT)
-    # RD1-28 (E28-6): no probe word is compared in the three old bodies; the control: probe_found_defect has its one item
-    rows = {(i["file"], i["function"]): i["rows"] for i in result["items"] if "probe_verdict" in i["rows"]}
-    check_eq("RD1-28 E28-6: probe_verdict items sit in the producers and probe_found_defect only", sorted(rows),
-             [("probe_by_code.py", "_judge_rows"), ("proof_level.py", "probe_found_defect"), ("red_sandbox.py", "product_verdict")])
+    # RD1-28 (E28-6): the scan's raw items (not `analyse`, which keeps only the words of a function's own rows) must show no probe word
+    # in the three old bodies; the control: probe_found_defect keeps its one comparison
+    pw = set(next(r for r in GR.load_registry(PLUGIN_ROOT)[0]["rows"] if r["id"] == "probe_verdict")["words"])
+    raw = GR.scan_package(PLUGIN_ROOT)
+    left = lambda f, fn: [i["line"] for i in raw[f]["items"] if i["function"] == fn and i["words"] & pw]  # noqa: E731
+    check_eq("RD1-28 E28-6: no probe word is compared in the three old bodies",
+             [left("proof_level.py", "already_probed"), left("proof_level.py", "_product_receipt_repeat"), left("acceptance.py", "validate_window")], [[], [], []])
+    check_eq("RD1-28 E28-6 control: probe_found_defect keeps its one comparison", len(left("proof_level.py", "probe_found_defect")), 1)
     # B-283: the row below has no triple on purpose, and the pin says so, so the move that gives it one changes this line too
     # (the row's real consumers are the R7 callers - `_card_items` via `_environment_cover`, `_reporter_card`; B-283 moves them here
     # and updates this pin).

@@ -1931,6 +1931,21 @@ def rd1_28_the_probe_word_is_read_through_its_row():
     check_eq("E28-9 every word product_verdict returns is a word of the row", got - set(row["words"]) - {"intended_failure"}, set())
 
 
+def rd1_28_a_receipt_without_mutated_file_answers_through_the_record_behind_it():
+    s, edit, put_receipt, row = other_spelling_world()
+    try:
+        for verdict in ("intended_failure", "no_failure"):
+            proof = put_receipt("test_a", "test_a")
+            path = s.task / "work" / "probes" / "test_a.json"
+            record = json.loads(path.read_text(encoding="utf-8"))
+            record.update(verdict=verdict, receipt={"path": proof["receipt_ref"]["path"]})
+            write(path, record)
+            got = PL.already_probed(row("test_a", proof), {}, s.task, project=s.root)
+            check_eq(f"RD1-28 F3 a receipt with no mutated_file, behind `{verdict}`: a receipt hit", got.get("by"), "receipt" if verdict == "intended_failure" else None)
+    finally:
+        cleanup(s.task)
+
+
 def main():
     root = the_project()
     try:
@@ -1965,6 +1980,7 @@ def main():
         c3_b2_a_reuse_is_accepted_through_the_registry_row_and_an_unknown_runs_again()
         rd1_26_the_identity_word_is_read_through_its_row()
         rd1_28_the_probe_word_is_read_through_its_row()
+        rd1_28_a_receipt_without_mutated_file_answers_through_the_record_behind_it()
     finally:
         cleanup(root)
     ep1_37_the_file_of_a_selector_is_the_contracts()
