@@ -179,7 +179,7 @@ def parser_cases() -> None:
         "PASS tests: scripts/tests/fixtures/test_in_a_folder.py  30.0s",
         "PASS tests: scripts/other/test_elsewhere.py  30.0s",
         "PASS selftest-scripts: form_selftest.py  30.0s",
-        "tests: slowest 5 — test_infra_failure.py 110.0s, test_story_run_s0.py 85.2s",
+        "tests: slowest 5 — test_infra_failure.py 110.0s, test_story_run_s0_snapshot.py 85.2s",
         "tests: INFO over 10s but not in SLOW_TESTS (add to selftest.py): test_x.py",
         "PASS tests: scripts/tests/test_inside.py  2.0s"])
     check_eq("parser: a duration line for a file outside scripts/tests/, and the summary lines, are ignored",
