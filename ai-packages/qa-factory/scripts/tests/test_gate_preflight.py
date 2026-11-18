@@ -148,7 +148,12 @@ def name_the_plan_row(root: Path) -> None:
     """B-006 (iii): the gate collects only for a story whose `automate` plan row (TS-1) is named by a case, and the one
     reader (`contract.case_plan_row`) takes the body line `Plan row:`, not the front matter."""
     case = root / "qa-factory" / "artifacts" / "TP1-15045" / "work" / "test-cases" / "workflows" / "TC-001.md"
-    case.write_text(case.read_text(encoding="utf-8") + "\nPlan row: TS-1\n", encoding="utf-8")
+    import form_filler as FF
+    filled = FF.fill_artifact("case", FF.FillContext(task_key="TP1-15045", cases=["TC-001"], minted={"P": ["TS-1"]}))
+    text = filled.files.get("work/test-cases/general/TC-001.md", "")
+    lines = [ln for ln in text.splitlines() if ln.startswith("Plan row:")]
+    assert not filled.unfillable and len(lines) == 1, f"the form filler returned unfillable={filled.unfillable!r} files={sorted(filled.files)!r}"
+    case.write_text(case.read_text(encoding="utf-8") + "\n" + lines[0] + "\n", encoding="utf-8")
 
 
 def by_check(result: dict, name: str) -> list:
