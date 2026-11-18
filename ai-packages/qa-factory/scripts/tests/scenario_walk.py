@@ -888,20 +888,83 @@ def _scenarios(tests: Path, scripts: Path, door_modules: dict) -> dict:
 CANON_HEADER = "canon judges, do not run locally:"
 
 
+def _is_package_path(given: str, package: Path, root: Path) -> bool:
+    """Package path = names the package marker, lies under `package`, or starts with one of its top-level entries."""
+    text = str(given).replace("\\", "/")
+    if "ai-packages/qa-factory/" in text:
+        return True
+    path = Path(given)
+    if path.is_absolute():
+        try:
+            path.resolve().relative_to(package.resolve())
+            return True
+        except ValueError:
+            return False
+    first = text.removeprefix("./").split("/", 1)[0]
+    # a first segment found in neither tree stays a package path: a deleted top folder keeps today's answer
+    return bool(first) and ((package / first).exists() or not (root / first).exists())
+
+
+def _outside_hits(given: str, root: Path) -> tuple:
+    """(lines to print, the hit files) for a path outside the package: the tests beside it, by name, family, itself, importers."""
+    path = Path(given)
+    absolute = path if path.is_absolute() else root / path
+    try:
+        shown = absolute.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        shown = str(given).replace("\\", "/")
+    lines = [] if absolute.exists() else [f"{shown}: deleted or absent on disk, counted as changed"]
+    if absolute.is_dir():
+        return [f"no witness for {shown}: a folder"], []
+    folder, stem = absolute.parent, absolute.stem.replace("-", "_")
+    where = shown.rsplit("/", 1)[0] + "/" if "/" in shown else ""
+    sources = sorted(p for p in folder.glob("*.py")) if folder.is_dir() else []
+    owners = [p.stem.replace("-", "_") for p in sources]
+    found = []
+
+    def hit(test: Path, why: str) -> None:
+        found.append(f"{where}{test.name}")
+        lines.append(f"{shown}: {where}{test.name} ({why})")
+
+    if (folder / f"test_{stem}.py").is_file():
+        hit(folder / f"test_{stem}.py", f"test_{stem}.py beside it")
+    for test in (p for p in sources if p.name.startswith("test_")):
+        name = test.stem.replace("-", "_")[len("test_"):]
+        owner = max((s for s in owners if name == s or name.startswith(s + "_")), key=len, default="")
+        if owner == stem and name != stem:
+            hit(test, f"family of {stem}")
+    if not found and absolute.name.startswith("test_") and absolute.suffix == ".py":
+        found.append(shown)
+        lines.append(f"{shown}: {shown} (the test itself)")
+    if not found and absolute.suffix == ".py":
+        for test in (p for p in sources if p.name.startswith("test_") and p != absolute):
+            if stem in _imports_of(test):
+                hit(test, f"imports {stem}")
+    if not found:
+        lines.append(f"no witness for {shown}: no test_{stem}*.py beside it and no test beside it imports it; the batch canon judges it")
+    return lines, found
+
+
 def witness_for(paths, package: Path | None = None, layers: dict | None = None, door_modules: dict | None = None,
-                canon: dict | None = None) -> list:
+                canon: dict | None = None, root: Path | None = None) -> list:
     """One or more lines per changed path: the scenario tests whose doors reach it, the keep rows whose `covers` name it, or
     the statement that nothing does (then the whole scenario layer judges it). A deleted path counts as changed; a data file
     is matched by `covers` and by a story folder alone. The hits whose test file is canon-only (a key of slow_tests.json
     `files`, or a `canon_only` glob of test-layers.json; `canon` is that class as data, None = read it) are printed after
-    the others under CANON_HEADER: a builder never runs them (docs/TESTING.md); the last line counts both groups."""
+    the others under CANON_HEADER: a builder never runs them (docs/TESTING.md); the last line counts both groups.
+    A path outside the package is answered by the test files beside it (`root` = where a relative one is read, None = cwd)."""
     package = Path(package or PACKAGE)
     scripts, tests = package / "scripts", package / "scripts" / "tests"
     door_modules = door_modules or DOOR_MODULES
-    if layers is None:
-        import selftest
-        layers = selftest.test_layers()
+    root = Path(root) if root is not None else Path.cwd()
+    unreadable = ""
     import selftest
+    if layers is None:
+        try:
+            layers = selftest.test_layers(tests / "test-layers.json")
+        except selftest.TestLayersError as exc:
+            # an unreadable registry is said, never a traceback (selftest.canon_class notes and goes on the same way)
+            unreadable, layers = " ".join(str(exc).split())[:120], {"absent": False, "keep": {}}
     canon = canon if canon is not None else selftest.canon_class(package, layers)
 
     def is_canon(test: str) -> bool:
@@ -916,8 +979,16 @@ def witness_for(paths, package: Path | None = None, layers: dict | None = None, 
         lines.append("test-layers.json names no canon_only list: only the slow list was applied")
     if layers.get("absent"):
         lines.append("test-layers.json is absent: no keep row is consulted, only the imports of the scenario doors")
+    if unreadable:
+        lines.append(f"test-layers.json could not be read ({unreadable}): no keep row is consulted")
     run_files, canon_files, canon_lines = set(), set(), []
     for given in paths:
+        if not _is_package_path(given, package, root):
+            # a forge test is never classified by the package canon data: every outside hit is run locally
+            out_lines, out_files = _outside_hits(given, root)
+            lines += out_lines
+            run_files.update(out_files)
+            continue
         rel, hits = _relative(given), []
         absolute = Path(given) if Path(given).is_absolute() else package / rel
         if not absolute.exists():

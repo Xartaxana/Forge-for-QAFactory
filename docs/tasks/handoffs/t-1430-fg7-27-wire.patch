@@ -1,0 +1,65 @@
+diff --git a/.github/workflows/forge-check.yml b/.github/workflows/forge-check.yml
+index 171af87a..d8883531 100644
+--- a/.github/workflows/forge-check.yml
++++ b/.github/workflows/forge-check.yml
+@@ -67,6 +67,10 @@ jobs:
+           else echo "base=HEAD~1" >> "$GITHUB_OUTPUT"; fi
+       - run: python tools/lint_ratchet.py --check
+       - run: python tools/dup_ratchet.py --check
++      - name: one road (language sites)
++        env:
++          BASE: ${{ steps.base.outputs.base }}
++        run: python tools/language_sites.py --check --base "$BASE"
+       - name: journal
+         env:
+           BASE: ${{ steps.base.outputs.base }}
+diff --git a/tools/mechanism_gate.py b/tools/mechanism_gate.py
+index be99bb75..e19adad7 100644
+--- a/tools/mechanism_gate.py
++++ b/tools/mechanism_gate.py
+@@ -281,6 +281,8 @@ MECHANISM_PREFIXES = (
+     "tools/usage_report.py",        # imported (lazily, --node-cost only) by tools/forge_metrics.py (t-905); the closure counts it
+     "tools/agents_md.py",           # run by .githooks/pre-commit (AGENTS.md --check)
+     "tools/worktree_sweep.py",      # run by .githooks/post-merge (F6-38; self-activating, placed by the Lead) and imported by session_context.py / piles.py
++    "tools/language_sites.py",      # forge-check (one-road ratchet, FG7-27; CI-only: the scan is over 10 s)
++    "tools/language-sites-baseline.json",  # DATA that decides what language_sites.py refuses: a row added or raised lets a language branch pass
+     "tools/worktree-junk.json",     # DATA that decides what worktree_sweep.py deletes (untracked traces, protected branches): an edit widens the deletion set
+     "tools/wait_reaper.py",         # run by SessionStart (session_context), SubagentStop (dod_gate) and .githooks/post-merge (bounded waits K-WIRE, t-1122): stops trees
+     "tools/session_proc.py",        # imported by wait_reaper.py, compact_snapshot.py, session_context.py (session stamp, t-1122); decides which session a process belongs to
+diff --git a/tools/test_streams.py b/tools/test_streams.py
+index 625a15f3..6bce24db 100644
+--- a/tools/test_streams.py
++++ b/tools/test_streams.py
+@@ -244,8 +244,6 @@ def test_g_a_guarded_file_runs_without_streams_and_uses_it_when_present(tmp_path
+ # ---------------------------------------------------------------- S3 the census
+ 
+ KEPT = {       # file name -> the reason a deliberate copy of the reconfigure loop stays outside the chain
+-    "language_sites.py": "its own copy (spec t-2065 2.7), inert until node N3 puts it into the mechanism chain "
+-                         "(tools/mechanism_gate.py); REMOVE this row at N3",
+ }
+ 
+ 
+@@ -301,9 +299,8 @@ def test_s3_positive_control_the_real_census_sees_the_helper_and_a_chain_link():
+     assert not unreadable
+     assert counts["streams.py"] == 1 and counts["journal_echo.py"] >= 1 and counts["language_sites.py"] >= 1
+     # streams.py is itself a link (offload B23: the closure over journal_write reaches it); the census still tells a link
+-    # from a tool OUTSIDE the chain that carries a call (language_sites.py, exempt only through KEPT)
+-    assert in_chain("tools/journal_echo.py") and in_chain("tools/streams.py") and not in_chain("tools/language_sites.py")
+-    assert "language_sites.py" in KEPT
++    # from a tool OUTSIDE the chain that carries a call (dup_report.py; language_sites.py is a chain link since FG7-27, through MECHANISM_PREFIXES; the negative control is test_s3_negative_control, not KEPT)
++    assert in_chain("tools/journal_echo.py") and in_chain("tools/streams.py") and in_chain("tools/language_sites.py")
+ 
+ 
+ def test_s3_negative_control_a_copy_in_a_scratch_directory_is_an_offender(tmp_path):
+diff --git a/tools/test_workflows.py b/tools/test_workflows.py
+index c04273a4..0e427beb 100644
+--- a/tools/test_workflows.py
++++ b/tools/test_workflows.py
+@@ -145,6 +145,7 @@ FORGE_CHECK_RUNS = [
+      "$CI_COMMIT_BEFORE_SHA", "0000000000000000000000000000000000000000", "base=HEAD~1", "$GITHUB_OUTPUT"),
+     "python tools/lint_ratchet.py --check",                                         # :68
+     "python tools/dup_ratchet.py --check",                                          # :70
++    'python tools/language_sites.py --check --base "$BASE"',                        # FG7-27 (no .gitlab-ci.yml mirror)
+     'python tools/journal_validator.py --all --base "$BASE"',                       # :73-80
+     ('forge_metrics.py --check --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA"',           # :82-87
+      "forge_metrics.py --check --base HEAD~1 --warn"),

@@ -145,6 +145,7 @@ FORGE_CHECK_RUNS = [
      "$CI_COMMIT_BEFORE_SHA", "0000000000000000000000000000000000000000", "base=HEAD~1", "$GITHUB_OUTPUT"),
     "python tools/lint_ratchet.py --check",                                         # :68
     "python tools/dup_ratchet.py --check",                                          # :70
+    'python tools/language_sites.py --check --base "$BASE"',                        # FG7-27 (no .gitlab-ci.yml mirror)
     'python tools/journal_validator.py --all --base "$BASE"',                       # :73-80
     ('forge_metrics.py --check --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA"',           # :82-87
      "forge_metrics.py --check --base HEAD~1 --warn"),

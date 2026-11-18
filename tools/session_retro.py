@@ -76,62 +76,61 @@ def analyze(path) -> dict:
     first_seen, descs, sends = {}, collections.Counter(), collections.Counter()
     read_runs, run = [], None          # run = [path, length]; consecutive Read calls on one file_path
     redispatch = []
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        for raw in fh:
-            try:
-                d = json.loads(raw)
-            except ValueError:
-                d = None
-            if not isinstance(d, dict):
-                r["unreadable"] += 1
-                continue
-            ts = d.get("timestamp")
-            if ts:
-                r["first"] = r["first"] or ts
-                r["last"] = ts
-            msg = d.get("message")
-            content = msg.get("content") if isinstance(msg, dict) else None
-            if d.get("type") == "user":
-                for t in _user_texts(content):
-                    s = t.lstrip()
-                    if s.startswith(COMPACT):
-                        r["compactions"] += 1
-                    elif s.startswith(HANDBACK):
-                        r["handbacks"] += 1
-                    elif s and not s.startswith("<"):
-                        r["operator"] += 1
-                for b in content if isinstance(content, list) else []:
-                    if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("is_error"):
-                        cls, hook = error_class(_result_text(b.get("content")))
-                        classes[cls] += 1
-                        first_seen.setdefault(cls, ts)
-                        r["refusals"] += hook
-            elif d.get("type") == "assistant" and isinstance(content, list):
-                for b in content:
-                    if not (isinstance(b, dict) and b.get("type") == "tool_use"):
-                        continue
-                    name, inp = b.get("name"), b.get("input")
-                    inp = inp if isinstance(inp, dict) else {}
-                    tools[name] += 1
-                    fp = inp.get("file_path") if name == "Read" else None
-                    if fp is not None and run and run[0] == fp:
-                        run[1] += 1
-                    elif fp is not None:
-                        run = [fp, 1]
-                        read_runs.append(run)
-                    else:
-                        run = None
-                    if name in SHELLS:
-                        shapes[shape(inp.get("command", ""))] += 1
-                    elif name == "Agent":
-                        agents[str(inp.get("subagent_type"))] += 1
-                        desc = inp.get("description")
-                        if desc in descs:
-                            redispatch.append(desc)
-                        descs[desc] += 1
-                    elif name == "SendMessage":
-                        m = inp.get("message")
-                        sends[m if isinstance(m, str) else json.dumps(m, sort_keys=True)] += 1
+    # One road with forge_metrics (FG7-83, critic t-1433 F2): transcripts' reader and dedupe, because the harness
+    # re-writes a record under the same uuid (E32) and an own pass counted its SendMessage twice.
+    seen, seen_ids = set(), set()
+    for raw in transcripts.iter_lines(path):
+        d = transcripts.parse_line(raw)
+        if d is None:
+            r["unreadable"] += 1
+            continue
+        if not transcripts.first_copy(seen, d):
+            continue
+        ts = d.get("timestamp")
+        if ts:
+            r["first"] = r["first"] or ts
+            r["last"] = ts
+        msg = d.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if d.get("type") == "user":
+            for t in _user_texts(content):
+                s = t.lstrip()
+                if s.startswith(COMPACT):
+                    r["compactions"] += 1
+                elif s.startswith(HANDBACK):
+                    r["handbacks"] += 1
+                elif s and not s.startswith("<"):
+                    r["operator"] += 1
+            for b in content if isinstance(content, list) else []:
+                if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("is_error"):
+                    cls, hook = error_class(_result_text(b.get("content")))
+                    classes[cls] += 1
+                    first_seen.setdefault(cls, ts)
+                    r["refusals"] += hook
+        elif d.get("type") == "assistant" and isinstance(content, list):
+            for b in transcripts.new_tool_uses(d, seen_ids):
+                name, inp = b.get("name"), b.get("input")
+                inp = inp if isinstance(inp, dict) else {}
+                tools[name] += 1
+                fp = inp.get("file_path") if name == "Read" else None
+                if fp is not None and run and run[0] == fp:
+                    run[1] += 1
+                elif fp is not None:
+                    run = [fp, 1]
+                    read_runs.append(run)
+                else:
+                    run = None
+                if name in SHELLS:
+                    shapes[shape(inp.get("command", ""))] += 1
+                elif name == "Agent":
+                    agents[str(inp.get("subagent_type"))] += 1
+                    desc = inp.get("description")
+                    if desc in descs:
+                        redispatch.append(desc)
+                    descs[desc] += 1
+                elif name == "SendMessage":
+                    m = inp.get("message")
+                    sends[m if isinstance(m, str) else json.dumps(m, sort_keys=True)] += 1
     if not r["first"]:
         return {"name": r["name"], "empty": True}
     r.update(tools=tools.most_common(), agents=agents.most_common(), shapes=shapes.most_common(),

@@ -180,7 +180,7 @@ def test_quoted_foreign_owns_declaration_is_not_an_owns_section():
     # old: a quoted owns declaration was no write signal -> the block was lifted (exit 0)
     # new: a builder is always checked and quoted text never counts: the quoted owns is
     # NOT an owns section -> refused, owns among the missing (the block is not lifted)
-    exit_code, message = m.decide(_builder_payload(_QUOTED_OWNS_PROMPT_FENCED, description="sonnet: x"))
+    exit_code, message = m.decide(_builder_payload(_QUOTED_OWNS_PROMPT_FENCED, description="builder: x"))
     assert exit_code == 2, message
     assert "DISPATCH INCOMPLETE" in message
     assert "owns (no line)" in message
@@ -189,7 +189,7 @@ def test_quoted_foreign_owns_declaration_is_not_an_owns_section():
 def test_same_text_without_fence_still_blocks_positive_control():
     # old: "context manifest" (no given); new: the same text unfenced is an owns section
     # (owns is NOT among the missing), given is
-    exit_code, message = m.decide(_builder_payload(_QUOTED_OWNS_PROMPT_UNFENCED, description="sonnet: x"))
+    exit_code, message = m.decide(_builder_payload(_QUOTED_OWNS_PROMPT_UNFENCED, description="builder: x"))
     assert exit_code == 2, message
     assert "DISPATCH INCOMPLETE" in message
     assert "given (no line)" in message
@@ -197,7 +197,7 @@ def test_same_text_without_fence_still_blocks_positive_control():
 
 
 def test_manifest_quoted_warn_fires_on_lifted_block():
-    warn = m.manifest_quoted_warn(_builder_payload(_QUOTED_OWNS_PROMPT_FENCED, description="sonnet: x"))
+    warn = m.manifest_quoted_warn(_builder_payload(_QUOTED_OWNS_PROMPT_FENCED, description="builder: x"))
     assert "MANIFEST-QUOTED WARN" in warn
     assert "owns" in warn
 
@@ -225,7 +225,7 @@ def test_write_quoted_warn_fenced_form_fires():
     # old: decide() lifted the block (exit 0) and the WARN was the visible trace
     # new: decide() refuses this manifest-less builder dispatch (exit 2), so main() never
     # reaches the WARN layer for it; the layer function itself is unchanged and still fires
-    payload = _builder_payload(_WRITE_QUOTED_FENCED_PROMPT, description="sonnet: x")
+    payload = _builder_payload(_WRITE_QUOTED_FENCED_PROMPT, description="builder: x")
     exit_code, _ = m.decide(payload)
     assert exit_code == 2
     warn = m.write_quoted_warn(payload)
@@ -234,7 +234,7 @@ def test_write_quoted_warn_fenced_form_fires():
 
 def test_write_quoted_warn_blockquote_form_fires():
     # old/new: as the fenced form above
-    payload = _builder_payload(_WRITE_QUOTED_BLOCKQUOTE_PROMPT, description="sonnet: x")
+    payload = _builder_payload(_WRITE_QUOTED_BLOCKQUOTE_PROMPT, description="builder: x")
     exit_code, _ = m.decide(payload)
     assert exit_code == 2
     warn = m.write_quoted_warn(payload)
@@ -245,7 +245,7 @@ def test_write_quoted_warn_silent_when_manifest_marker_present():
     # Positive control (don't double the message): the owns-prompt
     # above already carries an owns marker (quoted) -- covered by
     # manifest_quoted_warn, write_quoted_warn stays silent.
-    warn = m.write_quoted_warn(_builder_payload(_QUOTED_OWNS_PROMPT_FENCED, description="sonnet: x"))
+    warn = m.write_quoted_warn(_builder_payload(_QUOTED_OWNS_PROMPT_FENCED, description="builder: x"))
     assert warn == ""
 
 
@@ -253,7 +253,7 @@ def test_write_quoted_warn_silent_when_no_flip():
     # Positive control: the write verb is NOT quoted -- the
     # region-aware signal is also True, no flip happened, silent.
     prompt = "DoD: acceptance criteria -- the test is green. Edit file x.py per the spec."
-    warn = m.write_quoted_warn(_builder_payload(prompt, description="sonnet: x"))
+    warn = m.write_quoted_warn(_builder_payload(prompt, description="builder: x"))
     assert warn == ""
 
 
@@ -273,13 +273,13 @@ def test_dod_only_in_fence_is_not_a_dod_section():
     # old: a DoD marker inside a fence still counted for check 1 -> exit 0 ("unchanged")
     # new: quoted text never counts: the fenced DoD is not a DoD section -> exit 2,
     # DoD among the missing (the DOD-QUOTED WARN below is then unreachable from main())
-    exit_code, message = m.decide(_builder_payload(_DOD_ONLY_FENCED_PROMPT, description="sonnet: read"))
+    exit_code, message = m.decide(_builder_payload(_DOD_ONLY_FENCED_PROMPT, description="builder: read"))
     assert exit_code == 2, message
     assert "DoD (no line)" in message
 
 
 def test_dod_only_in_fence_warns():
-    warn = m.dod_quoted_warn(_builder_payload(_DOD_ONLY_FENCED_PROMPT, description="sonnet: read"))
+    warn = m.dod_quoted_warn(_builder_payload(_DOD_ONLY_FENCED_PROMPT, description="builder: read"))
     assert "DOD-QUOTED WARN" in warn
 
 
@@ -295,8 +295,8 @@ _FORM_NO_DOD = (
 def test_write_and_manifest_quoted_warn_reachable_only_when_the_check_raised(monkeypatch):
     import dispatch_manifest
 
-    quoted_write = _builder_payload("> Edit file x.py\n", description="sonnet: x")
-    quoted_owns = _builder_payload("> owns: Z:/f/x.py\nDoD: z\n", description="sonnet: x")
+    quoted_write = _builder_payload("> Edit file x.py\n", description="builder: x")
+    quoted_owns = _builder_payload("> owns: Z:/f/x.py\nDoD: z\n", description="builder: x")
     # with the completeness check working, decide() refuses both: main() never reaches a WARN layer
     assert m.decide(quoted_write)[0] == 2
     assert m.decide(quoted_owns)[0] == 2
@@ -316,14 +316,14 @@ def test_dod_quoted_warn_still_reachable_with_a_verification_header_and_a_fenced
     # the header key `verification` passes the completeness check but is no DOD_MARKERS_RE
     # match, so a fenced "DoD" example elsewhere is the ONLY marker match -> the WARN fires
     prompt = _FORM_NO_DOD + "Verification: `python -m pytest x`\n```\nDoD: example\n```\n"
-    payload = _builder_payload(prompt, description="sonnet: x")
+    payload = _builder_payload(prompt, description="builder: x")
     assert m.decide(payload) == (0, "")
     assert "DOD-QUOTED WARN" in m.dod_quoted_warn(payload)
 
 
 def test_write_manifest_dod_quoted_warn_silent_on_a_full_form_dispatch():
     prompt = _FORM_NO_DOD + "DoD: `python -m pytest x`\n"
-    payload = _builder_payload(prompt, description="sonnet: x")
+    payload = _builder_payload(prompt, description="builder: x")
     assert m.decide(payload) == (0, "")
     assert m.write_quoted_warn(payload) == ""
     assert m.manifest_quoted_warn(payload) == ""

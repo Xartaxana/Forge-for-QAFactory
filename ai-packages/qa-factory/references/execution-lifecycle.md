@@ -49,16 +49,16 @@ the row's `sensitivity_proof.receipt_ref` (delivery) and the binding's `probe_re
 
 The "catches a broken product" level is `red_sandbox.py --probe --request <mutations.json>
 --task-root <task> --repo <root> [--dispatch <id>]`, only when the critic doubts the check
-looks at the product. It replaces `probe_by_code.py` for that instance (its receipt also
+looks at the product. It replaces `probe_by_code.py` for that instance (its receipt
 satisfies the live level), runs no baseline while the author's green stands, and
 answers a repeat `already_probed`. In a schema-v2 window each changed instance's `probe` carries `proof_level` and an `evidence_ref` among its `evidence_refs`; only the product level (or a block naming no level) demands `mutation_kind:
 real_behavior`. An unbound log path or an import, collection, setup, timeout, environment
-or unrelated failure is incomplete proof. Schema-v1 windows are unchanged.
+or unrelated failure is incomplete proof.
 
 A probe row binds to its target by the request's `report_test_id`; a TRX report is
 read like a JUnit one. A failure at a site a non-pytest JUnit report does not give is
 `incomplete`, not `survived`; so is what `probe_by_code.py` cannot read of a non-Python test
-(frame, a launcher that may not rebuild): no verdict; a failure at the mutated line it cannot read is yours to judge (`--judge`). One path takes one
+(frame, a launcher that may not rebuild): no verdict; a failure at the mutated line it cannot read is yours to judge (`--judge`, plus `--product` for a product record). One path takes one
 mutation per probe; a red probe with a baseline needs the target's baseline row to pass.
 
 <!-- roles: qa-automator, qa-code-critic -->

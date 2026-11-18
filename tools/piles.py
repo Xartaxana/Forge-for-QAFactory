@@ -96,6 +96,7 @@ if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
 import gitcmd  # noqa: E402
+import journal_lock  # noqa: E402
 import journal_keys  # noqa: E402
 import md_regions  # noqa: E402
 # The table reader and the two line filters live in the leaf tools/md_table.py (t-797 F5-2 N3: digest_form reads tables through
@@ -1011,7 +1012,7 @@ def write_bytes_atomic(path: Path, raw: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(raw)
-        os.replace(tmp, path)
+        journal_lock.replace_retrying(tmp, path)
     except BaseException:
         if os.path.exists(tmp):
             os.unlink(tmp)

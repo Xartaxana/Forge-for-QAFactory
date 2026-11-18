@@ -520,7 +520,7 @@ for the period, and diffs to DECISIONS.md.
     cache-write 2, output 5) and the journal: (a) workers whose context
     passed 400K — expected 0 (`tools/agent_budget.py` STOP); each one
     is a leak of the gate; (b) fix rounds run by a RESUMED worker (a
-    `SendMessage` to a builder after a critic verdict) — expected 0;
+    `SendMessage` to a builder after a critic verdict) — expected 0; candidates are the rows with `resumes` > 0 in the `--node-cost` print, and whether a send was a fix round stays the calibrator's reading;
     (c) critic entries per task_id > 2, and re-review dispatches that
     carry the whole node instead of the fix diff — each a finding;
     critic-on-plan dispatches on specs with no fork or schema/money
@@ -542,7 +542,7 @@ for the period, and diffs to DECISIONS.md.
     graph of the same size costs under half of that; (g) the Lead's fix check inside the border (COORDINATOR.md,
     Cost gates): (i) a critic re-review dispatch naming no case (`re-review: logic|nobase|blocker|unmatched|tier`);
     (ii) an `accepted` after a `fit_with_fixes` verdict with neither `fixes checked by Lead` nor a re-review; (iii) a
-    sample re-run of the border counter on the commits of (i) and (ii) — each a finding. The carrier of the
+    sample re-run of the border counter on the commits of (i) and (ii) — each a finding; (h) Cost review input (the form: `## Weekly cost review (scout report form)`): (i) the window's report exists — absent: the finding line `cost review: absent for <window>`, and the calibrator dispatches the scout by the form, an absent report is never read as "nothing to cut"; (ii) the five columns are there and, where the print had unknowns, `not measured:` lines; (iii) no money figure (a `$` followed by a digit) — a hit is a finding; (iv) re-run the same `--node-cost` window and compare the tokens of three rows — a mismatch is a finding; the verdict on the cuts stays the calibrator's (the report is input). The carrier of the
     unit weights in code is `tools/hop_metrics.py` `UNIT_WEIGHTS` (the
     three weights above and input 1); the weight of input, 1, is an
     assumption, not a measurement (t-797 F5-2, F17).
@@ -1148,6 +1148,21 @@ the source's own number.
 48. **Journal by code, one merge road, test volume (coordinator offload, spec `docs/tasks/specs/20261114-coordinator-offload-spec-r2.md` §6.4, §7 M2-M7; the owner's word 14.11.2026; COORDINATOR.md Routing log, rule 12; CLAUDE.md hygiene pt.5).** Mechanism: `tools/journal_write.py` (the one writer, lock and counter in `tools/journal_lock.py`), `tools/journal_hooks.py` (`delegated` at PostToolUse Task|Agent, `returned` through `dod_gate` at SubagentStop, the Edit/Write WARN), `tools/wave.py merge`, `tools/dispatch_new.py`, `tools/test_volume.py` in `.githooks/commit-msg`. Per window, every count with its command (hygiene 6(b)): (a) Agent launches in the Lead transcripts (`tools/hop_metrics.py`) against `delegated` lines with `via: hook` / `via: cli` / no `via` (by hand) — target: by hand = 0 after the switch; ONE full window at 0 is the trigger of node B23-S (`journal_hooks.JOURNAL_EDIT_MODE` from `"warn"` to `"refuse"`); (b) `JOURNAL: … NOT written` lines (`tools/warn_density.py`) and whether each was followed by a CLI line; (c) `returned` coverage: every finished worker (`transcripts.is_finished`) has a `returned`; every line of `<git common dir>/forge-journal/warn.log` (the stop-side channel: a worker's stop has no reader of stderr) and every `JOURNAL: returned lost` WARN is listed; (d) `accept --run` witnesses carrying `allow-red`, listed with their reasons; (e) check 33's side: commits that drew a TEST VOLUME WARN, how many carried `tests-over:`, how many of those reasons the critic judged; (f) check 37's side: branches merged by `wave.py` against merged by hand; a `root checkout not refreshed` or `JOURNAL RESTORE MISMATCH` line standing over a day; (g) dispatches refused by `tools/dispatch_manifest.py` for a missing header line or path against dispatches whose header came from `dispatch_new.py` — a refusal class that repeats is a finding against the generator, not against the coordinator. Detector of this check's own leak: a window with `delegated` lines and no line (a) in the calibration record.
 
 49. **Architect tier (spec `docs/tasks/specs/20261116-architect-tier-spec.md` §4.6, §5.5; Lead = Opus, Architect = Fable; AR-12, AR-28).** Mechanism: the Architect function (`PROCESS/ARCHITECT_START.md`), the queue `docs/tasks/architect-queue.md`, the `calibrated` field `reviewed_through`, the `Last calibration` overdue suffix of `tools/session_context.py`, the refusal of an acceptance from inside a worker (hygiene gate). Per window, with the command beside every number (hygiene 6(b)): (a) every mechanism commit since the previous `reviewed_through` (`python -B tools/mechanism_gate.py --list --since <sha>`) appears in the review record; (b) the gap between consecutive `calibrated` lines carrying `reviewed_through` — over 7 days is a finding against the cadence, listed with the SessionStart overdue days; (c) every `escalated` with `agent: architect` of the window has an architect-queue item and vice versa (the command of `PROCESS/ARCHITECT_START.md` step 4); (d) refusals by the no-acceptance-from-a-worker rule in the window (hook stderr is not logged, so: `accepted`/`rejected` lines whose session transcript shows a sidechain author are the leak); (e) an empty window gets an explicit line. Detector of this check's own leak: a `calibrated` line after the Architect landing without `reviewed_through`.
+
+## Weekly cost review (scout report form)
+
+Feeds check 17(h). Before each calibration the dispatcher sends a scout (`.claude/agents/scout.md`; it has no shell, so the print is pasted in).
+
+- Question: where does the window's spend go and what can be cut. Completeness: every row of the print read; `nothing to cut` is a valid outcome only with the trail of rows read (an empty table without a trail is not a review).
+- `given:` the stdout of `python -B tools/forge_metrics.py --node-cost --window <window start>`, run by the dispatcher and pasted into the dispatch, plus `logs/journal/*.jsonl`.
+- `handoff:` `docs/tasks/specs/reports/cost-review-<YYYYMMDD>.md` (date = the window end).
+- Report table, columns verbatim:
+
+  | row (node or role) | tokens | repeats | reason | proposed cut |
+
+  `tokens` and `repeats` are copied from the print (`repeats` = its `moves` cell), never recomputed. `reason` cites journal facts by `file:line` (reject class, `replaces_worker:`, escalation): the scout's reading, not a verdict. `proposed cut` is advice.
+- A print row with `n/d`, `>=` or unscanned resumes gets a line `not measured: <row> -- <why>`, never a 0.
+- Money is never copied: the report is a repository file.
 
 ## Closing out a run
 

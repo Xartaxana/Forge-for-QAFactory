@@ -244,8 +244,6 @@ def test_g_a_guarded_file_runs_without_streams_and_uses_it_when_present(tmp_path
 # ---------------------------------------------------------------- S3 the census
 
 KEPT = {       # file name -> the reason a deliberate copy of the reconfigure loop stays outside the chain
-    "language_sites.py": "its own copy (spec t-2065 2.7), inert until node N3 puts it into the mechanism chain "
-                         "(tools/mechanism_gate.py); REMOVE this row at N3",
 }
 
 
@@ -301,9 +299,8 @@ def test_s3_positive_control_the_real_census_sees_the_helper_and_a_chain_link():
     assert not unreadable
     assert counts["streams.py"] == 1 and counts["journal_echo.py"] >= 1 and counts["language_sites.py"] >= 1
     # streams.py is itself a link (offload B23: the closure over journal_write reaches it); the census still tells a link
-    # from a tool OUTSIDE the chain that carries a call (language_sites.py, exempt only through KEPT)
-    assert in_chain("tools/journal_echo.py") and in_chain("tools/streams.py") and not in_chain("tools/language_sites.py")
-    assert "language_sites.py" in KEPT
+    # from a tool OUTSIDE the chain that carries a call (dup_report.py; language_sites.py is a chain link since FG7-27, through MECHANISM_PREFIXES; the negative control is test_s3_negative_control, not KEPT)
+    assert in_chain("tools/journal_echo.py") and in_chain("tools/streams.py") and in_chain("tools/language_sites.py")
 
 
 def test_s3_negative_control_a_copy_in_a_scratch_directory_is_an_offender(tmp_path):

@@ -88,6 +88,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+import journal_lock
+
 EDIT_TOOL_NAMES = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
 # ONE-OFF SCRIPT WRAPPER CONVENTION: a script run with no "test"/"pytest"
@@ -442,7 +444,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
     tmp_path = Path(tmp_name)
     try:
         tmp_path.write_text(text, encoding="utf-8")
-        os.replace(str(tmp_path), str(path))
+        journal_lock.replace_retrying(str(tmp_path), str(path))
     except Exception:
         try:
             tmp_path.unlink()

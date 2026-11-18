@@ -67,6 +67,10 @@ jobs:
           else echo "base=HEAD~1" >> "$GITHUB_OUTPUT"; fi
       - run: python tools/lint_ratchet.py --check
       - run: python tools/dup_ratchet.py --check
+      - name: one road (language sites)
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: python tools/language_sites.py --check --base "$BASE"
       - name: journal
         env:
           BASE: ${{ steps.base.outputs.base }}

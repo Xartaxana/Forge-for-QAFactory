@@ -1670,3 +1670,87 @@ def test_fg7_21_compact_windows_split_by_compact_and_the_cli_prints_the_table_an
     code, out, _ = _run_main(capsys, "--journal", str(p), "--json")
     assert json.loads(out)["journals"][0]["dispatch_skipped"]["agents"] == [
         {"agent": "designer", "events": 3, "marked": 0}]
+
+
+# ---------------------------------------------------------------------
+# FG7-27 (card B): critic verdicts without a `ONE ROAD:` line, default mode only
+# ---------------------------------------------------------------------
+import os
+import subprocess
+
+from test_journal_per_developer import make_root as _root27, needs_git as _needs_git27
+
+_RV = "docs/tasks/specs/reviews"
+_END27 = "2026-11-20T00:00:00"
+_IN27 = "2026-11-18T10:00:00+0000"
+# name -> (bytes, committer date; None = never committed)
+_FILES27 = {
+    "plain.md": (b"verdict\n", _IN27),
+    "carried.md": (b"ONE ROAD: none\n", _IN27),
+    "old.md": (b"verdict\n", "2026-11-10T10:00:00+0000"),
+    "lower.md": (b"one road: none\n", _IN27),
+    "bold.md": (b"**ONE ROAD**: none\n", _IN27),
+    "binary.md": (b"\xff\xfe\x00 ONE ROAD\n", _IN27),
+    "late.md": (b"verdict\n", "2026-11-25T10:00:00+0000"),
+    "at_floor.md": (b"verdict\n", "2026-11-17T13:51:09+0100"),       # wall clock == ONE_ROAD_SINCE: listed
+    "mid.md": (b"verdict\n", "2026-11-12T10:00:00+0000"),            # between the estimate 11-11 and the floor
+    "at_end.md": (b"verdict\n", "2026-11-20T00:00:00+0000"),         # == _END27: exclusive
+    "draft.md": (b"verdict\n", None),
+}
+
+
+@pytest.fixture(scope="module")
+def repo27(tmp_path_factory):
+    root = _root27(tmp_path_factory.mktemp("one_road"))
+    (root / _RV).mkdir(parents=True)
+
+    def git(*a, **env):
+        subprocess.run(["git", "-C", str(root), *a], check=True, capture_output=True, env={**os.environ, **env})
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    git("config", "commit.gpgsign", "false")
+    for name, (data, when) in _FILES27.items():
+        (root / _RV / name).write_bytes(data)
+        if when:
+            git("add", "--", f"{_RV}/{name}")
+            git("commit", "-q", "-m", name, GIT_COMMITTER_DATE=when, GIT_AUTHOR_DATE=when)
+    return root
+
+
+@_needs_git27
+@pytest.mark.parametrize("name,end,listed,added", [
+    ("plain.md", None, True, "2026-11-18T10:00:00"),
+    ("carried.md", None, False, None),
+    ("old.md", None, False, None),
+    ("lower.md", None, True, "2026-11-18T10:00:00"),
+    ("bold.md", None, True, "2026-11-18T10:00:00"),
+    ("binary.md", None, True, "2026-11-18T10:00:00"),
+    ("draft.md", None, True, "uncommitted"),
+    ("draft.md", _END27, False, None),
+    ("late.md", _END27, False, None),
+    ("late.md", None, True, "2026-11-25T10:00:00"),
+    ("at_floor.md", None, True, "2026-11-17T13:51:09"),
+    ("mid.md", None, False, None),
+    ("at_end.md", _END27, False, None),
+])
+def test_fg7_27_one_road_cases(repo27, name, end, listed, added):
+    got = {i["path"]: i for i in cc.verdicts_without_one_road(repo27, None, cc.parse_ts(end))["listed"]}
+    assert (f"{_RV}/{name}" in got) is listed
+    if listed:
+        assert got[f"{_RV}/{name}"]["added"] == added
+
+
+@_needs_git27
+def test_fg7_27_cli_default_mode_section_json_and_unknowns(repo27, tmp_path, capsys):
+    code, out, _ = _run_main(capsys, "--root", str(repo27))
+    assert code == 0 and cc.ONE_ROAD_TITLE in out and f"{_RV}/plain.md (added 2026-11-18T10:00:00)" in out
+    code, out, _ = _run_main(capsys, "--root", str(repo27), "--json")
+    assert code == 0 and any(i["path"].endswith("plain.md") for i in json.loads(out)["one_road_verdicts"]["listed"])
+    nodir = _root27(tmp_path / "nodir")
+    assert "(no verdict directory at docs/tasks/specs/reviews)" in _run_main(capsys, "--root", str(nodir))[1]
+    nogit = _root27(tmp_path / "nogit")
+    (nogit / _RV).mkdir(parents=True)
+    code, out, _ = _run_main(capsys, "--root", str(nogit))
+    assert code == 0 and "cannot judge: git log failed" in out

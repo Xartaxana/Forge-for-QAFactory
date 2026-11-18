@@ -281,6 +281,8 @@ MECHANISM_PREFIXES = (
     "tools/usage_report.py",        # imported (lazily, --node-cost only) by tools/forge_metrics.py (t-905); the closure counts it
     "tools/agents_md.py",           # run by .githooks/pre-commit (AGENTS.md --check)
     "tools/worktree_sweep.py",      # run by .githooks/post-merge (F6-38; self-activating, placed by the Lead) and imported by session_context.py / piles.py
+    "tools/language_sites.py",      # forge-check (one-road ratchet, FG7-27; CI-only: the scan is over 10 s)
+    "tools/language-sites-baseline.json",  # DATA that decides what language_sites.py refuses: a row added or raised lets a language branch pass
     "tools/worktree-junk.json",     # DATA that decides what worktree_sweep.py deletes (untracked traces, protected branches): an edit widens the deletion set
     "tools/wait_reaper.py",         # run by SessionStart (session_context), SubagentStop (dod_gate) and .githooks/post-merge (bounded waits K-WIRE, t-1122): stops trees
     "tools/session_proc.py",        # imported by wait_reaper.py, compact_snapshot.py, session_context.py (session stamp, t-1122); decides which session a process belongs to

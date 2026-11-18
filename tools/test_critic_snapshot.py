@@ -351,13 +351,9 @@ def test_failure_document_no_prev_fields_when_prior_was_itself_a_failure(
 
 def _blocked_critic_payload(cwd: Path) -> dict:
     """subagent_type=="critic" (the snapshot even considers this call),
-    but a description with NO model-prefix separator at all -- this
-    kit's actual dispatch_gate.decide() on this payload gives (2, ...)
-    -- see LABEL_MODEL_PREFIX_RE in tools/dispatch_gate.py (checked
-    empirically before writing this test: this kit's own
-    LABEL_MODEL_PREFIX_RE = r"^\\S+[ :-]", broader than the reference
-    deployment's tier-word-only form -- a description with no space/
-    colon/dash separator anywhere fails it regardless)."""
+    but a description with no `critic:` prefix and no separator at all
+    -- dispatch_gate.decide() on this payload gives (2, ...) in both
+    label worlds (the old model word and the new role prefix)."""
     return {
         "tool_name": "Task",
         "tool_input": {
@@ -404,7 +400,7 @@ def test_m2_1_handoff_refused_dispatch_leaves_prior_snapshot_byte_identical(tmp_
     before_bytes = snap.read_bytes()
     no_line = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "critic", "description": "opus: review the diff", "prompt": "Review."},
+        "tool_input": {"subagent_type": "critic", "description": "critic: review the diff", "prompt": "Review."},
         "cwd": str(tmp_path),
     }
     result = _run_hook(no_line, cwd=tmp_path)
@@ -423,7 +419,7 @@ def test_m2_1_non_blocked_dispatch_still_writes_new_snapshot(tmp_path):
         "tool_name": "Task",
         "tool_input": {
             "subagent_type": "critic",
-            "description": "sonnet: review the diff",
+            "description": "critic: review the diff",
             "prompt": "irrelevant\n" + _handoff_line(tmp_path),
         },
         "cwd": str(tmp_path),

@@ -426,17 +426,69 @@ def test_unlocked_appender_in_the_window_is_carried_over_Q5a(env, monkeypatch):
     assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2
 
 
-def test_oserror_in_the_window_names_the_copy_Q5c(env, monkeypatch):
-    branch(env, "b17b", {"f.txt": "x\n"})
+@pytest.mark.parametrize("case", ["equal", "differs", "off_main", "appended", "staged", "ff_refused"])   # FG7-82 E6 + FG7-85: auto refresh only for an equal copy on main
+def test_restore_oserror_in_the_window_names_the_copy_Q5c(env, monkeypatch, case):
+    branch(env, "b17b", {"f.txt": "x\n", **({REL: L1 + L2} if case != "differs" else {})})
     (env.root / REL).write_bytes(L1 + L2)
 
     def hook(n):
         if n == "step9-locked":
+            if case == "differs":        # the wave commits the root journal into main, so the copy is made to differ
+                with open(next(jl.lock_dir(env.root).glob("wave-copy-*")), "ab") as f:
+                    f.write(L3)
+            if case == "off_main":
+                g(env.root, "checkout", "-q", "-b", "side")
+            if case == "appended":       # P1 t-1454: an unlocked writer adds L3 inside the window
+                with open(env.root / REL, "ab") as f:
+                    f.write(L3)
+            if case == "staged":
+                (env.root / "other.txt").write_text("o\n")
+                g(env.root, "add", "other.txt")
+            if case == "ff_refused":
+                (env.root / "f.txt").write_text("untracked in the way\n")
             raise OSError("disk says no")
     monkeypatch.setattr(wave, "_hook", hook)
     rc, out, _ = go(env, "b17b")
+    copies = list(jl.lock_dir(env.root).glob("wave-copy-*"))
+    if case == "equal":
+        assert rc == 0 and "the root was staged and fast-forwarded by wave" in out and "RESTORE FAILED" not in out
+        assert not copies and (env.root / REL).read_bytes() == L1 + L2 and g(env.root, "status", "--porcelain") == ""
+        return
     assert rc == 1 and "JOURNAL RESTORE FAILED (disk says no): copy kept at" in out and "merge: " in out
-    assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2
+    assert copies[0].read_bytes() == L1 + L2 + (L3 if case == "differs" else b"")
+    assert ("fast-forward the root by hand" in out) == (case != "differs")
+    reason = {"off_main": "the root is not on main", "appended": "the journal changed inside the window",
+              "staged": "the root has other staged changes", "ff_refused": ""}
+    assert ("auto refresh refused: " + reason.get(case, "") in out) == (case != "differs")
+    if case == "ff_refused":
+        assert "f.txt" in out.split("auto refresh refused: ")[1]      # git's own text names the path
+    if case == "appended":
+        assert (env.root / REL).read_bytes().endswith(L3)       # the window's HEAD-state file + L3, never overwritten
+
+
+@pytest.mark.parametrize("errs,exc,retried,ok", [          # FG7-82: t-1414 WinError 5 on os.replace
+    ([PermissionError(5, "denied")], None, True, True),                    # E1: once, then works
+    ([PermissionError(32, "busy")] * 9999, PermissionError, True, False),     # E2: always fails -> raised, tmp gone
+    ([OSError("disk")] * 9999, OSError, False, False),                         # E3: other OSError, no retry
+])
+def test_atomic_write_retries_permission_error_only(tmp_path, monkeypatch, errs, exc, retried, ok):
+    real, seen = os.replace, []
+
+    def rep(a, b):
+        seen.append(1)
+        if len(seen) <= len(errs):
+            raise errs[len(seen) - 1]
+        real(a, b)
+    monkeypatch.setattr(wave.os, "replace", rep)
+    monkeypatch.setattr(jl, "REPLACE_RETRY_SECONDS", 0.05)       # the shared rule, shortened
+    monkeypatch.setattr(jl, "REPLACE_PAUSE", 0.005)
+    p = tmp_path / "j.jsonl"
+    if exc:
+        with pytest.raises(exc):
+            wave._atomic_write(p, b"new")
+    else:
+        wave._atomic_write(p, b"new")
+    assert (len(seen) > 1) == retried and p.exists() == ok and not (tmp_path / "j.jsonl.wave-tmp").exists()
 
 
 def test_fetch_failure_in_step_9_after_the_push_still_finishes_C3_1(env, monkeypatch):

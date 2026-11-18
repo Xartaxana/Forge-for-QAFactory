@@ -70,6 +70,7 @@ if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
 import gitcmd  # noqa: E402
+import journal_lock  # noqa: E402
 
 DEFAULT_REF = "origin/main"          # the manual run and --count judge by the remote ref (F1 c)
 BACKGROUND_REF = "main"              # the background run and `close` judge by the LOCAL main (F2 a: they see the merge just made); also the hook's branch
@@ -1219,7 +1220,7 @@ class Lock:
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:
             tmp.write_text(json.dumps(self._body()), encoding="utf-8")
-            os.replace(tmp, self.path)
+            journal_lock.replace_retrying(tmp, self.path)
         except OSError:
             pass
 
@@ -1395,7 +1396,7 @@ class StatusFile:
         for attempt in range(4):                                         # the first try and up to 3 retries
             try:
                 tmp.write_text(json.dumps(data), encoding="utf-8")
-                os.replace(tmp, self.path)
+                journal_lock.replace_retrying(tmp, self.path)
                 return True
             except PermissionError as exc:
                 error = exc

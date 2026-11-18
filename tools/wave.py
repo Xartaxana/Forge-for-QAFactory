@@ -34,14 +34,15 @@ is an ancestor of origin/main and origin's journal is a byte-prefix of the root'
 try: git refuses on overlap and the line names its reason and up to 5 paths); under the journal lock
 the root's journal bytes are copied aside (sha256 H), the file is put to its HEAD state (or removed when HEAD lacks it),
 the merge runs, and WHATEVER its result the bytes are written back and checked against H. A mismatch keeps the copy and is
-exit 1. Exit codes: 0 done, 1 done but something named must be fixed by hand (piles refusal, journal restore mismatch),
+exit 1. One exception (FG7-85): when the write-back raises OSError and the copy equals origin's journal, wave itself stages
+the journal and runs the ff-only merge, only if the root is on main, has no other staged change and its journal's current
+bytes equal HEAD's or the copy; otherwise the copy stays and it is exit 1. Exit codes: 0 done, 1 done but something named must be fixed by hand (piles refusal, journal restore mismatch),
 2 refused before any push. A step-9 failure after the push never turns into "refused": the summary is printed and a
 restore mismatch is exit 1 after it."""
 from __future__ import annotations
 
 import argparse
 import hashlib
-import os
 import re
 import shutil
 import subprocess
@@ -118,7 +119,7 @@ def _atomic_write(path, data):
     tmp = path.with_name(path.name + ".wave-tmp")
     try:
         tmp.write_bytes(data)
-        os.replace(tmp, path)
+        jl.replace_retrying(tmp, path)       # t-1414: another process held the journal for a moment (WinError 5/32)
     except OSError:
         tmp.unlink(missing_ok=True)
         raise
@@ -520,6 +521,16 @@ class Wave:
                 return "journal restore mismatch"
         except OSError as exc:
             self.mismatch = "JOURNAL RESTORE FAILED (%s): copy kept at %s" % (exc, copy)
+            clause = self._recovery_clause(rel, copy)
+            if clause:                                  # FG7-85: the copy is origin's journal -> refresh the root ourselves
+                text = self._auto_refresh(rel, copy)
+                if text is None:
+                    self.mismatch = None
+                    self.say("journal restore failed (%s); the copy equals origin/%s, so the root was staged and "
+                             "fast-forwarded by wave" % (exc, MAIN))
+                    return None
+                clause += "; auto refresh refused: %s" % text
+            self.mismatch += clause
             return "journal restore failed"
         if kept:
             self.say("a line written during the window was appended to the journal; the copy is kept at %s" % copy)
@@ -529,6 +540,45 @@ class Wave:
             return None
         self.ff_text = err or o
         return self.ff_text
+
+    def _auto_refresh(self, rel, copy):
+        """FG7-85: the copy equals origin/main's journal. Root on main with no other staged change: write the copy back,
+        stage it, `merge --ff-only`; None = done, else the reason (the hint line stays, git's text added)."""
+        root = self.root
+        try:
+            rc, br, _e = git(root, "symbolic-ref", "-q", "--short", "HEAD")
+            if rc != 0 or br.strip() != MAIN:
+                return "the root is not on %s" % MAIN
+            rc, staged, _e = git(root, "diff", "--cached", "--name-only")
+            if rc != 0 or [p for p in staged.split() if p != rel]:
+                return "the root has other staged changes"
+            want = copy.read_bytes()
+            path = root / rel
+            now = path.read_bytes() if path.exists() else None
+            hrc, hb = git_bytes(root, "show", "HEAD:" + rel)
+            if now != want and now != (hb if hrc == 0 else None):
+                return "the journal changed inside the window"     # P1 t-1454: a line an unlocked writer added is never overwritten
+            if now != want:
+                _atomic_write(path, want)
+            if git(root, "add", "--", rel)[0] != 0:
+                return "git add failed"
+            rc, o, err = git(root, "merge", "--ff-only", "origin/" + MAIN)
+            if rc != 0:
+                return (err or o).strip()
+        except OSError as exc:
+            return str(exc)
+        copy.unlink(missing_ok=True)
+        return None
+
+    def _recovery_clause(self, rel, copy):
+        """E6: the kept copy equals origin/main's journal -> name the manual recovery; any failure -> no clause."""
+        try:
+            rc, ob = git_bytes(self.root, "show", "origin/%s:%s" % (MAIN, rel))
+            if rc == 0 and copy.read_bytes() == ob:
+                return "; the copy equals origin/%s: stage %s and fast-forward the root by hand" % (MAIN, rel)
+        except Exception:
+            pass
+        return ""
 
     def worktree_of(self):
         out = git(self.root, "worktree", "list", "--porcelain")[1]
