@@ -1270,6 +1270,10 @@ def test_the_toolchain_of_the_next_stage_is_collected_before_the_gate() -> None:
             "quiet": f'"{_sys.executable}" "{fake}" pytest -m "<test-id>" --reruns 2'}
         (root / "qa-factory" / "config.json").write_text(json.dumps(config), encoding="utf-8")
         (root / "tests").mkdir(parents=True, exist_ok=True)
+        # B-006 (iii): the collect runs only for a story whose plan has an `automate` row; TS-1 is one, so the case names it
+        # the way the cmp2 cases do (`Plan row:` line in the body).
+        case = root / "qa-factory" / "artifacts" / "TP1-15045" / "work" / "test-cases" / "workflows" / "TC-001.md"
+        case.write_text(case.read_text(encoding="utf-8") + "\nPlan row: TS-1\n", encoding="utf-8")
         command = gate_preflight.collect_command(config)
         check("the project's own command is what gets rehearsed", "--reruns" in command)
         check("with every placeholder dropped", "<test-id>" not in command)
