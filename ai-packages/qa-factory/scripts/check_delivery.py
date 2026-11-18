@@ -1998,6 +1998,9 @@ def unprepared_records(ledger: dict) -> list:
                         + str(walk.get("not_walked") or "no reason recorded") + "; the factory's reason: " + reason)
         else:
             to_check = "the factory could not prepare this check and the agent walked it without a result: " + reason
+        if walk.get("prepared") is True and not walk.get("need"):      # a need record that does not count (refused or out of date) on a prepared case
+            to_check = ("the factory prepared this check; the runner's record that it needs another instance of the stand or device "
+                        "does not count (it was refused or is out of date), so the check has no result")
         if walk.get("need"):      # U7 E7 Q-B: a need record; the head never says the factory could not prepare what it prepared
             head = ("the factory prepared this check, but it needs another instance of the stand or device, which was not started"
                     if walk.get("prepared") is True else

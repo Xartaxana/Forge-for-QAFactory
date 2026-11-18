@@ -2359,6 +2359,10 @@ def an_unprepared_manual_walk_reaches_delivery_as_a_check_left_with_the_person()
     for label, walk, want in (("prepared", dict(need, prepared=True, walked=True), "the factory prepared this check, but it" + start),
                               ("not prepared, not walked", dict(need, prepared=False),
                                "the factory could not prepare this check (r) and it" + start + "; it was not walked either - not walked: nw"),
+                              ("B2 prepared, the need does not count",  # a refused or out-of-date record: no `need`, `prepared` stays
+                               {"case": "A", "reason": "r", "walked": True, "prepared": True},
+                               "the factory prepared this check; the runner's record that it needs another instance of the stand or device "
+                               "does not count (it was refused or is out of date), so the check has no result"),
                               ("no need", {"case": "A", "reason": "r", "walked": True},
                                "the factory could not prepare this check and the agent walked it without a result: r")):
         check_eq(f"E7 Q-B unprepared_records: {label}", [r["to_check"] for r in D.unprepared_records({"unprepared_walks": [walk]})], [want])

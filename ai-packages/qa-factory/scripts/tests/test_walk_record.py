@@ -334,6 +334,18 @@ def test_verdict_needs_is_one_word_or_absent():
         assert problems(rig, [{"n": 1, "result": "inconclusive"}], needs="another_instance") == []
 
 
+def test_walk_rule_errors_need_branch():
+    with walking() as rig:
+        request(rig, thens=("1",))
+        walk(rig)
+        def errs(thens, **extra):
+            return ME.walk_rule_errors(rig.t.task, CASE, {"attempt": attempt_of(rig), "thens": thens, **extra})
+        inc = [{"n": 1, "result": "inconclusive"}]
+        assert ME.NEED_THEN_PROBLEM in errs([passes()], needs="another_instance", limitation="a second node")
+        assert has(errs(inc, needs="another_instance"), "a need says why")
+        assert errs(inc, needs="another_instance", limitation="a second node") == []
+
+
 def test_build_refusal_returned_not_raised():
     def refuse(*a, **k):
         raise ValueError("attempt a1 of C holds no captures: capture first")

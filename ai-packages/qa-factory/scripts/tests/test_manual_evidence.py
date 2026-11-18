@@ -1242,20 +1242,43 @@ def f5_unprepared_cases():
             check_eq("E7-3a: unprepared_rows carries need / need_why / ended_at / prepared",
                      {k: M.unprepared_rows({"current_manual_checks": [row]})[0].get(k) for k in ("need", "need_why", "ended_at", "prepared")},
                      {"need": "another_instance", "need_why": "a second node", "ended_at": rec["attempt_ended_at"], "prepared": True})
-            for label, bad in (("M3 stale", dict(row, current_reason="x")), ("M3 refused", dict(row, evidence_errors=["e"])),
-                               ("a result", dict(row, result="pass")),
-                               ("no need: byte-identical", dict(row, unprepared={"reason": "r", "walked": False, "not_walked": "n"}))):
-                check_eq(f"E7-3a rows ({label}): no need keys", [k for k in M.unprepared_rows({"current_manual_checks": [bad]})[0]
-                                                                  if k in ("need", "need_why", "ended_at", "prepared")], [])
+            for label, bad, kept_keys in (("M3 stale", dict(row, current_reason="x"), ["prepared"]), ("M3 refused", dict(row, evidence_errors=["e"]), ["prepared"]),
+                                          ("a result", dict(row, result="pass"), ["prepared"]),
+                                          ("no need: byte-identical", dict(row, unprepared={"reason": "r", "walked": False, "not_walked": "n"}), [])):
+                # B2: `prepared` is written on every row that carries a need, so the words never say the factory could not prepare it
+                check_eq(f"E7-3a rows ({label}): no need / need_why / ended_at", [k for k in M.unprepared_rows({"current_manual_checks": [bad]})[0]
+                                                                                  if k in ("need", "need_why", "ended_at", "prepared")], kept_keys)
             for label, bad, needle in (("other obligation ids", dict(rec, obligation_ids=["OB-12"]), "unprepared marker without an unprepared request"),
                                        ("edited reason", dict(rec, unprepared=dict(rec["unprepared"], reason="I say so")), "without an unprepared request"),
                                        ("need outside the set", dict(rec, unprepared=dict(rec["unprepared"], need="other")), "need is not one"),
                                        ("need with a result", dict(rec, result="pass"), "records no result")):
                 check_in(f"E7-3a validator ({label}): an issue", needle, "; ".join(CC.validate_manual_current(t.task, bad)))
+            # B3: `walked` is never the runner's word, on a need record (prepared case) or a plain factory marker alike
+            hand, walked_issue = dict(rec, unprepared=dict(rec["unprepared"], walked=True)), "no walk of it is recorded"
+            check_in("E7-3a B3: need record, walked true, no recorded walk: an issue", walked_issue, "; ".join(CC.validate_manual_current(t.task, hand)))
+            check_in("E7-3a B3: ... a blank need_why too", "a need says why",
+                     "; ".join(CC.validate_manual_current(t.task, dict(hand, unprepared=dict(hand["unprepared"], need_why="")))))
+            with mock.patch.object(M, "_recorded_walks", return_value=[("a1", [{"step": 1}], [])]):
+                check_eq("E7-3a B3: ... honoured over a recorded walk", CC.validate_manual_current(t.task, hand), [CC.UNPREPARED])
+            with mock.patch.object(M, "write_block", lambda task, records, declared=False: Path(task) / "b.json"):
+                import contextlib, io
+
+                def cli(*args):
+                    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        try:
+                            return M.main(["unprepared", "--task-root", str(t.task), "--case", ui, *args])
+                        except SystemExit as exc:
+                            return exc.code or 2
+                got = [cli("--needs", "another_instance", "--need-why", "a node") == 0] + [cli(*a) != 0 for a in (
+                    ("--needs", ""), ("--needs", "ANOTHER_INSTANCE", "--need-why", "w"), ("--need-why", ""), ("--need-why", "w"))]
+                check_eq("E7-3a F3/N3 through main: a need is written; '', a wrong-case word and a why with no need are refused", got, [True] * 5)
             M.request_path(t.task, ui).write_text(json.dumps({"refused": {"reason": "r"}}), encoding="utf-8")
             check_eq("E7-3a: markerless need over a refused / missing request is a problem (never raises)",
                      [bool(M.need_record_problems(t.task, c, "another_instance", "w", None)) for c in (ui, "NOPE_TC_001")], [True, True])
             check_in("E7-3a: ... and the validator refuses the record", "without an unprepared request", "; ".join(CC.validate_manual_current(t.task, rec)))
+            M.request_path(t.task, ui).write_text(json.dumps({"unprepared": {"reason": "r", "obligation_ids": ["OB-7"]}}), encoding="utf-8")
+            check_in("E7-3a B3 twin: a factory marker with walked true and no recorded walk: an issue", walked_issue, "; ".join(CC.validate_manual_current(
+                t.task, dict(rec, unprepared={"reason": "r", "walked": True}))))
     finally:
         S.cleanup(t)
 
