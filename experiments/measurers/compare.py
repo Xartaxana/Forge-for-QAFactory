@@ -162,9 +162,28 @@ def requests_of(path: Path, keep=None) -> dict:
     return seen
 
 
+def role_of(path: Path):
+    """The role of one transcript, the one rule (scan and report_to_gate.scan_until both call it): the first `user` line's
+    `qa-*` word, '?' when that line has none, None when there is no user line. Non-JSON and non-object lines are skipped."""
+    for line in path.open(encoding="utf-8"):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("type") != "user":
+            continue
+        message = row.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        text = content if isinstance(content, str) else " ".join(
+            part.get("text", "") for part in content or () if isinstance(part, dict))
+        found = re.search(r"qa-[a-z\-]+", text or "")
+        return found.group(0) if found else "?"
+    return None
+
+
 def scan(path: Path, rate: dict) -> dict:
     seen = {key: (model, usage) for key, (model, usage, _stamp) in requests_of(path).items()}
-    role, tools = None, collections.Counter()
+    role, tools = role_of(path), collections.Counter()
     first = last = None
     for line in path.open(encoding="utf-8"):
         try:
@@ -175,11 +194,6 @@ def scan(path: Path, rate: dict) -> dict:
         if ts:
             first, last = first or ts, ts
         m = o.get("message") or {}
-        if o.get("type") == "user" and role is None:
-            c = m.get("content")
-            txt = c if isinstance(c, str) else " ".join(x.get("text", "") for x in c if isinstance(x, dict))
-            mm = re.search(r"qa-[a-z\-]+", txt or "")
-            role = mm.group(0) if mm else "?"
         if o.get("type") == "assistant" and m.get("usage") and not is_empty_marker(m.get("model"), m["usage"]):
             for b in m.get("content", []):
                 if isinstance(b, dict) and b.get("type") == "tool_use":

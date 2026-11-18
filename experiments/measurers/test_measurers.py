@@ -478,6 +478,19 @@ def fidelity(root: Path) -> None:
              (lambda r: (r[0], r[1], round(r[2], 2), r[3]))(
                  report_to_gate.scan_until(pair_transcript(path), compare.rates(), cut)),
              ("qa-scout", 2, 2.0, 1))
+    dup = root / "dup-past-cut.jsonl"  # id d in time, its later copy past the cut: the earlier copy stays (cut before dedupe)
+    dup.write_text("\n".join(json.dumps({"type": "assistant", "timestamp": stamp, "uuid": "u" + stamp, "message": {
+        "id": "d", "model": "claude-sonnet-5-5", "usage": {"input_tokens": tokens}}}) for stamp, tokens in (
+        ("2026-09-27T00:01:00Z", 1_000_000), ("2026-10-02T00:00:00Z", 5_000_000))) + "\n", encoding="utf-8")
+    got = report_to_gate.scan_until(dup, compare.rates(), datetime(2026, 10, 1, tzinfo=timezone.utc))
+    check_eq("scan_until: a later copy past the cut leaves the earlier copy: 1 request, its cost 2.0",
+             (got[1], round(got[2], 2)), (1, 2.0))
+    try:
+        report_to_gate.scan_until(dup, compare.rates(), datetime(2026, 10, 1))
+        naive = "no error"
+    except ValueError as err:
+        naive = "2026-10-01" in str(err)
+    check_eq("scan_until: a naive cut is refused with an error naming it, not zero requests", naive, True)
     check_eq("scan_until: a <synthetic> turn with usage is unpriced there too",
              report_to_gate.scan_until(pair_transcript(path, [("t3", "<synthetic>", {"input_tokens": 5})]),
                                        compare.rates(), cut)[3], 2)
