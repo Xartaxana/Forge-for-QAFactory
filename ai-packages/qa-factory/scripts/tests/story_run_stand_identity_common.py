@@ -17,7 +17,7 @@ Mutations this file kills (each by this file alone, run on a scratch copy of the
   the question is asked although the record is `matched` (M8) | a free-text answer is read by code as a form (M9) |
   the driver shows the script line to the person (M10)
 
-Run: python -B scripts/tests/test_story_run_stand_identity.py
+Run: each part alone, python -B scripts/tests/test_story_run_stand_identity_<k35_k36|t366_k37|k38_edges|ep1>.py
 """
 # Shared helpers of test_story_run_stand_identity.py, split by tools/test_split.py (TD-11c).
 import contextlib
