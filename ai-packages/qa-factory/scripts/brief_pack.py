@@ -2893,6 +2893,34 @@ def stand_lesson_lines(project, stand) -> list:
         return [f"- Stand lessons: could not be read ({type(exc).__name__})"]
 
 
+def instance_lines(project, stand) -> list:
+    """The ONE line that tells the runner whether another instance of the stand or device may be started (E7): the person's answer
+    through `PK.instance_answer` only (AR-13). No stand -> [] (silence never allows: the page says do not start it); no answer or a
+    revoked one -> `not answered yet`; an unreadable registry -> `could not be read`, never `allowed`. A date or story that cannot
+    be read says so or is left out, never guessed. Never raises."""
+    try:
+        import datetime
+        import project_knowledge as PK
+        got = PK.instance_answer(project, str(stand or ""), PK.INSTANCE_NEEDS[0])
+        if got["no_stand"]:
+            return []
+        head = f"- Another instance on {PK._plain(stand)}: "
+        if got["problem"]:
+            return [head + f"could not be read ({got['problem']})"]
+        if got["authorized"] is None:
+            return [head + "not answered yet"]
+        row = got["row"] or {}
+        story = (row.get("provenance") or {}).get("story")
+        try:
+            day = str(datetime.date.fromisoformat(str(row.get("at"))[:10]))
+        except ValueError:
+            day = ""
+        given = " ".join(x for x in ((f"in {PK._plain(story)}" if story else ""), (f"on {day}" if day else "(date not known)")) if x)
+        return [head + ("allowed" if got["authorized"] else "not allowed") + f" (the person's answer, given {given})"]
+    except Exception as exc:
+        return [f"- Another instance on {stand}: could not be read ({type(exc).__name__})"]
+
+
 def manual_stand_lines(task_root: Path, project: Path, cfg: dict, scope: list, env_name: str = "", repo: dict | None = None) -> list:
     """The lines of `## The stand` in the brief of a MANUAL runner block: where the stand is, which accounts the role may sign in
     as (roles, and the NAMES of the env file's secret-looking keys: a role gives the pair to `--as env:USER/SECRET`), which cases
@@ -2917,7 +2945,7 @@ def manual_stand_lines(task_root: Path, project: Path, cfg: dict, scope: list, e
         shown = [f'--as "{r}"' for r in roles]
         out.append("- Accounts: --as default; " + (_stand_names(shown) + " (names only)" if shown else "the stand lists no other"))
         keys = [k for note in roles.values() for k in GP.account_keys(note)]
-        out += stand_lesson_lines(project, name)
+        out += stand_lesson_lines(project, name) + instance_lines(project, name)
     cases, case_keys = _case_actor_lines(task_root, scope, None if (said or why) else entry)
     if not (said or why):
         file_keys, rel = _env_file_key_names(block, project)

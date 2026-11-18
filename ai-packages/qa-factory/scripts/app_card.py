@@ -155,7 +155,7 @@ def _stand_lines(task_root, project, cfg, cfg_why):
     import brief_pack as BP
     got = BP.manual_stand_lines(task_root, project, cfg, [], "", None)
     stand = [scrub(x, tokens=False) for x in got if x.startswith(("- Stand:", "- API:", "- Frontend:"))]
-    stand += [scrub(x, tokens=False) for x in got if x.startswith("- Stand lessons:")]    # what a person taught (the walk road): whole
+    stand += [scrub(x, tokens=False) for x in got if x.startswith(("- Stand lessons:", "- Another instance"))]    # what a person taught and whether another instance may start (the walk road): whole
     accounts = [scrub(x, tokens=False) for x in got if x.startswith(("- Accounts:", "- Env keys:"))]
     return stand, accounts, ""
 

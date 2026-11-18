@@ -3327,13 +3327,35 @@ def ss1_11_stand_lessons() -> None:
                  (len(many), any("more:" in l for l in many), any('op11: "words 11"' in l for l in many)), (11, False, True))
         text = brief_of()
         check_in("E54: the head holds every lesson line whole", "\n".join(many), pc8_head(text))
+        import app_card
+
+        def instance_row(allowed):      # E7-2: the line on BOTH roads' stand text (manual brief, walk card); words are data
+            if allowed is not None:
+                PK.record(root, key=PK.EXTRA_INSTANCE_KEY, environment="localhost", element="another_instance", state=PK.KNOWN, scope="stand",
+                          value={"authorized": allowed}, words="x", source="person", story="S-1", by="driver")
+            pick = lambda lines: [l for l in lines if l.startswith("- Another instance")]
+            return (pick(brief_pack.manual_stand_lines(task, root, cfg, [], "localhost")), pick(app_card._stand_lines(task, root, cfg, "")[0]))
+        check_eq("E7-2: no answer is `not answered yet`, on both roads", instance_row(None), (["- Another instance on localhost: not answered yet"],) * 2)
+        manual, card = instance_row(True)
+        check_eq("E7-2: a yes is allowed with its story and day, on both roads", (manual == card, manual[0].startswith("- Another instance on localhost: allowed (the person's answer, given in S-1 on 20")), (True, True))
+        check_in("E7-2: the newest answer, a no, is not allowed", "not allowed (", instance_row(False)[0][0])
+        PK.revoke(root, PK.load(root)[0][-1]["id"], "x")
+        check_eq("E7-2: a revoke reads as `not answered yet`", instance_row(None)[0], ["- Another instance on localhost: not answered yet"])
+        check_eq("E7-2: no stand, no line (silence never allows)", brief_pack.instance_lines(root, ""), [])
         (root / PK.RECORD_REL).write_text("{not json", encoding="utf-8")
+        check_in("E7-2: an unreadable registry is never allowed", "could not be read (", instance_row(None)[0][0])
         bad = brief_pack.stand_lesson_lines(root, "localhost")
         check_eq("E46: an unreadable registry is one line that says so",
                  (len(bad), bad[0].startswith("- Stand lessons: could not be read (")), (1, True))
         check_in("E46: the manual runner's stand says so", bad[0], "\n".join(brief_pack.manual_stand_lines(task, root, cfg, [], "localhost")))
     finally:
         harness.cleanup(root)
+
+
+def test_ss1_11_stand_lessons() -> None:     # pytest wrapper (C1, M16): only the rows this call added are judged
+    n = len(harness.RESULTS)
+    ss1_11_stand_lessons()
+    assert all(ok for ok, _ in harness.RESULTS[n:]), [name for ok, name in harness.RESULTS[n:] if not ok]
 
 
 def of3_1c_home_strategy() -> None:
