@@ -12,10 +12,10 @@ language does not match an English key - axis 31's rule and the critic's questio
 K-NOBRIEF / K-REG (no-briefs spec section 8, owner's word 17.11.2026 "we do not create extra documents"): the register of MAIN
 documents is the axis-31 table of docs/SIBLING_MAP.md read by code; no MAIN document names a DELETED file by path or by stem
 (false red is the allowed side); a deleted file stays untracked; no brief file sits at the top of docs/tasks/.
-K-STALE / K-WORKER (worker-boot r2, t-1137): after the split CLAUDE.md is the worker block and COORDINATOR.md holds rules 1-10, 11a-13,
-the routing log, Role != tier and Lead degradation. K-STALE: no scanned file cites `CLAUDE.md rule N` (N != 11), a coordinator
-section by `CLAUDE.md` name or `rule N of CLAUDE.md` / `правило N CLAUDE.md` (N != 11) - the rule left that file. K-WORKER:
-CLAUDE.md has no `@` import line and no duty to read COORDINATOR.
+K-WORKER (worker-boot r2, t-1137): after the split CLAUDE.md is the worker block and COORDINATOR.md holds rules 1-10, 11a-13,
+the routing log, Role != tier and Lead degradation: CLAUDE.md has no `@` import line and no duty to read COORDINATOR.
+K-STALE and the TOC pointers retired into tools/pointer_lint.py (FG7-52): one reader for "a pointer in a rule text resolves";
+the register of MAIN documents is read there (`main_documents`) and imported here.
 Run from the repo root: python -m pytest tools/tests/test_role_carriers_one_owner.py -q
 """
 import os
@@ -27,7 +27,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-import md_table  # noqa: E402  (the one table reader: SIBLING_MAP axis 31 is read through it)
+from pointer_lint import main_documents  # noqa: E402  (the one reader of the axis-31 register of MAIN documents)
 
 REAL = pathlib.Path(__file__).resolve().parents[2]
 ROOT = pathlib.Path(os.environ.get("ROLE_CARRIERS_ROOT") or REAL)
@@ -107,69 +107,6 @@ POINTERS = [
     ("PROJECT.md", "`.claude/skills/boot-diet/SKILL.md` § Как пишутся правила для агентов", ".claude/skills/boot-diet/SKILL.md", "## Как пишутся правила для агентов"),
     (TEAMWORK, "`PROJECT.md` «Командная работа» п. 3", "PROJECT.md", "3. **Зоны файлов пачек «в работе» не пересекаются** — правило: `docs/TEAMWORK.md` § 3"),
 ]
-
-# The cross-file Contents table (now in COORDINATOR.md; one row per cell, T1-T33 of the boot-by-topic spec section 2) and the
-# own-section table of PROJECT.md: every cell must still name an existing heading / numbered item / file (FG7-52 later scans them
-# by code). Under the worker split a row names the file the rule lives in: COORDINATOR.md, or CLAUDE.md for rule 11, hygiene, Язык.
-_TOC_CL = COORD
-_RS = "docs/RUNBOOK.md"
-_PRJ = "PROJECT.md"
-_TW_HEAD = "## Командная работа (кучки и пачки)"
-TOC_POINTERS = [
-    (_TOC_CL, "| Tiers | COORDINATOR.md § Tiers |", COORD, "## Tiers (see"),
-    (_TOC_CL, "COORDINATOR.md § 1 +", COORD, "1. Recon → scout by default"),
-    (_TOC_CL, "+ COORDINATOR.md § 2 +", COORD, "2. Implementation from a finished spec → builder"),
-    (_TOC_CL, "COORDINATOR.md § Rule 2 · drafting → designer", COORD, "### Rule 2 · drafting → designer"),
-    (_TOC_CL, "| CLAUDE.md § 11 |", "CLAUDE.md", "11. DoD in every dispatch (DoD-in-every-dispatch rule)"),
-    (_TOC_CL, "| Witness; acceptance by witness | COORDINATOR.md § 2 |", COORD, "2. Implementation from a finished spec → builder"),
-    (_TOC_CL, "| What a builder may run | docs/TESTING.md § Что запускать по своей правке |", TESTING, TESTING_RUN),
-    (_TOC_CL, "COORDINATOR.md § Rule 4 · witness scope and the BATCH CANON", COORD, "### Rule 4 · witness scope and the BATCH CANON"),
-    (_TOC_CL, "docs/RUNBOOK.md § 7. CI на GitHub и BATCH CANON", _RS, RUNBOOK_7),
-    (_TOC_CL, "| Which tests are written | docs/TESTING.md |", "docs/TESTING.md", "# Как фордж пишет тесты"),
-    (_TOC_CL, "| Critic gate | COORDINATOR.md § 3 |", COORD, "3. critic — a MANDATORY acceptance gate"),
-    (_TOC_CL, "| Critic review content | .claude/agents/critic.md § 21-24 |", CRITIC, CRIT_21),
-    (_TOC_CL, "| Journal | COORDINATOR.md § Routing log |", COORD, "## Routing log — logs/journal/<dev>.jsonl"),
-    (_TOC_CL, "| Six writers, queue, merge waves | PROJECT.md § Командная работа |", _PRJ, _TW_HEAD),
-    (_TOC_CL, "| Cost gates | COORDINATOR.md § Rule 12 · Cost gates |", COORD, "### Rule 12 · Cost gates"),
-    (_TOC_CL, "| Session hygiene | CLAUDE.md § Command hygiene +", "CLAUDE.md", "## Command hygiene (permission hygiene)"),
-    (_TOC_CL, "+ PROJECT.md § Сессия форджа |", _PRJ, "## Сессия форджа"),
-    (_TOC_CL, "| Command hygiene | CLAUDE.md § Command hygiene |", "CLAUDE.md", "## Command hygiene (permission hygiene)"),
-    (_TOC_CL, "| Fix the class | COORDINATOR.md § 9 |", COORD, "9. Fix the class, not the instance (fix-the-class-not-the-instance"),
-    (_TOC_CL, "| Mechanisms | COORDINATOR.md § 10 |", COORD, "10. Four questions for every mechanism"),
-    (_TOC_CL, "+ docs/TEAMWORK.md |", TEAMWORK, "# Командная работа: механика, которую держит код"),
-    (_TOC_CL, "| «Бэклог»; findings | PROJECT.md § Бэклог и находки |", _PRJ, "## Бэклог и находки"),
-    (_TOC_CL, "| Owner's principles | docs/OWNER_PRINCIPLES.md |", "docs/OWNER_PRINCIPLES.md", "# Принципы владельца"),
-    (_TOC_CL, "| Package change acceptance | PROJECT.md § Как принимается изменение пакета |", _PRJ, "## Как принимается изменение пакета"),
-    (_TOC_CL, "PROJECT.md § Как разрабатывается новая идея владельца", _PRJ, "## Как разрабатывается новая идея владельца"),
-    (_TOC_CL, "| Release | docs/RUNBOOK.md § 4.1. Шаги релиза |", _RS, "### 4.1. Шаги релиза"),
-    (_TOC_CL, "| Language | CLAUDE.md § Язык |", "CLAUDE.md", "## Язык"),
-    (_TOC_CL, "PROJECT.md § Что решать самому, что спрашивать у владельца", _PRJ, "## Что решать самому, что спрашивать у владельца"),
-    (_TOC_CL, "+ COORDINATOR.md § 11a |", COORD, "11a. Question routing (question-routing rule)"),
-    (_TOC_CL, "PROJECT.md § Ссылки на файлы в ответах", _PRJ, "## Ссылки на файлы в ответах"),
-    (_TOC_CL, "| .claude/agents/designer.md § 7 |", ".claude/agents/designer.md", "7. READERS OF EVERY TOUCHED FILE"),
-    (_TOC_CL, "| Boot diet | .claude/skills/boot-diet/SKILL.md |", ".claude/skills/boot-diet/SKILL.md", "# boot-diet — reacting to a boot-budget breach"),
-    (_TOC_CL, "| How rule text for agents is written | .claude/skills/boot-diet/SKILL.md § Как пишутся правила для агентов |", ".claude/skills/boot-diet/SKILL.md", "## Как пишутся правила для агентов"),
-    (_TOC_CL, "| Session start/end | PROCESS/SESSION_PROTOCOL.md |", "PROCESS/SESSION_PROTOCOL.md", "# Session Protocol"),
-    (_TOC_CL, "COORDINATOR.md § Role ≠ tier", COORD, "## Role ≠ tier"),
-    (_TOC_CL, "COORDINATOR.md § Lead degradation", COORD, "## Lead degradation"),
-    (_TOC_CL, "| Dispatcher duties about workers' runs | PROJECT.md § Как принимается изменение пакета +", _PRJ, "## Как принимается изменение пакета"),
-    # PROJECT.md's own table (E21: the last row routes to COORDINATOR.md Contents; the cwd bullet and Язык live in CLAUDE.md)
-    (_PRJ, "| Где что лежит |", _PRJ, "## Где что лежит"),
-    (_PRJ, "| Принципы владельца |", _PRJ, "## Принципы владельца"),
-    (_PRJ, "| Как принимается изменение пакета |", _PRJ, "## Как принимается изменение пакета"),
-    (_PRJ, "| Бэклог и находки |", _PRJ, "## Бэклог и находки"),
-    (_PRJ, "| Как разрабатывается новая идея владельца |", _PRJ, "## Как разрабатывается новая идея владельца"),
-    (_PRJ, "| Прогоны и эксперименты |", _PRJ, "## Прогоны и эксперименты"),
-    (_PRJ, "| Сессия форджа |", _PRJ, "## Сессия форджа"),
-    (_PRJ, "| Командная работа (кучки и пачки) |", _PRJ, _TW_HEAD),
-    (_PRJ, "| Релиз |", _PRJ, "## Релиз"),
-    (_PRJ, "| Как пишутся правила для агентов |", _PRJ, "## Как пишутся правила для агентов"),
-    (_PRJ, "| Язык → `CLAUDE.md` § Язык |", "CLAUDE.md", "## Язык"),
-    (_PRJ, "| Что решать самому, что спрашивать у владельца |", _PRJ, "## Что решать самому, что спрашивать у владельца"),
-    (_PRJ, "| Ссылки на файлы в ответах |", _PRJ, "## Ссылки на файлы в ответах"),
-    (_PRJ, "| Все темы → `COORDINATOR.md` § Contents |", COORD, "## Contents — topic → where to read"),
-]
-POINTERS = POINTERS + TOC_POINTERS
 
 
 def squash(text):
@@ -271,33 +208,6 @@ ALLOWED = {".claude/agents/builder.md": "\"builder-rules N\" in package comments
 BRIEF_PATH_RE = re.compile(r"docs/tasks/[^/\s`'\"]*brief[^/\s`'\"]*\.md")
 
 
-def main_documents(root):
-    """MAIN = the files of axis 31 whose Owner / pointer cell starts with owner or procedure (E11: a missing table or a
-    malformed row yields fewer documents, never a pass: test_register_sees_the_main_documents)."""
-    lines = (root / SIBLING_MAP).read_text(encoding="utf-8").splitlines()
-    table = md_table.table_after(lines, "Axis 31")
-    if table is None:
-        return []
-    header, rows = table
-    names = [h.casefold() for h in header]
-    if "file" not in names or "owner / pointer" not in names:
-        return []
-    fi, oi = names.index("file"), names.index("owner / pointer")
-    out = set()
-    for cells, _ in rows:
-        if len(cells) <= max(fi, oi) or not cells[oi].casefold().startswith(("owner", "procedure")):
-            continue
-        m = re.match(r"`([^`]+\.md)`", cells[fi])
-        if not m:
-            continue
-        path = m.group(1)
-        if "*" in path:
-            out.update(q.relative_to(root).as_posix() for q in root.glob(path))
-        elif (root / path).is_file():
-            out.add(path)
-    return sorted(out)
-
-
 def forbidden_hits(text):
     t = text.casefold().replace("\\", "/")
     hits = BRIEF_PATH_RE.findall(t)
@@ -372,76 +282,7 @@ def test_forbidden_hits(rel, text, hit):
     assert bool(scan(rel, text)) is hit, (rel, text, scan(rel, text))
 
 
-# ---- K-STALE / K-WORKER (worker-boot r2, section 8 Card B1 behaviour 6; critic t-1239 F5) ----
-# Scanned: the K-OWN set plus the two files the A+B2 fix round retargeted that a text suffix already covers; docs/ADOPTION_LEDGER.md
-# is a record of what was adopted when (it quotes old citations) and joins EXCLUDED for this check only.
-STALE_RES = [
-    re.compile(r"(?<!toolkit/)CLAUDE\.md(?:'s)?`?\s+(?:routing\s+)?rules?\s+(?!11\b)\d", re.I),
-    re.compile(r"(?<!toolkit/)CLAUDE\.md(?:'s)?\W{0,4}(?:Tiers|Routing log|Routing rules|Role\s*(?:≠|!=)\s*tier|Lead degradation|Contents|Cost gates)"),
-    re.compile(r"(?<!toolkit/)CLAUDE\.md`?\s*§\s*(?:Rule\s+)?(?!11\b)\d"),
-    re.compile(r"\b(?:rule (?!11\b)\d+\w?|R13-g) of CLAUDE\.md"),
-    re.compile(r"правил\w*\s+(?!11\b)\d+\w?\s+(?:в\s+)?`?CLAUDE\.md"),
-]
-# Records that quote the rule numbers of their own day: the ledger, PROJECT.md as it stood 11.11.2026 (its header says so), the frozen BACKLOG.
-STALE_EXCLUDED = EXCLUDED + ("docs/ADOPTION_LEDGER.md", "docs/PROJECT_FULL.md", "plans/BACKLOG.md")
-STALE_MUST_SCAN = ("docs/SIBLING_MAP.md", "docs/TWO_VOCABULARIES.md")
-
-
-def stale_scanned(rel):
-    rel = rel.replace("\\", "/")
-    return rel.endswith(TEXT_SUFFIXES) and not any(rel == e or rel.startswith(e) for e in STALE_EXCLUDED)
-
-
-def stale_hits(text):
-    return [(n, m.group(0)) for n, line in enumerate(text.splitlines(), 1) for rx in STALE_RES for m in rx.finditer(line)]
-
-
-STALE_ROWS = [      # (text, hit expected)
-    ("see CLAUDE.md rule 3 for the gate", True),                   # positive control: a stale sample
-    ("`CLAUDE.md` rule 12, Cost gates", True),
-    ("CLAUDE.md routing rules 9", True),
-    ("CLAUDE.md § Tiers", True),
-    ("CLAUDE.md § Routing log", True),
-    ("CLAUDE.md § Contents", True),
-    ("CLAUDE.md § Role ≠ tier", True),
-    ("rule 10 of CLAUDE.md", True),
-    ("R13-g of CLAUDE.md", True),
-    ("| Critic gate | CLAUDE.md § 3 |", True),
-    ("| Cost gates | CLAUDE.md § Rule 12 · Cost gates |", True),
-    ("CLAUDE.md § 11", False),                                    # rule 11 still lives in CLAUDE.md (e18)
-    ("rule 11 of CLAUDE.md", False),
-    ("правило 3 `CLAUDE.md`", True),
-    ("правила 9 CLAUDE.md", True),
-    ("toolkit/CLAUDE.md rule 10", False),                         # negative controls: the kit keeps every rule
-    ("CLAUDE.md rule 11", False),                                 # rule 11 still lives in CLAUDE.md
-    ("правило 11 `CLAUDE.md`", False),
-    ("COORDINATOR.md rule 3", False),
-    ("CLAUDE.md § Worker duties", False),
-]
-
-
-@pytest.mark.parametrize("text,hit", STALE_ROWS, ids=[str(i) for i in range(len(STALE_ROWS))])
-def test_stale_citation_rows(text, hit):
-    assert bool(stale_hits(text)) is hit, (text, stale_hits(text))
-
-
-def test_stale_scan_covers_the_retargeted_files_and_skips_the_ledger():
-    assert all(stale_scanned(r) for r in STALE_MUST_SCAN)
-    assert not stale_scanned("docs/ADOPTION_LEDGER.md") and not stale_scanned("AGENTS.md")
-    assert not stale_scanned("docs/PROJECT_FULL.md") and not stale_scanned("plans/BACKLOG.md")
-
-
-def test_no_scanned_file_cites_a_rule_that_left_claude_md():
-    found = {}
-    for rel in _tracked_all(ROOT):
-        if not stale_scanned(rel) or not (ROOT / rel).is_file():
-            continue
-        hits = stale_hits((ROOT / rel).read_text(encoding="utf-8", errors="replace"))
-        if hits:
-            found[rel] = hits[:3]
-    assert found == {}, "a rule left CLAUDE.md (the worker block); retarget the citation to COORDINATOR.md: %s" % found
-
-
+# ---- K-WORKER (worker-boot r2, section 8 Card B1 behaviour 6; critic t-1239 F5) ----
 def k_worker_hits(text):
     """What a worker block must not carry: an `@` import (line start, or an inline `@x.md` token outside code spans; the inline
     form is from Claude Code's memory docs, not measured, so the check errs to a false red) or a duty to read COORDINATOR
