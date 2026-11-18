@@ -2314,9 +2314,9 @@ def main(argv=None):
                                                     "[{step, expected, seen, evidence, quote[, surprise]}]; absent = []")
     parser.add_argument("--about", action="append", metavar="SIDE",
                         help="build: a side of the story this walk speaks about (repeat per side); absent = the record has no `about`")
-    from project_knowledge import INSTANCE_NEEDS      # lazy: only the CLI needs the choices (U7 E7); hidden until the role text names them
-    parser.add_argument("--needs", choices=INSTANCE_NEEDS, help=argparse.SUPPRESS)
-    parser.add_argument("--need-why", help=argparse.SUPPRESS)
+    from project_knowledge import INSTANCE_NEEDS      # lazy: only the CLI needs the choices (U7 E7); the role text names them
+    parser.add_argument("--needs", choices=INSTANCE_NEEDS, help="the need of a check that wants another instance of the stand or device")
+    parser.add_argument("--need-why", help="what you would start and why")
     parser.add_argument("--not-walked", help="unprepared: why nothing of the case was walked with the recorder (required when no "
                                              "attempt holds a step, refused when one does)")
     args = hooklib.exact_options(parser).parse_args(argv)

@@ -1,0 +1,1 @@
+- The runner is told when it may start another instance of the stand or device and how to record a check that needs one (`manual_evidence.py unprepared --needs another_instance --need-why`, or `"needs": "another_instance"` in a walk verdict); the person's answer shows as one line in its brief and the walk card, and the S7 skill page asks the question once.
