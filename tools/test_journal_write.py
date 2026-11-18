@@ -311,7 +311,7 @@ def test_without_a_registry_row_issuing_is_refused_with_the_claim_door(repo):
     (repo / "logs/journal-letters.json").write_text('{"letters": [\n]}\n')
     refused(repo, *DELEG, "--worker", "agent:w", text="clone --claim")
     refused(repo, "next", text="clone --claim")
-    res = jw.write_event(repo, {"event": "delegated", "agent": "builder", "model": "m", "worker_ref": "w", "notes": "n"})
+    res = jw.write_event(repo, {"event": "delegated", "agent": "builder", "model": "m", "worker_ref": "w", "feature": "F19", "notes": "n"})
     assert not res.written and "clone --claim" in res.messages[0]
 
 
@@ -656,3 +656,21 @@ def test_every_spawn_hides_the_console_window_and_is_never_detached(site, repo, 
         monkeypatch.setattr(jw, "_find_bash", lambda root: "bash")
         jw.run_witness("echo hi", repo, allow_red=None)
     assert seen and all(f & 0x08000000 and not f & 0x8 for f in seen)
+
+
+# ------------------------------------------------------------------ FG7-70: a CLI event needing a feature is refused without one
+@pytest.mark.parametrize("args, text", [
+    (["delegated", "--agent", "builder", "--model", "sonnet", "--worker", "agent:w1", "--notes", "n"], "--feature Fnn"),
+    (["delegated", "--agent", "builder", "--model", "sonnet", "--worker", "agent:w1", "--feature", "F99", "--notes", "n"],
+     "not in plans/features.json"),
+], ids=["no-feature", "unknown-feature"])
+def test_fg7_70_cli_feature_event_without_a_registered_feature_is_refused(repo, args, text):
+    err = refused(repo, *args, text=text)
+    assert "delegated" in err and "nothing written" in err
+
+
+def test_fg7_70_outside_the_feature_events_and_via_hook_are_unchanged(repo):
+    assert cli(repo, "skip", "--agent", "builder", "--notes", "n")[0] == 0        # dispatch_skipped: no feature needed
+    res = jw.write_event(repo, {"event": "delegated", "agent": "builder", "model": "sonnet", "category": "implementation",
+                                "worker_ref": "agent:w1", "notes": "n"}, via="hook")
+    assert res.written and any("WARN" in m and "feature" in m for m in res.messages)

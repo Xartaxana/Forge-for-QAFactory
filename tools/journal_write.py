@@ -462,10 +462,28 @@ DOOR_TEXT = ("nothing was written; fix what is named above and run the call agai
              "declares a known order defect)")
 
 
+def _check_feature(root: Path, obj: dict, via: str) -> None:
+    """FG7-70: a CLI-written event the Forge metrics attribute (jv.FEATURE_WARN_EVENTS, the one set forge_metrics also reads)
+    without a registered `feature` is REFUSED -- a hook-written line keeps the WARN (jv.feature_warnings). Why: one such line
+    (t-1289) made the pre-merge-commit check refuse every merge of main. Registry unreadable -> only the missing field is judged."""
+    event = obj.get("event")
+    if via != "cli" or not isinstance(event, str) or event not in jv.FEATURE_WARN_EVENTS:
+        return
+    fv = obj.get("feature")
+    known = jv.load_feature_ids(root / jv.FEATURE_REGISTRY_REL)
+    if known is None:
+        known = jv.load_feature_ids()
+    if fv in (None, "") or (known is not None and fv not in known):
+        why = "has no `feature`" if fv in (None, "") else f"names feature {fv!r} that is not in {jv.FEATURE_REGISTRY_REL}"
+        raise Refused(2, f"refused: event {event} for task {obj.get('task_id') or '(new)'} {why}; "
+                         f"nothing written; fix: add --feature Fnn (an id from {jv.FEATURE_REGISTRY_REL})")
+
+
 def _write_event(root: Path, obj: dict, via: str, lock_timeout: float) -> Result:
     obj = _prepare(obj, via)
     rel = _journal_path(root)
     event = obj.get("event")
+    _check_feature(root, obj, via)
     opens = _opens_task(event, obj.get("agent"))
     issuing = opens and event != "decomposable" and not obj.get("task_id")
     new_task = opens and bool(obj.get("task_id"))      # other events point at a task: the validator judges them

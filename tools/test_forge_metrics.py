@@ -1496,3 +1496,22 @@ def test_node_cost_critic_token_pattern_equals_the_hooks():
     """F6: the pattern is rebuilt from journal_keys.ID_PATTERN; this row pins it equal to journal_echo's."""
     import journal_echo
     assert fm._CRITIC_TOKEN_RE.pattern == journal_echo.CRITIC_TOKEN_RE.pattern
+
+
+# ---------------------------------------------------------------------------------------------
+# FG7-70 -- GRANDFATHERED_EVENTS: an exact (ts, event, task_id) triple is no offender, a note names it
+# ---------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("listed, ts, tid, offenders, noted", [
+    ([("2026-11-18T02:19:45", "accepted", "t-1289")], "2026-11-18T02:19:45", "t-1289", 0, True),   # exact triple: skipped, noted
+    ([("2026-11-18T02:19:45", "accepted", "t-1289")], "2026-11-18T02:20:00", "t-1289", 1, False),  # same task, other ts: offender
+    ([], "2026-11-18T02:19:45", "t-1289", 1, False),                                               # empty list: check unchanged
+], ids=["exact-triple", "same-task-other-ts", "empty-list"])
+@needs_git
+def test_fg7_70_grandfathered_event_triples(tmp_path, monkeypatch, listed, ts, tid, offenders, noted):
+    root, base = _frepo(tmp_path)
+    put(root, "logs/journal/dev1.jsonl", ev_line(ts, tid, event="accepted") + "\n")   # no `feature`
+    monkeypatch.setattr(fm, "GRANDFATHERED_EVENTS", tuple(listed))
+    found, counts, _sha, warnings = fm.run_check(root, base)
+    assert len([o for o in found if o[0] == "c"]) == offenders
+    assert any("grandfathered" in w and tid in w for w in warnings) is noted
+    assert counts["events_without_feature"] == offenders

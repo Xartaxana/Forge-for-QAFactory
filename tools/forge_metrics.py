@@ -75,6 +75,12 @@ PROCESS_DOC_PREFIXES = ("docs/", "plans/")   # "F19 docs" of the process-tax met
 
 # The events that must carry a `feature` field and the day it starts to be asked
 # (single source: tools/journal_validator.py).
+# FG7-70: journal lines (append-only, never edited) that predate the CLI refusal of a feature-less event; run_check skips
+# an exact (ts, event, task_id) match and prints a note. A same-task_id line at another ts is still an offender.
+GRANDFATHERED_EVENTS = (
+    # Lead accept written without --feature before FG7-70; node forge/7/FG7-66 (2026-11-18)
+    ("2026-11-18T02:19:45", "accepted", "t-1289"),
+)
 FEATURE_EVENTS = set(getattr(_jv, "FEATURE_WARN_EVENTS", {"delegated", "accepted", "defect_found"}))
 FEATURE_FROM = getattr(_jv, "FEATURE_WARN_FROM", "2026-10-02")
 TASK_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found", "returned"}
@@ -1589,6 +1595,7 @@ def run_check(root=ROOT, base=None, features=None):
     # keep their old name (`line N ...`), a developer file's carry the path (`<rel> line N ...`).
     new_events = 0
     bad_events = 0
+    grand_notes = []
     for rel in _journal_paths(root, sha):
         base_lines = {l.rstrip("\r") for l in _show(root, sha, rel).split("\n")}
         try:
@@ -1611,6 +1618,10 @@ def run_check(root=ROOT, base=None, features=None):
                 continue
             if not isinstance(obj.get("ts"), str) or obj["ts"][:10] < FEATURE_FROM:
                 continue
+            if (obj["ts"], obj.get("event"), obj.get("task_id")) in GRANDFATHERED_EVENTS:
+                grand_notes.append(f"note: grandfathered journal event {obj['ts']} {obj.get('event')} {obj.get('task_id')} "
+                                   f"({prefix}line {lineno}) skipped (GRANDFATHERED_EVENTS)")
+                continue
             new_events += 1
             fv = obj.get("feature")
             name = f"{prefix}line {lineno} {obj.get('event')} {obj.get('task_id') or ''}".strip()
@@ -1627,7 +1638,7 @@ def run_check(root=ROOT, base=None, features=None):
         unc = [r["path"] for r in new_findings if r["feature"] is None]
         counts.update({"new_findings": len(new_findings), "findings_unclassified": len(unc),
                        "unclassified_finding_files": unc})
-    return offenders, counts, sha, row_warnings + fwarns + d_warnings
+    return offenders, counts, sha, row_warnings + fwarns + d_warnings + grand_notes
 
 
 _DOORS = {"a": DOOR_ROW, "b": DOOR_FILE, "c": DOOR_EVENT, "d": DOOR_FILE}
