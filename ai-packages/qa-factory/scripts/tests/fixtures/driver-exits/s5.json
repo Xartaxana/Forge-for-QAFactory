@@ -223,6 +223,10 @@
    "reach": "live_only",
    "why_unreached": "estimate, not verified: an acceptance/precheck joint check refuses a handoff at S5 after the critic or analyst stopped; the walker's post-answer turn is one driver boundary and ends before that role's handoff is refused, and no stub control writes the refused field [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
+  "manifest_put:claim_then_pairs": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
   "manifest_put:obligation_hash": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
@@ -439,7 +443,8 @@
    "live_only | joints/acceptance:probe_mutation_kind | N4:s5 t-1193, census row",
    "live_only | joints/manifest_put:probe_owed | N4:s5 t-1193, census row",
    "unwalked | joints/s5_precheck:sides.provisional | T1r-cards-a, 2026-11-17",
-   "unwalked | joints/s5_precheck:sides.pending | T1r-cards-a, 2026-11-17"
+   "unwalked | joints/s5_precheck:sides.pending | T1r-cards-a, 2026-11-17",
+   "unwalked | joints/manifest_put:claim_then_pairs | RD1-34, 2026-11-18"
   ]
  }
 }
