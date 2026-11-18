@@ -37,8 +37,15 @@ def payload(prompt, type_="builder"):
     return {"tool_name": "Task", "tool_input": {"subagent_type": type_, "prompt": prompt}}
 
 
-def run(prompt, type_="builder"):
+def run_raw(prompt, type_="builder"):
     return dm.check(payload(prompt, type_))
+
+
+def run(prompt, type_="builder"):
+    """The pre-S2 reading: the READERS NOTE is the one thing added since (it never changes a decision), so the older rows
+    compare notes without it; the readers-note rows below use run_raw."""
+    code, msg, note = run_raw(prompt, type_)
+    return code, msg, "\n".join(n for n in note.split("\n") if not n.startswith("READERS NOTE:"))
 
 
 PARTS = {
@@ -171,6 +178,43 @@ _EXPECTED_INCOMPLETE = (
 
 def test_incomplete_text_is_verbatim():
     assert run("just some words\n") == (2, _EXPECTED_INCOMPLETE, "")
+
+
+_NOTE = dm.READERS_NOTE
+_RL = "readers: 20 outside owns, 1 lines below -- base origin/main abc12345 (literal mention)"
+
+
+@pytest.mark.parametrize("name,prompt,type_,has_note", [
+    ("absent", build(), "builder", True),
+    ("block", build() + _RL + "\n", "builder", False),
+    ("block-first-line", _RL + "\n" + build(), "builder", False),
+    ("unknown", build() + "readers: unknown -- git is missing\n", "builder", False),
+    ("unknown-empty-reason", build() + "readers: unknown --\n", "builder", False),
+    ("zero", build() + "readers: 0 outside owns, 0 lines below -- base x\n", "builder", False),
+    ("crlf", (build() + _RL + "\n").replace("\n", "\r\n"), "builder", False),
+    ("retired-ok", build() + "readers: ok -- checked\n", "builder", True),
+    ("leading-spaces", build() + "  " + _RL + "\n", "builder", True),
+    ("fenced", build() + fence(_RL), "builder", True),
+    ("quoted", build() + quote(_RL), "builder", True),
+    ("writing-general-purpose", build(), "general-purpose", True),
+    ("critic-no-owns", "just a question about the plan\n", "critic", False),
+    ("2000-lines", build() + "filler\n" * 2000 + _RL + "\n", "builder", False),
+    ("2000-lines-absent", build() + "filler\n" * 2000, "builder", True),
+])
+def test_readers_note_rows(name, prompt, type_, has_note):
+    code, msg, note = run_raw(FEATURE + prompt, type_)
+    assert (code, msg) == (0, "")
+    assert (_NOTE in note) == has_note
+
+
+def test_readers_note_text_is_verbatim_and_degraded_cut_gets_none():
+    assert _NOTE == (
+        "READERS NOTE: this writing dispatch carries no readers: line -- run python -B tools/owns_readers.py "
+        "--paths <owns> (dispatch_new.py prints it) and keep its block, or write 'readers: unknown -- <reason>' "
+        "when it cannot run."
+    )
+    note = run_raw(FEATURE + build(given="given: " + "`a b` " * 201))[2]
+    assert "READERS NOTE" not in note and "MANIFEST-UNCHECKED" in note
 
 
 def test_unchecked_note_text_is_verbatim():
@@ -726,7 +770,7 @@ def test_cyrillic_dano_counts_as_given_escaped_and_raw():
     raw_bytes = json.dumps(raw_payload, ensure_ascii=False).encode("utf-8")
     from_bytes = json.loads(raw_bytes.decode("utf-8"))
     for p in (raw_payload, escaped, from_bytes):
-        assert dm.check(p) == (0, "", "")
+        assert dm.check(p)[:2] == (0, "")
     assert run(build(given="дано: docs/x.md")) == (0, "", "")
 
 
