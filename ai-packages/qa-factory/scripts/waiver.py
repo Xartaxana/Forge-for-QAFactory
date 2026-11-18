@@ -1198,6 +1198,17 @@ def class_fields(classed) -> dict:
     return dict(classed) if isinstance(classed, dict) else {}
 
 
+def _stamp(entries, match, classed) -> None:
+    """The one stamp loop (FG7-3): every dict entry `match` accepts carries the class keys of the word; a word not classified
+    (None / empty) stamps nothing, so the entry bytes stay as they were. Each caller keeps its own `match`."""
+    fields = class_fields(classed)
+    if not fields:
+        return
+    for entry in entries or []:
+        if isinstance(entry, dict) and match(entry):
+            entry.update(fields)
+
+
 def run_revoke(task: str, stage: str, match: str, decision: str, by: str, classed=None) -> int:
     """Take a passed block back (FR-40). The record stays; the pass stops. `classed` (RN1-9): the class of the word, stamped on
     the entries this call revokes."""
@@ -1217,9 +1228,7 @@ def run_revoke(task: str, stage: str, match: str, decision: str, by: str, classe
         return EXIT_BAD_ARGS
     at = now_iso()
     revoke_stage_override(pipeline, stage, match, decision, at, by)
-    for entry in pipeline.get("stage_overrides") or []:
-        if isinstance(entry, dict) and entry.get("revoked_at") == at and entry.get("stage") == stage:
-            entry.update(class_fields(classed))
+    _stamp(pipeline.get("stage_overrides"), lambda e: e.get("revoked_at") == at and e.get("stage") == stage, classed)
     path.write_text(json.dumps(pipeline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     try:
         import log_append
@@ -1577,10 +1586,7 @@ def run_remark(task: str, stage: str, text: str, by: str, classed=None) -> int:
               file=sys.stderr)
         return EXIT_NO_PIPELINE
     apply_remark(pipeline, stage, text, now_iso(), by)
-    if classed:
-        for entry in pipeline["remarks"]:
-            if isinstance(entry, dict) and entry.get("stage") == stage and entry.get("text") == text:
-                entry.update(class_fields(classed))
+    _stamp(pipeline["remarks"], lambda e: e.get("stage") == stage and e.get("text") == text, classed)
     path.write_text(json.dumps(pipeline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     try:
         import log_append
@@ -1614,10 +1620,7 @@ def run(task: str, gate: str, requirement: str, decision: str, by: str, classed=
               "asked, and this would be the factory excusing itself.", file=sys.stderr)
         return EXIT_NO_GATE
     apply_waiver(pipeline, gate, requirement, decision, now_iso(), by)
-    if classed:
-        for entry in pipeline["gate_waivers"]:
-            if isinstance(entry, dict) and entry.get("gate") == gate and entry.get("requirement") == requirement:
-                entry.update(class_fields(classed))
+    _stamp(pipeline["gate_waivers"], lambda e: e.get("gate") == gate and e.get("requirement") == requirement, classed)
     path.write_text(json.dumps(pipeline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"gate_waivers[]: {requirement} accepted at gate {gate} — {decision}")
     return 0

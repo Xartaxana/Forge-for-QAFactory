@@ -599,7 +599,9 @@ def rh1_9_the_file_of_an_instance_and_its_bytes():
         shutil.rmtree(root, ignore_errors=True)
 
 
-HANDED_ROW = {"case": "TC-1", "reason": "handed_to_person", "detail": "web: npx playwright test t.spec.ts"}
+from story_step_common import handed_row  # noqa: E402
+
+HANDED_ROW = handed_row()
 
 
 def put_handed_world(row=True, root=None):

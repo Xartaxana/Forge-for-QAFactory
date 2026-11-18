@@ -40,6 +40,12 @@ class FakeController:
         return dict(self.action)
 
 
+def handed_row(case: str = "TC-1", **fields) -> dict:
+    """The `handed_to_person` row of an automation manifest, one literal for the modules that spell it (FG7-3); a field a
+    test needs different (`detail`) is passed by name. A fresh dict each call."""
+    return dict({"case": case, "reason": "handed_to_person", "detail": "web: npx playwright test t.spec.ts"}, **fields)
+
+
 def set_pipeline_block(root: Path, value) -> None:
     path = root / "qa-factory/config.json"
     cfg = json.loads(path.read_text(encoding="utf-8"))
@@ -119,8 +125,7 @@ def s5_window_story(root: Path, ticket: str, handed: bool):
         # EP1-4 (t-626 FR-4/AR-28; t-740 diagnosis): the claim counts only as far as the manifest confirms it, and every case
         # of i-1 (TC-1) must be handed (`handed_instances` rule 4) - so TC-1 gets its row beside the TC-2 row the doors use
         manifest = manifest_of(art)
-        manifest["unresolved"].append({"case": "TC-1", "reason": "handed_to_person",
-                                       "detail": "web: npx playwright test tests/test_one.py"})
+        manifest["unresolved"].append(handed_row(detail="web: npx playwright test tests/test_one.py"))
         (art / "work/automation-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     return art, window
 
