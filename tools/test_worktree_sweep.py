@@ -255,6 +255,87 @@ def test_merged_leftover_equal_to_main_ignoring_cr_goes_without_a_salvage(repo):
     assert not wt.exists() and "e" not in repo.branches() and not _salvage_refs(repo) and rep.exit_code == 0
 
 
+def test_tracked_edit_under_a_junk_directory_is_work_and_is_saved_not_deleted_as_a_trace(repo):
+    # E14 (restored after FG7-66 removed the old KEEP row): a tracked file under a junk dir is a real change, class salvage
+    wt = repo.merged_wt("t")
+    (wt / "logs" / ".search-ledger" / "keep.txt").write_text("edited\n")
+    assert "classes: merged-leftover-salvage = 1" in repo.sweep(show_classes=True).lines
+    repo.sweep(apply=True)
+    (ref,) = _salvage_refs(repo)
+    assert not wt.exists() and git(repo.main, "show", ref + ":logs/.search-ledger/keep.txt") == "edited"
+
+
+@pytest.mark.parametrize("kind", ["merged", "unmerged", "unknown"])
+def test_a_copy_with_files_that_is_active_or_unreadable_is_kept_whole(repo, monkeypatch, kind):
+    # B1: class 4 (active < 24h kept) holds for every removal class that has a leftover; unknown activity is kept too
+    wt = repo.merged_wt("act") if kind != "unmerged" else repo.add_wt("act")
+    if kind == "unmerged":
+        repo.commit(wt, "act.txt", "u")
+    (wt / "notes.txt").write_text("work")
+    now = time.time() + (3.5 * 86400 if kind == "unmerged" else T // 2)
+    if kind == "unknown":
+        monkeypatch.setattr(ws, "read_activity", lambda *a: (None, "no timestamp to read"))
+    else:
+        freeze_at(repo, wt, int(now - 3600))                                      # active one hour before "now"
+    rep = repo.sweep(now=now, apply=True, show_classes=True)
+    assert "classes: kept-active = 1" in rep.lines and "a copy with files is not removed" in line(rep, "KEEP")
+    assert (wt / "notes.txt").exists() and not _salvage_refs(repo) and not has(rep, "REMOVED")
+
+
+@pytest.mark.parametrize("how", ["untracked", "staged"])
+def test_a_nested_repository_in_a_leftover_is_kept_by_two_runs_and_never_saved(repo, how):
+    wt = repo.merged_wt("nr")
+    sub = wt / "sub"
+    sub.mkdir()
+    git(sub, "init", "-q")
+    repo.commit(sub, "inner.txt", "inner work")
+    if how == "staged":
+        git(wt, "add", "sub")                                                  # a gitlink in the index
+    for _ in range(2):
+        rep = repo.sweep(apply=True, show_classes=True)
+        assert "classes: nested = 1" in rep.lines and "nested repository: sub" in line(rep, "KEEP")
+        assert (sub / ".git").exists() and (sub / "inner.txt").exists() and wt.exists() and not _salvage_refs(repo)
+
+
+def _late_runner(wt, calls):
+    """Writes a file into the copy right before the SECOND status read of it (the check before the forced remove)."""
+    def runner(root, *args, timeout=120, stderr=False):
+        if "status" in args and pathlib.Path(root) == pathlib.Path(wt):
+            calls.append(1)
+            if len(calls) == 2:
+                (pathlib.Path(wt) / "late.txt").write_text("written by an agent after the classification")
+        return gitcmd.git(root, *args, timeout=timeout, stderr=stderr)
+    return runner
+
+
+@pytest.mark.parametrize("cls", ["equal", "salvage"])
+def test_a_file_that_appears_before_the_last_status_read_keeps_a_copy_with_a_leftover(repo, cls):
+    # B3 + B4: the dirty variant of the appears-between row
+    wt = repo.merged_wt("late2")
+    if cls == "equal":
+        repo.advance_main("doc.txt", "a\nb\n")                                  # an untracked CRLF copy of a file main has (autocrlf-proof)
+        (wt / "doc.txt").write_bytes(b"a\r\nb\r\n")
+    else:
+        (wt / "notes.txt").write_text("work")
+    calls = []
+    rep = repo.sweep(apply=True, runner=_late_runner(wt, calls))
+    assert len(calls) >= 2, "the copy was read by status %d times: the late write never ran: %s" % (len(calls), rep.lines)
+    assert "changed during sweep (" in line(rep, "KEEP") and (wt / "late.txt").exists() and "late2" in repo.branches()
+    porcelain = git(wt, "status", "--porcelain")
+    assert "?? late.txt" in porcelain and ("?? notes.txt" in porcelain or cls == "equal")   # B4: the copy's own index is untouched
+    assert "A " not in porcelain
+
+
+def test_a_kept_copy_with_a_leftover_gets_one_salvage_ref_over_two_runs(repo, monkeypatch):
+    # F-r2: the salvage commit is deterministic (fixed dates and identity), so the same leftover is the same sha
+    wt = repo.merged_wt("twice")
+    (wt / "notes.txt").write_text("work")
+    monkeypatch.setattr(ws, "_leftover_changed", lambda ctx, wt, ev: "kept on purpose")
+    for _ in range(2):
+        assert "changed during sweep (kept on purpose)" in line(repo.sweep(apply=True), "KEEP")
+    assert wt.exists() and len(_salvage_refs(repo)) == 1
+
+
 @pytest.mark.parametrize("name,body", [("bin.dat", b"\0\1\2"), ("same.bin", None), ("absent.txt", b"new\n"), ("base.txt", b"1\n2\n4\n"),
                                        ("lone.txt", b"1\r2\r3\r")])
 def test_leftover_binary_absent_or_different_is_saved_never_compared_as_text(repo, name, body):
@@ -1486,6 +1567,7 @@ def test_w11_the_full_run_removes_every_merged_copy_without_a_limit_and_keeps_th
     young = repo.add_wt("young")                                                             # no commits of its own, made just now
     changed = repo.merged_wt("changed")
     (changed / "work.txt").write_text("real work")
+    freeze_at(repo, changed, int(time.time() - 2 * T))                                           # idle: a copy with files that is active is kept (B1)
     rep = run_body(repo)
     removed = [l for l in rep.lines if l.startswith("REMOVED ")]
     assert len(removed) == 8 and not has(rep, "deferred") and not older.exists()
