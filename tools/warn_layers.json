@@ -315,6 +315,20 @@
       "listed_in_density_check": true,
       "reachable": "unmeasured",
       "reason": "same class as MANIFEST_SKIP above (B-245, t-614) -- the notes and the printout of the path check: population is a builder / writing dispatch whose given and owns paths were read; not expressible as a cheap closed predicate yet, denominator design is out of this node's scope"
+    },
+    {
+      "id": "COORDINATOR_READ",
+      "name": "COORDINATOR-READ",
+      "carrier": ["tools/coordinator_rules.py", "tools/dispatch_gate.py", "tools/hygiene_gate.py"],
+      "symbol": null,
+      "literal": "COORDINATOR-READ WARN:",
+      "aliases": [],
+      "hook_event": "PreToolUse",
+      "matcher": "Task|Agent|Bash|PowerShell",
+      "denominator": "Z1",
+      "listed_in_density_check": false,
+      "reachable": "unmeasured",
+      "reason": "FG7-89: the line is built in coordinator_rules.read_warn (the literal lives there; both gates only call it) -- population is a main-thread dispatch, verdict or commit after a start/compaction with a rule file unread; the promotion to a refusal reads this layer's counts (F6 a)"
     }
   ]
 }

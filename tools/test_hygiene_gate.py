@@ -797,3 +797,45 @@ def test_run_allowed_keeps_the_refusal_classes_of_the_live_gate(world, monkeypat
         assert _kind(out) == "deny"
         assert hg.run_allowed(cmd, world["repo"])[0] is False
     assert hg.RUN_COMMAND_MAX == 65_536                           # Lead decision 1 of t-850: the cap stays 65536
+
+
+# FG7-89: the COORDINATOR-READ WARN at a verdict and a commit road. ONE table of decide() on payloads that carry a
+# transcript with a fresh compaction and no Read after it (every rule file unread); the gate's verdict never changes.
+COORD_ROWS = [
+    ("git-commit", "git commit -m x", None, "commit"),
+    ("git-C-commit", 'git -C "a b" commit -m x', None, "commit"),
+    ("git-c-option-merge", "git -c user.name=t merge topic", None, "commit"),
+    ("wave-merge", "python -B tools/wave.py merge wt-1", None, "commit"),
+    ("accept", "python -B tools/journal_write.py accept t-1", None, "verdict"),
+    ("reject", "python tools/journal_write.py reject t-1", None, "verdict"),
+    ("git-status", "git status", None, None),
+    ("git-log-names-commit", "git log --grep commit", None, None),
+    ("wave-status", "python -B tools/wave.py status", None, None),
+    ("quoted-echo", 'echo "git commit"', None, None),
+    ("heredoc-body", "cat <<'EOF'\ngit commit\nEOF", None, None),
+    ("worker-commit", "git commit -m x", "agent-1", None),
+    ("worker-accept", "python -B tools/journal_write.py accept t-1", "agent-1", "deny-worker"),
+    ("cd-then-commit", "cd /elsewhere && git commit -m x", None, "deny-commit"),
+]
+
+
+@pytest.mark.parametrize("rid,command,agent,expect", COORD_ROWS, ids=[r[0] for r in COORD_ROWS])
+def test_coordinator_read_warn_triggers(tmp_path, rid, command, agent, expect):
+    (tmp_path / "COORDINATOR.md").write_text("a\n", encoding="utf-8")
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(json.dumps({"type": "system", "subtype": "compact_boundary"}) + "\n", encoding="utf-8")
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(tmp_path),
+               "transcript_path": str(transcript)}
+    if agent:
+        payload["agent_id"] = agent
+    code, out = hg.decide(payload)
+    hso = (out or {}).get("hookSpecificOutput", {})
+    text = hso.get("additionalContext", "")
+    warned = expect in ("commit", "verdict", "deny-commit")
+    assert code == 0 and ("COORDINATOR-READ WARN:" in text) is warned, text
+    if expect in ("commit", "verdict"):
+        assert "(before this %s)" % expect in text and "permissionDecision" not in hso
+    if expect and expect.startswith("deny"):     # E13: the refusal is unchanged, the WARN is additive
+        assert hso["permissionDecision"] == "deny" and "COORDINATOR-READ" not in hso["permissionDecisionReason"]
+    payload.pop("transcript_path")               # K6: a probe payload stays silent
+    assert "COORDINATOR-READ" not in json.dumps(hg.decide(payload)[1])
