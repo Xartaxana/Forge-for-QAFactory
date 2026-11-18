@@ -7975,13 +7975,14 @@ def judge_record(task_root, root, instance_id: str, dispatch: str, verdict: str,
 def _judge_cli(args) -> None:
     """`--judge <instance>`: nothing else runs. One JSON refusal and exit 2, or the record printed and exit 0 for a judged verdict
     (`intended_failure`, `wrong_location`), 1 for `cannot_judge` (the record stays `incomplete`, as for any probe)."""
+    door = JUDGE_PRODUCT_DOOR if args.product else JUDGE_DOOR     # t-1454 R1: a --product refusal prints the --product door
     try:
         if args.s6_close:
             raise _judge_refusal("--s6-close has no judgment: no critic dispatch is open at the close of S6, so a probe that "
-                                 "owes one stays not proved", "Door: " + JUDGE_DOOR)
+                                 "owes one stays not proved", "Door: " + door)
         missing = [name for name in ("task", "dispatch") if not getattr(args, name)]
         if missing:
-            raise _judge_refusal("--" + " and --".join(missing) + " are required with --judge", "Door: " + JUDGE_DOOR)
+            raise _judge_refusal("--" + " and --".join(missing) + " are required with --judge", "Door: " + door)
         try:
             root = story_root(args.task, "probe_by_code.py --task")
         except ValueError as exc:
@@ -8406,7 +8407,7 @@ def main() -> None:
                                     ("--product", args.product or None)) if value is not None]
     if stray:
         print(json.dumps({"status": "refused", "error": f"probe_by_code: {', '.join(stray)} belong to --judge: add --judge "
-                          f"<instance>, or drop them. Door: {JUDGE_DOOR}. Nothing was written."}, ensure_ascii=False))
+                          f"<instance>, or drop them. Door: {JUDGE_PRODUCT_DOOR if '--product' in stray else JUDGE_DOOR}. Nothing was written."}, ensure_ascii=False))
         sys.exit(2)
     if args.s6_close and args.dispatch:
         parser.error("use one: --dispatch <id> (an open dispatch) or --s6-close (the code close of S6)")
