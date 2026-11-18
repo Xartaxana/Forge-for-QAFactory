@@ -954,9 +954,8 @@ def _receipt_block(receipt: dict, ref: dict, item: dict) -> dict:
 
 
 def _gap_why(text) -> str:
-    """One line of at most `C.PROBE_GAP_WHY_LIMIT` characters: whitespace folded, the cut marked by `…` (which counts)."""
-    one = " ".join(str(text or "").split())
-    return one if len(one) <= C.PROBE_GAP_WHY_LIMIT else one[:C.PROBE_GAP_WHY_LIMIT - 1] + "…"
+    """One line of at most `C.PROBE_GAP_WHY_LIMIT` characters (`contract.one_line`)."""
+    return C.one_line(text, C.PROBE_GAP_WHY_LIMIT)
 
 
 def probe_gap_block(task_root: Path, item: dict, keys: list, words: dict, class_word=None, proved_words=None):

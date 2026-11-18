@@ -31,6 +31,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
+import contract as C
 import grammar as G
 from hooklib import sorted_paths
 
@@ -202,7 +203,7 @@ _CONTROL_BYTES = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 def one_line(words: str) -> str:
     """A person's words on ONE line for the registry cell: every run of whitespace, and every control character
     (FR-29), becomes a single space. The file the words came from stays verbatim; only the row is collapsed."""
-    return " ".join(_CONTROL_BYTES.sub(" ", words).split())
+    return C.one_line(_CONTROL_BYTES.sub(" ", words))
 
 
 def words_digest(words: str) -> str:

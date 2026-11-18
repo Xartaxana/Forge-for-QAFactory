@@ -1,0 +1,1 @@
+- one fold-and-cut one-liner (`contract.one_line(text, limit=None)`): five private copies in `window_record`, `person_owned`, `bug_records`, `blast_radius` and `project_decisions` now call it; the word-boundary cuts in `gate_brief` and `traceability` are renamed `_one_line_at_word`; no output changes

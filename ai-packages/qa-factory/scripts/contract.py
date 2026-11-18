@@ -132,6 +132,19 @@ def prefix_value(text, prefix: str) -> str | None:
     return rest if rest and not rest.startswith(":") and not any(ch.isspace() for ch in rest) else None
 
 
+def one_line(text, limit: int | None = None) -> str:
+    """The ONE fold-and-cut one-liner (FG7-1; nine copies had grown): every whitespace run becomes one space, the edges
+    go; falsy input (None, "") is an empty string. `limit` None folds only; longer than `limit` is cut to `limit - 1`
+    characters plus `…` (which counts). Cut at a word instead: `gate_brief._one_line_at_word`; break-only fold:
+    `detector_verdict.one_line`."""
+    folded = " ".join(str(text or "").split())
+    if limit is None or len(folded) <= limit:
+        return folded
+    if limit < 1:
+        raise ValueError("limit must be at least 1")
+    return folded[:limit - 1] + "…"
+
+
 def names_whole(needle, text) -> bool:
     """True when `text` holds `needle` as a WHOLE identifier, in any case - the ONE predicate by which a person's word
     (a `stage_overrides[]` `match`, a dispatch id, a case key) is read against a line (GW1-1, AR-13). A substring is
