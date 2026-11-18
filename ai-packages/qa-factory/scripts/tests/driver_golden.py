@@ -98,15 +98,21 @@ def package_paths(root: Path, skip: Path | None = None) -> set:
     return out
 
 
-def layer_map(root: Path) -> dict:
-    path = root / "scripts" / "tests" / "fixtures" / "driver-layers.json"
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-
-
 MAP_REL = "scripts/tests/fixtures/driver-layers.json"
+
+
+def read_map(root: Path) -> tuple:
+    """(the parsed root map, "") or ({}, the reason it cannot be had): the ONE reader of driver-layers.json (AR-13)."""
+    path = root / MAP_REL
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return {}, f"{exc.__class__.__name__}: {exc}"
+    return (data, "") if isinstance(data, dict) else ({}, "the map is not a JSON object")
+
+
+def layer_map(root: Path) -> dict:
+    return read_map(root)[0]                # lenient for names / source_readers; `layers` goes through driver_files
 
 
 def driver_files(root: Path) -> list:
@@ -114,11 +120,11 @@ def driver_files(root: Path) -> list:
     modules, the provenance allowed set, the fingerprint and the coverage report. A missing or broken map, empty `layers`, or a
     stem with no file is refused before any run (FG7-78 F4): a one-file set never passes for the whole driver."""
     path = root / MAP_REL
-    try:
-        layers = json.loads(path.read_text(encoding="utf-8")).get("layers", [])
-    except (OSError, ValueError, AttributeError) as exc:
-        raise Refusal(f"the layer map {path} cannot be read ({exc.__class__.__name__}): expected the package's "
+    data, reason = read_map(root)
+    if reason:
+        raise Refusal(f"the layer map {path} cannot be read ({reason}): expected the package's "
                       f"driver-layers.json, the one list of the driver files.")
+    layers = data.get("layers", [])
     out = []
     for layer in layers:
         for stem in layer:
@@ -243,9 +249,17 @@ def _plain_names(node):
     return None
 
 
+def _touched(tree, name: str) -> bool:
+    """`name` is the .value of an Attribute or Subscript anywhere in the file (ALL.append, ALL[:] = ...): its content at run
+    time may differ from its literal, so the discovered set would differ from what runs."""
+    return any(isinstance(n, (ast.Attribute, ast.Subscript)) and isinstance(n.value, ast.Name) and n.value.id == name
+               for n in ast.walk(tree))
+
+
 def _module_list(tree, name: str):
-    """Shape (ii): `name` is bound ONCE in the whole file, at module level, to a list literal of plain names."""
-    if len(_bindings(tree, name)) != 1:
+    """Shape (ii): `name` is bound ONCE in the whole file, at module level, to a list literal of plain names, and never
+    touched through an attribute or a subscript."""
+    if len(_bindings(tree, name)) != 1 or _touched(tree, name):
         return None
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
@@ -254,28 +268,49 @@ def _module_list(tree, name: str):
     return None
 
 
+def _calling_params(tree, call) -> set:
+    """Every argument name of the functions that hold `call` (a parameter shadows a module name inside the function)."""
+    out = set()
+    for func in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+        if any(n is call for n in ast.walk(func)):
+            a = func.args
+            out.update(x.arg for x in a.posonlyargs + a.args + a.kwonlyargs)
+            out.update(x.arg for x in (a.vararg, a.kwarg) if x)
+    return out
+
+
 def _scenario_arg(arg, tree, call):
     """The scenario names one run_scenarios argument stands for, or None when its shape is not accepted: (i) a list literal of
     plain names, (ii) a Name bound once at module level to one, (iii) a Name bound once inside the calling function to a list
-    comprehension over a (ii) Name. For (ii) and (iii) the set is the WHOLE module list: a golden records every scenario."""
+    comprehension `[x for x in <ii name> ...]` (element = the target). For (ii) and (iii) the set is the WHOLE module list: a
+    golden records every scenario. A name that is a parameter of the calling function is never resolved."""
     direct = _plain_names(arg)
     if direct is not None:
         return direct
     if not isinstance(arg, ast.Name):
         return None
+    params = _calling_params(tree, call)
+    if arg.id in params:
+        return None
     whole = _module_list(tree, arg.id)
     if whole is not None:
         return whole
+    if len(_bindings(tree, arg.id)) != 1:
+        return None
     for func in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
         if not any(n is call for n in ast.walk(func)):
             continue
-        if len(_bindings(tree, arg.id)) != 1:
-            return None
         for node in ast.walk(func):
             if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
                     and node.targets[0].id == arg.id and isinstance(node.value, ast.ListComp) \
                     and len(node.value.generators) == 1 and isinstance(node.value.generators[0].iter, ast.Name):
-                return _module_list(tree, node.value.generators[0].iter.id)
+                comp = node.value
+                target = comp.generators[0].target
+                if not (isinstance(comp.elt, ast.Name) and isinstance(target, ast.Name) and comp.elt.id == target.id):
+                    return None
+                if comp.generators[0].iter.id in params:
+                    return None
+                return _module_list(tree, comp.generators[0].iter.id)
     return None
 
 
