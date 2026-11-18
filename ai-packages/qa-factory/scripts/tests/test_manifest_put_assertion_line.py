@@ -295,8 +295,7 @@ def test_the_persons_recorded_word_passes_a_missing_id(stand):
 @pytest.mark.parametrize("label", ["no command", "the switch", "not startable", "a .ts row beside it (F4)"])
 def test_no_collect_is_never_a_refusal_and_never_verified(stand, label):
     """Kill: an id nobody checked stored `verified` or refused (E1): no pytest-shaped command, the switch off, a command that cannot
-    start, a non-Python row in the same collect (RD1-35 F4: pytest collects nothing of the batch); the reason is the mark's note and
-    one printed line."""
+    start, a .ts row in the same collect (RD1-35 F4: pytest collects nothing); the reason is the mark's note and one printed line."""
     cfg = stand.root / "qa-factory" / "config.json"
     more = [node_row("t one", "tests/x.spec.ts")] if "F4" in label else []
     if more:
@@ -311,8 +310,7 @@ def test_no_collect_is_never_a_refusal_and_never_verified(stand, label):
         cfg.write_text(json.dumps(data), encoding="utf-8")
     code, out, err = put(stand, node_row("test_plain"), *more)
     assert code == 0, (label, out, err)
-    for instance in ["test_plain"] + [r["instance_id"] for r in more]:
-        mark = mark_of(stand, instance)
+    for mark in [mark_of(stand, i) for i in ["test_plain"] + [r["instance_id"] for r in more]]:
         assert mark["status"] == "not_verified" and mark["note"], (label, mark)
     assert out.count("stored not_verified") == 1, (label, out)
 

@@ -2286,16 +2286,14 @@ def ep1_37() -> None:
         check_in("an unread test: the file and line and the reason", "tests/bad.spec.ts:2: test not read: its title is not a string literal", err + json.dumps(bad))
         # --- --collect is inert, no language name branches the road (RD1-35, F2 (a1), E4) ---------------------------------------------
         done = run(root, "--collect", "--", sys.executable, "-m", "pytest", files=("tests/A.kt",))
-        check_eq("--collect with a .kt: exit 0, the language note and the inert note",
-                 (done.returncode, NO_ROW_NOTE in done.stdout, MFT.INERT_COLLECT_NOTE in done.stdout), (0, True, True))
+        check_eq("--collect with a .kt: exit 0, the language note and the inert note", (done.returncode, NO_ROW_NOTE in done.stdout, MFT.INERT_COLLECT_NOTE in done.stdout), (0, True, True))
         # --- the real write of ts rows goes through manifest_put ---------------------------------------------------------------------
         real = run(root, files=("tests/a.spec.ts",))
         check("ts: the real write is accepted by manifest_put", real.returncode == 0, real.stderr + real.stdout[-400:])
         held = json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8"))
         check("ts: the manifest holds the rows", {"TC-002 adds one", "TC-003 loop"} <= {t.get("instance_id") for t in held["tests"]},
               str([t.get("instance_id") for t in held["tests"]]))
-        check_eq("ts: the store asked them like any row - not_verified, never refused (RD1-35 E4)", {t.get("node_id_check", {}).get("status")
-                 for t in held["tests"] if t.get("file") == "tests/a.spec.ts"}, {"not_verified"})
+        check_eq("ts: asked like any row, not_verified (RD1-35 E4)", {t.get("node_id_check", {}).get("status") for t in held["tests"] if t.get("file") == "tests/a.spec.ts"}, {"not_verified"})
     finally:
         harness.cleanup(root)
 
