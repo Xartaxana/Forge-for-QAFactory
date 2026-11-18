@@ -136,6 +136,7 @@ LEDGER_ROWS = [
     ("L22", "not_verified:on_substitute", {}, "on_substitute", "after_checks"),
     ("L22", "not_verified:sides_unknown", {}, "sides_unknown", "after_checks"),
     ("L22", "not_verified:placeholder_open", {}, "placeholder_open", "after_checks"),     # t-2277 J-C7
+    ("L23", "not_executed:report_unread", {}, "run_unread", "after_checks"),      # U7 7b-B: the exact key beats the `not_executed` prefix
 ]
 TRACE_ROWS = [
     ("T1", "unresolved:handed_to_person", {}, "handed", "after_checks"),
@@ -147,6 +148,7 @@ TRACE_ROWS = [
     ("T5", "result:inconclusive", {}, "not_executed_unproven", "no"),
     ("T5", "result:inconclusive", {"code_row": True}, "not_executed_code", "after_checks"),
     *[("T6", f"result:{w}", {}, "chain_broken", "no") for w in ("skipped", "not_run", "partial", "error", "blocked")],
+    ("T6", "result:report_unread", {}, "run_unread", "after_checks"),             # U7 7b-B: the exact key beats the `result` prefix
     ("T7", "manual_human_no_package", {}, "manual_human", "after_checks"),
     *[("T8", w, {}, "chain_broken", "no") for w in ("no_plan_row", "no_case", "not_in_manifest", "no_result", "register_empty")],
 ]
@@ -1098,7 +1100,50 @@ def k_pc5_s_b_after_checks_one_item_per_case() -> None:
     check_eq("control: a red on the substitute is `no`", run(red_task)["delivery_verdict"], "no")
 
 
+def k_u7_7b_b_the_trace_reads_the_bound_verdict_of_an_unread_case() -> None:
+    """U7 7b-B (D4, F6): all instances of a case coded `report_unread` -> the gap word is the analyst's reading; a failure verdict ends
+    the case (no gap, the ledger's red speaks); no row keeps `result:not_run`; a coded instance beside a passed one keeps `partial`."""
+    name = "tests/test_coupon.py::test_cap_rejected"
+    coded = {"case": "TC-001", "instance_id": name, "test": name, "status": "not_run", "reason_code": "report_unread"}
+    for label, results, verdict, want in (
+            ("NOT_EXECUTED rows", [coded], "NOT_EXECUTED", ["result:report_unread"]),
+            ("an APP_BUG row", [coded], "APP_BUG", []),
+            ("coded, no row", [coded], "", ["result:not_run"]),
+            ("one coded + one passed instance", [coded, dict(coded, instance_id=name + "_b", status="passed", reason_code="")],
+             "NOT_EXECUTED", ["result:partial"])):
+        task = story()
+        try:
+            edit(task, "work/run-report.json", lambda r: r.update(current_results=results))
+            if verdict:
+                edit(task, "work/triage.json", lambda t: t["triage"].append({"instance_id": name, "verdict": verdict, "evidence": "e"}))
+            gaps = [g["gap"] for row in G_walk(task) if row["requirement"] == "R-1" for g in row["gaps"]]
+            check_eq(f"7b-B trace: {label}", gaps, want)
+        finally:
+            cleanup(task.parent)
+
+
+def k_u7_7c_the_trace_reads_a_walked_unprepared_case() -> None:
+    """U7 7c: a walked, current, result-less unprepared manual case -> gap `unresolved:unprepared_walk`; a stale or not-walked one keeps
+    `result:none`; an automated result row of the same case (even a blank one) is never replaced by the marker."""
+    walk = {"case": "TC-002", "attempt_id": "a1", "unprepared": {"reason": "r", "walked": True}}
+    for label, row, results, want in (
+            ("walked", walk, None, ["unresolved:unprepared_walk"]),
+            ("stale", dict(walk, current_reason="stale"), None, ["result:none"]),
+            ("not walked", dict(walk, unprepared={"reason": "r", "walked": False}), None, ["result:none"]),
+            ("an automated row names the case (blank): the marker never replaces it", walk,
+             [{"case": "TC-002", "instance_id": "t2", "test": "t2", "status": ""}], ["result:none"])):
+        task = story()
+        try:
+            edit(task, "work/run-report.json", lambda r: r.update(current_manual_checks=[row], **({"current_results": results} if results else {})))
+            gaps = [g["gap"] for r in G_walk(task) if r["requirement"] == "R-2" for g in r["gaps"]]
+            check_eq(f"7c trace: {label}", gaps, want)
+        finally:
+            cleanup(task.parent)
+
+
 def main() -> None:
+    k_u7_7c_the_trace_reads_a_walked_unprepared_case()
+    k_u7_7b_b_the_trace_reads_the_bound_verdict_of_an_unread_case()
     k_pc5_s_b_after_checks_one_item_per_case()
     k_tq1_18_a_refused_base_holds_delivery()
     k_n8_1_every_row_of_the_table()
