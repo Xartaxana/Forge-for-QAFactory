@@ -3338,12 +3338,28 @@ def ss1_11_stand_lessons() -> None:
         check_eq("E7-2: no answer is `not answered yet`, on both roads", instance_row(None), (["- Another instance on localhost: not answered yet"],) * 2)
         manual, card = instance_row(True)
         check_eq("E7-2: a yes is allowed with its story and day, on both roads", (manual == card, manual[0].startswith("- Another instance on localhost: allowed (the person's answer, given in S-1 on 20")), (True, True))
-        check_in("E7-2: the newest answer, a no, is not allowed", "not allowed (", instance_row(False)[0][0])
+        manual, card = instance_row(False)
+        check_eq("E7-2: the newest answer, a no, is not allowed, on both roads", (manual == card, "not allowed (" in manual[0]), (True, True))
         PK.revoke(root, PK.load(root)[0][-1]["id"], "x")
-        check_eq("E7-2: a revoke reads as `not answered yet`", instance_row(None)[0], ["- Another instance on localhost: not answered yet"])
+        check_eq("E7-2: a revoke reads as `not answered yet`, on both roads", instance_row(None), (["- Another instance on localhost: not answered yet"],) * 2)
         check_eq("E7-2: no stand, no line (silence never allows)", brief_pack.instance_lines(root, ""), [])
+        two = {"environments": [{"name": "first", "base_url": "http://a.invalid"}, {"name": "second", "base_url": "http://b.invalid"}]}
+        pipeline_path.write_text(json.dumps(dict(base, environment="second")), encoding="utf-8")
+        PK.record(root, key=PK.EXTRA_INSTANCE_KEY, environment="second", element="another_instance", state=PK.KNOWN, scope="stand",
+                  value={"authorized": True}, words="x", source="person", story="S-1", by="driver")
+        card_two = "\n".join(app_card._stand_lines(task, root, two, "")[0])
+        check_eq("B1: two stands, the pipeline names the second: the card carries its answer", ("- Another instance on second: allowed (" in card_two, "not named" in card_two), (True, False))
+        pipeline_path.write_text(saved_pipeline, encoding="utf-8")
+        real = PK.instance_answer
+        PK.instance_answer = lambda *a: {"authorized": True, "row": {"at": "garbage"}, "problem": "", "no_stand": False}
+        try:
+            check_eq("E7-2: an answer whose day cannot be read says so", brief_pack.instance_lines(root, "localhost"),
+                     ["- Another instance on localhost: allowed (the person's answer, given (date not known))"])
+        finally:
+            PK.instance_answer = real
         (root / PK.RECORD_REL).write_text("{not json", encoding="utf-8")
-        check_in("E7-2: an unreadable registry is never allowed", "could not be read (", instance_row(None)[0][0])
+        manual, card = instance_row(None)
+        check_eq("E7-2: an unreadable registry is never allowed, on both roads", (manual == card, "could not be read (" in manual[0]), (True, True))
         bad = brief_pack.stand_lesson_lines(root, "localhost")
         check_eq("E46: an unreadable registry is one line that says so",
                  (len(bad), bad[0].startswith("- Stand lessons: could not be read (")), (1, True))
