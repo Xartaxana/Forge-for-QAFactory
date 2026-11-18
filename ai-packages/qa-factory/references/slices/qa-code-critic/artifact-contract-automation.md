@@ -47,7 +47,7 @@ instance proves the cases in its `covers` and the pinned `case_version_links[]`.
 
 ### Typed ids
 
-`manifest_put.py` resolves a hand-written id by pytest collect (`node_id_check.asked` keeps yours; `status: not_verified` when none answers); no gate reads it.
+`manifest_put.py` resolves every `tests[]` id (yours and the writer's) by pytest collect: `node_id_check.asked` keeps yours, `not_verified` if none answers; no gate reads it.
 
 ### `then_bindings`
 

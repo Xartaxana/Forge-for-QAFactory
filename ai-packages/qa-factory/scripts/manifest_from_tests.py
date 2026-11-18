@@ -1753,6 +1753,12 @@ def _row_form(task_root: Path, view: dict, wanted: list) -> tuple:
     return form, lines
 
 
+INERT_COLLECT_NOTE = ("--collect is no longer needed: manifest_put.py resolves every instance id when it stores the rows, through "
+                      "the project's own command (test_command_templates); the command after -- and --cwd are not used")
+UNVERIFIED_NOTE = ("instance ids are resolved when written: manifest_put.py asks the project's pytest collect "
+                   "(test_command_templates) and prints each rewrite; a dry run asks nothing")
+
+
 def _form_after_write(task_root: Path, story: Story, fragment: dict, dry_run: bool, put_code: int, notes: list) -> tuple:
     """(form, lines) of `_row_form` for the rows this run wrote, or (None, []) with a note when they cannot be read. The
     rows are read from the manifest the write saved - one view of it, `manifest_put`'s - and on a dry run from
@@ -1766,22 +1772,18 @@ def _form_after_write(task_root: Path, story: Story, fragment: dict, dry_run: bo
             import manifest_put
             view = manifest_put.merge(copy.deepcopy(story.manifest), copy.deepcopy(fragment))[0]
             notes.append("send it after the write: these rows are not in the manifest yet")
+            wanted = [str(e.get("instance_id") or "") for e in fragment.get("tests") or []]
         else:
+            # The store may have renamed a row to the spelling pytest collects (RD1-35, E12): the author's spelling is mapped
+            # through the stored `asked` (the one reader, F3), or the form said "no such row" for a row it just wrote.
+            import manifest_put
             view = C.load_json(C.artifact(task_root, "automation-manifest.json"))
-        return _row_form(task_root, view, [str(e.get("instance_id") or "") for e in fragment.get("tests") or []])
+            again = manifest_put.asked_spellings(C.manifest_tests(view))
+            wanted = [again.get(i, i) for i in (str(e.get("instance_id") or "") for e in fragment.get("tests") or [])]
+        return _row_form(task_root, view, wanted)
     except Exception as exc:
         notes.append(f"row form skipped: {type(exc).__name__}")
         return None, []
-
-
-def collect_refusal(rels) -> None:
-    """`--collect` resolves ids through a pytest collection, and a file that is not Python has none: the refusal names the file and
-    the way on (the door is to run without `--collect`)."""
-    other = [rel for rel in rels if not str(rel).lower().endswith(".py")]
-    if other:
-        raise Refusal(f"--collect applies to pytest only: {', '.join(other)} is not a Python test file, so its instance ids cannot be "
-                      "resolved through pytest. Run without --collect: the ids are then read from the source and not verified "
-                      "against the runner")
 
 
 def _blank_row_form(task: str) -> tuple:
@@ -1803,68 +1805,6 @@ def _blank_row_form(task: str) -> tuple:
         return {"tests": [slot], "legend": legend}, lines
     except Exception:
         return None, []
-
-
-def resolve_through_pytest(fragment: dict, command: list, cwd: str, notes: list) -> dict:
-    """Rewrite the fragment's instance ids to the ones pytest really collects (FR-16).
-
-    The ids here are read out of the source with `ast`, and the source is not the last word on
-    them: a project's own plugins rename a parameter id before pytest collects it —
-    pytest-playwright prepends the browser, so `test_x[eu]` is collected as
-    `test_x[chromium-eu]`. On TP1-15045 the manifest kept the author's spelling, 15 of 27 run
-    rows never joined it, 16 obligations read "not proven" against a fully green execution, and
-    the mismatch surfaced at S8 — after the review window was accepted and the roles released.
-    `node_ids.py` exists for exactly this, and it was wired into the runner, the sandbox and the
-    probe but not into the writer of the ids (FR-17).
-
-    An id with one obvious real spelling is rewritten and the rewrite is a note. An id pytest
-    does not collect at all is a refusal: writing it would repeat the run-5 defect.
-    """
-    import node_ids
-    # `node_ids` speaks pytest's own language: a full node id, `<file>::<function>[<param>]`. The
-    # manifest spells an instance without its file (`contract.instance_id`) and carries the file
-    # beside it, so the ask is assembled here and the answer is spelled back the manifest's way.
-    collect_refusal(str(e.get("file") or "") for e in fragment.get("tests") or [] if e.get("file"))
-    asked, back = [], {}
-    for entry in fragment.get("tests") or []:
-        iid = str(entry.get("instance_id") or "")
-        file = str(entry.get("file") or "").replace("\\", "/")
-        if not iid or not file:
-            continue
-        node = f"{file}::{iid}"
-        asked.append(node)
-        back[node] = iid
-    if not asked:
-        return fragment
-    form, table_note = node_ids.runner_form(command)   # the runner's row: one broken file does not hide the rest (AR-15)
-    checked = node_ids.check_request(command, cwd, sorted(set(asked)), form=form)
-    for note in ([table_note] if table_note else []) + list(checked.get("notes") or []):
-        notes.append("node_ids: " + str(note))
-    if checked.get("missing"):
-        raise Refusal(
-            "pytest does not collect " + node_ids.missing_sentence(checked["missing"])
-            + ". Nothing was written. The id in the manifest has to be the id pytest collects, or "
-            "the join at S6 finds nothing and the obligation reads \"not proven\" against a green "
-            "run. Fix the marker or the parameter id in the test, or run without --collect and say "
-            "in your handoff that the ids are unverified. " + node_ids.repair_marker())
-    # Back to the manifest's spelling: the part after the last `::` is the instance id.
-    resolved = {back[str(a)]: str(r).rsplit("::", 1)[-1]
-                for a, r in (checked.get("resolved") or {}).items()
-                if str(a) in back and str(a) != str(r)}
-    if not resolved:
-        return fragment
-    for entry in fragment.get("tests") or []:
-        iid = str(entry.get("instance_id") or "")
-        if iid in resolved:
-            entry["instance_id"] = resolved[iid]
-    for row in fragment.get("then_bindings") or []:
-        iid = str(row.get("instance_id") or "")
-        if iid in resolved:
-            row["instance_id"] = resolved[iid]
-    for old, new in sorted(resolved.items()):
-        notes.append(f"pytest collects {old} as {new} — the manifest carries the collected id "
-                     "(a project plugin renames the parameter, not you)")
-    return fragment
 
 
 def _refused(ns, text: str, problems=None) -> int:
@@ -1893,15 +1833,13 @@ def main() -> int:
                          "lead to (the script follows `from <module> import <name>` itself)")
     ap.add_argument("--dry-run", action="store_true", help="print the fragment, write nothing")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
+    # `--collect`, `--cwd` and the command after `--` are accepted and inert (RD1-35, F2 (a1)): an old brief's call still runs.
+    # The store resolves every id through the project's own collect (`manifest_put.stamp_node_ids`), the ONE asker (AR-15).
     ap.add_argument("--collect", action="store_true",
-                    help="resolve every instance id through a real pytest collection before "
-                         "writing it, with the test command after `--` (FR-16): a project plugin "
-                         "may rename a parameter id, and the manifest must carry the id pytest "
-                         "collects. Without it the ids are the source's own and the output says so.")
-    ap.add_argument("--cwd", default=".", help="--collect: where to run the test command")
+                    help="no longer needed (FR-16): manifest_put.py resolves every instance id when it stores the rows, "
+                         "through the project's own command (test_command_templates); accepted with a note")
+    ap.add_argument("--cwd", default=None, help="no longer used: accepted with the --collect note")
     ns = ap.parse_args(raw)
-    if ns.collect and not command:
-        ap.error("--collect needs the test command after `--`, e.g. `-- python -m pytest`")
 
     root = project_root()
     try:
@@ -1913,12 +1851,12 @@ def main() -> int:
     try:
         unread: list = []     # a given file that does not parse: refused with the marker problems of the others
         files = _files(ns.file, root, unread)
-        if ns.collect:
-            collect_refusal(tf.rel for tf in files)
         story = Story(ns.task, task_root)
         result = build(story, files, ns.dispatch, project=root, prior_problems=unread)
     except Refusal as exc:
         return _refused(ns, str(exc), exc.problems)
+    if ns.collect or ns.cwd is not None or command:
+        result["notes"].append(INERT_COLLECT_NOTE)
     fragment = result["fragment"]
     if not fragment:
         # only files `test_source` reads (or does not read) and no row: the notes are the answer; `manifest_put` is not called
@@ -1934,18 +1872,10 @@ def main() -> int:
             for line in form_lines:
                 print(line)
         return 0
-    try:
-        if ns.collect:
-            fragment = resolve_through_pytest(fragment, command, ns.cwd, result["notes"])
-        elif fragment.get("tests"):
-            # An unknown says so (FR-41): these ids are the source's, and the source is not the
-            # last word on a parameter id a project's plugins rewrite.
-            result["notes"].append(
-                "instance ids were read from the source and NOT verified against pytest — run "
-                "with `--collect -- <your test command>` to resolve them through a real "
-                "collection; an id pytest does not collect joins nothing at S6")
-    except Refusal as exc:
-        return _refused(ns, str(exc), exc.problems)
+    if fragment.get("tests"):
+        # An unknown says so (FR-41): these ids are the source's until the store asks the project's collect; its rewrite and
+        # `not_verified` lines come back in `put_output` (RD1-35: the writer no longer asks a collect of its own).
+        result["notes"].append(UNVERIFIED_NOTE)
     written, put_output, put_code = "", "", 0
     if not ns.dry_run:
         digest = content_hash(fragment)[:8]

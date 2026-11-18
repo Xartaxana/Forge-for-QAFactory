@@ -34,3 +34,4 @@ not a reason to retry. Every stop and unplanned `surprise:` line is an observati
   refused). A `surprise:` line goes into one too, its id in `surprise` (`a1-ui-S3`); the analyst judges it.
 - The oracle is the requirement, never what the application happens to do; where the requirements are silent, record an
   `unresolved_question` and go on.
+- A check that needs another instance of the stand or device, which your brief does not allow you to start: give the verdict `"needs": "another_instance"`, say in `limitation` what you would start and why, and give no Then a pass or fail.

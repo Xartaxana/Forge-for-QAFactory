@@ -608,8 +608,8 @@ def partial_matching() -> None:
 
 def siblings() -> None:
     """Critic answer 6 (fix round t-1450): the callers of `check_request` that had no runner row - the CLI, the sandbox
-    (`red_sandbox.check_node_ids`) and the manifest writer (`manifest_from_tests.resolve_through_pytest`) - pass it, so their ONE
-    collect carries the continue flag (killing: a call without the row has no flag on the command)."""
+    (`red_sandbox.check_node_ids`) - pass it, so their ONE collect carries the continue flag (killing: a call without the row has no
+    flag on the command). The manifest writer's own collect is gone (RD1-35): `manifest_put.stamp_node_ids` is the one asker."""
     import contextlib
     import io
     row, note = N.runner_form(["pytest"])
@@ -639,11 +639,6 @@ def siblings() -> None:
                      (N_FLAG in calls[0], done["status"]), (True, "verified"))
         finally:
             cleanup(dest)
-        import manifest_from_tests as MFT
-        calls.clear()
-        MFT.resolve_through_pytest({"tests": [{"instance_id": "test_a", "file": "tests/test_ok.py"},
-                                              {"instance_id": "test_c", "file": "tests/test_bad.py"}]}, ["pytest"], ".", [])
-        check_eq("sibling manifest_from_tests.resolve_through_pytest: the flag is on the collect", N_FLAG in calls[0], True)
     finally:
         N._run = real_run
         sys.argv = saved_argv

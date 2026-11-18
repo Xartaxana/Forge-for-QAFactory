@@ -362,3 +362,19 @@ counted item; the frozen vector; whether `test_judgment_census.py` names the cen
 - F-4 (a): `question_kind` / `policy_file` stay null.
 - F-5 (a): this file is the `designer:` line of all four steps; r2 stays the decision record.
 - F-6 (a): the deploy consumer sits under `provenance_acceptance` (as F-k6 (a)).
+
+## Lead amendments after the plan critic t-1357 (18.11.2026, Lead 501cb4e0, «решила сама»; override the step text above)
+- P-1 (k1): the k1 DoD's report line is written UNQUOTED: not run locally: test_execution_request.py, test_gate_registry.py, canon judges.
+- P-2 (k4): the runtime-probe part of the k4 DoD names three functions: `every_answer_leaves_one_record_and_a_rehearsal_none`,
+  `k10_a_label_equal_to_head_is_matched_and_remembered`, `k13_a_person_confirms_stand_reads_nothing_and_binds_the_word`.
+- P-3 (all steps): every `test_gate_registry.py` line anchor in this card is void; the dispatch and the builder point by symbol:
+  the `part_live_registry` K-T1.2 / K-N2.12 block (positive control, allow pin, NEG), the `part_fix_pass` F1 block (checks,
+  list, loop), `D13_ITEM_COUNT`, `part_predicate`; the registry row by its id. §7 reads "then the test_identity and
+  case_rollcall entries unchanged" (the allow pin now holds 9 entries).
+- P-4 (k2): pins add `test_execution_request.py` top import `from profile_contract import ACCEPTS as ACCEPTS_OF_THE_PACKAGE`,
+  removed together with K-N2.5 (its only reader).
+- P-5 (k3): item 6 also names `manual_capture.py`'s top import of `ACCEPTS, acceptable_provenance` (only reader: the site item 4 changes).
+- P-6: the AR-15 check reads: Grep `get("target_kind") == "local_source"` over `P/scripts/*.py`; before 4 sites, after k3 the one
+  in `local_source_request`. (The looser `target_kind.*local_source` also hits a run_suite.py help-table tuple: 5 before, 2 after.)
+- P-7 (accepted): k4 item 3 (`refusal_text` naming the unreadable registry via `registry_why`) moves into k1, which owns
+  `profile_contract.py`; its row moves with it into k1's tests. k4 keeps items 1, 2, 4.

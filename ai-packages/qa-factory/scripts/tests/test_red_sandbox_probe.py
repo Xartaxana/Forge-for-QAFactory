@@ -1012,6 +1012,58 @@ def test_add():
 '''
 
 
+def no_row_language_reaches_a_counted_receipt() -> None:
+    """RD1-24 (B-337, card section 4 E6; F-O2): a test whose suffix has NO `assertion_probes` row, run by a command that is not
+    pytest, is probed through `--probe` and leaves a receipt `proof_level.reached` counts: the failure text names the pinned
+    `<path>:<line>` and the pinned message, so the pinned step reads the site. A row later added for `.kt` makes the first check
+    name it, not a silent pass."""
+    import assertion_detectors as AD
+    suffix, test_rel, node = ".kt", "tests/Calc.kt", "tests/Calc.kt::test_add"
+    check_eq("the suffix has no assertion_probes row (reader table) and no AST row",
+             (AD.entry_for_suffix(AD.assertion_detectors(), suffix), AD.ast_entry(suffix)), ((None, None), (None, None)))
+    fake_dir = temp_dir("qa-probe-fake-pytest-")
+    fake = fake_dir / "ktrunner"   # not named pytest: node_ids reads `.py` ids only, so this is a non-pytest junit-xml run
+    fake.write_text(FAKE_PYTEST
+                    .replace("spec_from_file_location(path.stem, path)",
+                             "spec_from_file_location(path.stem, path, loader=importlib.machinery.SourceFileLoader(path.stem, str(path)))")
+                    .replace('a.endswith(".py")', 'a.endswith(".kt")').replace('classname.endswith(".py")', 'classname.endswith(".kt")'),
+                    encoding="utf-8")
+    world = project(fake)
+    try:
+        task = task_of(world)
+        git(world, "mv", "tests/test_calc.py", test_rel)
+        git(world, "commit", "-q", "-m", "kotlin test")
+        old = json.loads((task / "state" / "controller.json").read_text(encoding="utf-8"))["source_revision"]
+        new = git(world, "rev-parse", "HEAD").stdout.strip()
+        for path in (task / "state" / "controller.json", world.parent / (world.name + "-probe.py")):
+            path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+        manifest = manifest_of(world)
+        manifest["tests"][0].update(file=test_rel, selector_args=[node], report_test_id="tests.Calc::test_add")
+        write_json(task / "work" / "automation-manifest.json", manifest)
+        seed_green(world, "TC-100")
+        request = mutation_request(world, node_id=node)
+        mutations = json.loads(request.read_text(encoding="utf-8"))
+        mutations["mutations"][0]["expected_location"] = f"{test_rel}:{ASSERT_LINE}"
+        write_json(request, mutations)
+        result = probe(world, request)
+        check_eq("--probe on a test of a suffix with no row is accepted: the stage does not stop",
+                 (result["status"], result.get("notes")), ("accepted", result.get("notes")))
+        check_eq("...one receipt, and it is on disk", len(result["receipts"]), 1)
+        receipt = json.loads((task / result["receipts"][0]["path"]).read_text(encoding="utf-8"))
+        check_eq("...it says it proves the test as a whole (the tool cannot list this language's checks)",
+                 (receipt.get("scope"), receipt.get("proof_level"), receipt.get("probe_tool")),
+                 ("whole_unlisted", "catches_broken_product", "red_sandbox.py"))
+        row = entry_of(world)
+        got = PL.reached(row, manifest_of(world), task)
+        check_eq("the reader the window and delivery share counts that receipt", (got["level"], got["issues"]),
+                 ("catches_broken_product", []))
+        check_eq("...through the row's published ref", (row.get("sensitivity_proof") or {}).get("receipt_ref", {}).get("path"),
+                 result["receipts"][0]["path"])
+    finally:
+        finish_project(world)
+        cleanup(fake_dir)
+
+
 def main() -> None:
     accepted()
     upgrades_a_live_receipt_and_keeps_the_other_instances()
@@ -1030,6 +1082,7 @@ def main() -> None:
     node_id_mismatch_passthrough()
     two_profiles_over_one_root()
     rs_told_passes_through()
+    no_row_language_reaches_a_counted_receipt()
     finish("test_red_sandbox_probe")
 
 

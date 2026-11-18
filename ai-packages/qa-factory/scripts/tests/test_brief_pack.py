@@ -2442,6 +2442,58 @@ def role_brief_ratchet() -> None:
         harness.cleanup(root)
 
 
+def s5_reviewed_dispatch_rows() -> None:
+    """FV3-31: the S5 code critic is told the automator of ITS window or plan (`reviewed_by` row); the prefill names the id the line names.
+    red-before: not run -- test_brief_pack.py canon judges."""
+    import contextlib, io, tempfile
+    import controller
+
+    def rec(i, role, scope, plan=False):
+        return {"id": i, "stage": "S5", "role": role, "status": "accepted", "scope": scope,
+                **({"request_binding": {"purpose": "s5_plan"}} if plan else {})}
+    two = [rec("P1", "qa-automator", ["C1", "C2"], True), rec("A1", "qa-automator", ["web/C1"]), rec("A2", "qa-automator", ["C2"]),
+           rec("K1", "qa-code-critic", ["C1"]), rec("A3", "qa-automator", ["C1"]), rec("K2", "qa-code-critic", ["C2"]),
+           rec("KP", "qa-code-critic", ["C1", "C2"], True)]
+    world = lambda *rows: {"dispatches": {r["id"]: r for r in rows}}
+    state, none, real = world(*two), ("", "", False), brief_pack._stages
+    # (id, state, the critic's record | None, `reviewed_by` ("keep" | "absent" | a value), expected answer)
+    rows = [("two windows: the critic's own automator, A3 created after it is not named", state, two[3], "keep", ("S5", "A1", True)),
+            ("the plan critic: the plan automator only", state, two[6], "keep", ("S5", "P1", True)),
+            ("a window critic with only a plan automator", world(two[0], two[3]), two[3], "keep", none),
+            ("no matching window", world(two[2], two[3]), two[3], "keep", none),
+            ("no record", state, None, "keep", none),
+            ("no `reviewed_by`", state, two[3], "absent", none),
+            ("`reviewed_by` not a string", state, two[3], 7, none)]
+    err = io.StringIO()
+    try:
+        for name, st, crit, by, want in rows:
+            table = {sid: dict(sd) for sid, sd in real().items()}
+            table["S5"].pop("reviewed_by") if by == "absent" else table["S5"].update(reviewed_by=table["S5"]["reviewed_by"] if by == "keep" else by)
+            brief_pack._stages = lambda t=table: t
+            with contextlib.redirect_stderr(err):
+                check_eq("FV3-31 S5 reviewed_dispatch: " + name, brief_pack.reviewed_dispatch("S5", "qa-code-critic", st, {}, crit), want)
+        brief_pack._stages = real
+        # card row 2 / t-1325 F5: the `reviewed_by` branch sits after S4's own-stage branch and before the consumer search (§2.1 invariant)
+        others = world(rec("D1", "qa-case-designer", ["C1"]) | {"stage": "S4"}, rec("R1", "qa-runner", ["C1"]) | {"stage": "S6"}, two[3])
+        check_eq("FV3-31 S4 critic answer unchanged", brief_pack.reviewed_dispatch("S4", "qa-case-critic", others, {}, two[3]), ("S4", "D1", True))
+        check_eq("FV3-31 S7 analyst answer unchanged", brief_pack.reviewed_dispatch("S7", "qa-failure-analyst", others,
+                 {"acceptance_awaits": {"S6": "R1"}}, two[3]), ("S6", "R1", False))
+        line = brief_pack.reviewed_dispatch_lines("S5", "qa-code-critic", state, {}, two[5])
+        check("FV3-31 S5 brief line names the critic's own automator path", len(line) == 1 and "work/handoffs/A2.yaml" in line[0], str(line))
+        check_eq("FV3-31 S5 no match: no line, not the none-yet line", brief_pack.reviewed_dispatch_lines("S5", "qa-code-critic", world(two[1]), {}, two[5]), [])
+        check("FV3-31 invalid `reviewed_by` prints a stderr line", "reviewed_by of S5 is 7" in err.getvalue(), err.getvalue())
+        real_controller, tmp = controller.Controller, Path(tempfile.mkdtemp(prefix="qa-factory-s5-author-"))
+        controller.Controller = lambda root: type("C", (), {"state": lambda self: state})()
+        try:
+            for crit, want in ((two[3], ["--author-dispatch", "A1"]), (two[6], ["--author-dispatch", "P1"]), (None, [])):
+                check_eq(f"FV3-31 S5 prefill = brief ({crit and crit['id']})",
+                         story_step._author_argv("S5", "qa-code-critic", "s5-critic-to-automator", tmp, crit), want)
+        finally:
+            controller.Controller = real_controller
+    finally:
+        brief_pack._stages = real
+
+
 def oh3_34_p1_areas_section() -> None:
     """OH3-34 (K4, K5): the S4 brief of the case designer and the case critic has `## P1 areas`: one line per area with the ids of the
     requirements sizing matched to it; ONE line when none matched; "sizing not recorded" when work/sizing.json is absent. Other stages
@@ -3327,13 +3379,51 @@ def ss1_11_stand_lessons() -> None:
                  (len(many), any("more:" in l for l in many), any('op11: "words 11"' in l for l in many)), (11, False, True))
         text = brief_of()
         check_in("E54: the head holds every lesson line whole", "\n".join(many), pc8_head(text))
+        import app_card
+
+        def instance_row(allowed):      # E7-2: the line on BOTH roads' stand text (manual brief, walk card); words are data
+            if allowed is not None:
+                PK.record(root, key=PK.EXTRA_INSTANCE_KEY, environment="localhost", element="another_instance", state=PK.KNOWN, scope="stand",
+                          value={"authorized": allowed}, words="x", source="person", story="S-1", by="driver")
+            pick = lambda lines: [l for l in lines if l.startswith("- Another instance")]
+            return (pick(brief_pack.manual_stand_lines(task, root, cfg, [], "localhost")), pick(app_card._stand_lines(task, root, cfg, "")[0]))
+        check_eq("E7-2: no answer is `not answered yet`, on both roads", instance_row(None), (["- Another instance on localhost: not answered yet"],) * 2)
+        manual, card = instance_row(True)
+        check_eq("E7-2: a yes is allowed with its story and day, on both roads", (manual == card, manual[0].startswith("- Another instance on localhost: allowed (the person's answer, given in S-1 on 20")), (True, True))
+        manual, card = instance_row(False)
+        check_eq("E7-2: the newest answer, a no, is not allowed, on both roads", (manual == card, "not allowed (" in manual[0]), (True, True))
+        PK.revoke(root, PK.load(root)[0][-1]["id"], "x")
+        check_eq("E7-2: a revoke reads as `not answered yet`, on both roads", instance_row(None), (["- Another instance on localhost: not answered yet"],) * 2)
+        check_eq("E7-2: no stand, no line (silence never allows)", brief_pack.instance_lines(root, ""), [])
+        two = {"environments": [{"name": "first", "base_url": "http://a.invalid"}, {"name": "second", "base_url": "http://b.invalid"}]}
+        pipeline_path.write_text(json.dumps(dict(base, environment="second")), encoding="utf-8")
+        PK.record(root, key=PK.EXTRA_INSTANCE_KEY, environment="second", element="another_instance", state=PK.KNOWN, scope="stand",
+                  value={"authorized": True}, words="x", source="person", story="S-1", by="driver")
+        card_two = "\n".join(app_card._stand_lines(task, root, two, "")[0])
+        check_eq("B1: two stands, the pipeline names the second: the card carries its answer", ("- Another instance on second: allowed (" in card_two, "not named" in card_two), (True, False))
+        pipeline_path.write_text(saved_pipeline, encoding="utf-8")
+        real = PK.instance_answer
+        PK.instance_answer = lambda *a: {"authorized": True, "row": {"at": "garbage"}, "problem": "", "no_stand": False}
+        try:
+            check_eq("E7-2: an answer whose day cannot be read says so", brief_pack.instance_lines(root, "localhost"),
+                     ["- Another instance on localhost: allowed (the person's answer, given (date not known))"])
+        finally:
+            PK.instance_answer = real
         (root / PK.RECORD_REL).write_text("{not json", encoding="utf-8")
+        manual, card = instance_row(None)
+        check_eq("E7-2: an unreadable registry is never allowed, on both roads", (manual == card, "could not be read (" in manual[0]), (True, True))
         bad = brief_pack.stand_lesson_lines(root, "localhost")
         check_eq("E46: an unreadable registry is one line that says so",
                  (len(bad), bad[0].startswith("- Stand lessons: could not be read (")), (1, True))
         check_in("E46: the manual runner's stand says so", bad[0], "\n".join(brief_pack.manual_stand_lines(task, root, cfg, [], "localhost")))
     finally:
         harness.cleanup(root)
+
+
+def test_ss1_11_stand_lessons() -> None:     # pytest wrapper (C1, M16): only the rows this call added are judged
+    n = len(harness.RESULTS)
+    ss1_11_stand_lessons()
+    assert all(ok for ok, _ in harness.RESULTS[n:]), [name for ok, name in harness.RESULTS[n:] if not ok]
 
 
 def c3_j1_stand_page_load() -> None:
@@ -4063,6 +4153,7 @@ def main() -> None:
     oh3_34_p1_areas_section()
     p1v_n3_brief_size_record()
     role_brief_ratchet()
+    s5_reviewed_dispatch_rows()
     pc8_scenarios()
     n2_summaries_name_their_whole()
     ss1_11_stand_lessons()
