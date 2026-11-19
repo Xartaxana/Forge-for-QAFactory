@@ -26,9 +26,11 @@ import harness  # noqa: E402
 from harness import check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir  # noqa: E402
 
 sys.path.insert(0, str(harness.SCRIPTS))
+import acceptance  # noqa: E402
 import controller as CT  # noqa: E402
 import detector_verdict  # noqa: E402
 import manual_evidence  # noqa: E402
+import stage_close  # noqa: E402
 import story_progress  # noqa: E402
 import story_step  # noqa: E402
 import waiver  # noqa: E402
@@ -638,7 +640,7 @@ def card_names_the_rule(text: str) -> bool:
     return text.count(AUTOMATION_LINE) == 2 and text.count(MANUAL_LINE) == 2
 
 
-def the_card_and_the_help_name_the_rule():
+def test_the_card_and_the_help_name_the_rule():
     """K-D1. KILLS: the card line removed, the `Scope:` line kept as it was, `--help` without the number."""
     card = (harness.PLUGIN_ROOT / "skills" / "qa-story" / "phases" / "s6.md").read_text(encoding="utf-8")
     check_eq("K-D1: the card and the boundary section name both halves", card_names_the_rule(card), True)
@@ -647,6 +649,12 @@ def the_card_and_the_help_name_the_rule():
     check_eq("K-D1 negative control: today's card line fails the same check", card_names_the_rule(old), False)
     done = harness.run_script("story_step.py", "start", "--help")
     check_in(f"K-D1: `start --help` carries 1..{MANUAL_BLOCK_CASES}", f"1..{MANUAL_BLOCK_CASES}", done.stdout)
+    # FV3-22 K5.i: the card says the manual `start` that finds nothing left closes S6 itself, with the person's-word door
+    count = len(harness.RESULTS)
+    said = lambda text: "that same call closes S6" in text and "a person's word (the door it prints)" in text  # noqa: E731
+    check_eq("K5.i: the S6 card names the close and the person's-word door", said(card), True)
+    check_eq("K5.i negative control: today's card line does not", said(old), False)
+    _assert_green_since(count)
 
 
 def the_driver_reads_the_shared_functions():
@@ -841,6 +849,216 @@ def fv3_21b_the_stand_word_on_the_skill_road():
             for case, written in wrote.items():
                 check_eq(f"{name}: {case} request written", manual_evidence.request_path(root, case).exists(), written)
 
+# --- FV3-22-2: the skill road closes S6's manual half (card r2 section 5) ------------------------------------------------
+def _assert_green_since(count):
+    """Under pytest a failed `check` never raises; the new functions raise when any check since `count` failed."""
+    bad = [name for ok, name in harness.RESULTS[count:] if not ok]
+    assert not bad, bad
+
+
+def _s6_world(root, dispositions=MIXED_7):
+    """W: the automated half started and accepted not-complete (every manual case is still to do)."""
+    ctl = real_story(root, dispositions)
+    start(root, ctl, None, kind="automation")
+    accept(ctl, root, "S6-qa-runner-1", "automation", [f"TC-{i}" for i in range(1, len(dispositions) + 1)])
+    return ctl
+
+
+def _close(root, ctl, calls, fail=None, scope=None, prepare=lambda case: ([], f"refused {case}", "")):
+    """`start` with `SkillRoad.py` stubbed at the one seam: `calls` gets `(script, args)`; `fail` maps a script (or "done" for a
+    `stage_done.py --status` call) to `(code, out)`; a good `finalize_task.py` writes the report, a good `--status done` the record."""
+    from datetime import datetime, timezone
+
+    def fake(self, script, *args, check=False, expect=""):
+        calls.append((script, list(args)))
+        code, out = (fail or {}).get("done" if script == "stage_done.py" and "--status" in args else script, (0, ""))
+        if code == 0 and script == "finalize_task.py":
+            (root / "work").mkdir(exist_ok=True)
+            (root / "work" / "run-report.json").write_text("{}", encoding="utf-8")
+        if code == 0 and script == "stage_done.py" and "--status" in args:
+            data = json.loads((root / "pipeline.json").read_text(encoding="utf-8-sig"))
+            data.setdefault("stages", {}).setdefault("S6", {})["finished"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            (root / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+        if check and code:
+            raise stage_close.Refused(f"{script} exit {code}: {out}")
+        return code, out
+    with mock.patch.object(stage_close.SkillRoad, "py", fake):
+        return start(root, ctl, scope, prepare=prepare)
+
+
+def _pipeline(root):
+    return json.loads((root / "pipeline.json").read_text(encoding="utf-8-sig"))
+
+
+def _receipts(ctl):
+    return [e["payload"] for e in ctl.store.read() if e["type"] == "code_only" and e["payload"].get("stage") == "S6"]
+
+
+def test_fv3_22_nothing_left_closes_s6_on_the_skill_road():
+    """FV3-22 C1-C16 (card r2 5.1). KILLS: the X1/X2/X3 call; `consumer_need_record` dropped from `manual_half_close`; the live
+    filter narrowed to `running`; step 1b; the order of the captured lines."""
+    count = len(harness.RESULTS)
+    author, door_words = "S6-qa-runner-1", '--block "stage acceptance" --words-file'
+    scripts = lambda calls: [c[0] for c in calls]  # noqa: E731
+    with temp_dir() as root:                                                                   # C1: awaits
+        ctl, calls = _s6_world(root), []
+        code, text, seen = _close(root, ctl, calls)
+        order = ["TC-2: not checked by hand - refused TC-2", f"S6 awaits the acceptance of qa-failure-analyst for {author}", "card --stage S7", door_words]
+        spots = [text.find(piece) for piece in order]
+        check_eq("C1: exit 0, finalize only, no dispatch", (code, scripts(calls), seen["scope"]), (0, ["finalize_task.py"], []))
+        check_eq("C1: the lines in the real order", spots == sorted(spots) and min(spots) >= 0, True)
+        check_eq("C1: the wait is the reader's, S6 is open, no receipt", (acceptance.awaits_acceptance(ctl.state(), "S6", _pipeline(root)),
+                 ctl.state()["stages"]["S6"].get("status") != "completed", _receipts(ctl)), (author, True, []))
+    with temp_dir() as root:                                                                   # C2, C9, C9c: closed, again, record older
+        ctl, calls = _s6_world(root), []
+        BASE.record_stage_acceptance(root, "S6", author)
+        code, text, _ = _close(root, ctl, calls)
+        receipt = _receipts(ctl)[0]
+        check_eq("C2: exit 0, finalize then the record", (code, scripts(calls), calls[1][1][-3:]), (0, ["finalize_task.py", "stage_done.py"], ["--digest", receipt["reason"], "--no-journal"]))
+        check_eq("C2: the receipt", (ctl.state()["stages"]["S6"]["status"], receipt["reason"].startswith(
+            "the manual half of S6: 0 case(s) checked by an agent by hand, 6 not checked: TC-2, TC-3"),
+            "work/run-report.json" in [r["path"] for r in receipt["evidence_refs"]], "S6 is closed by code" in text), ("completed", True, True, True))
+        code, text, _ = _close(root, ctl, calls)
+        check_eq("C9: again - one receipt, one reducer, completed already", (code, len(_receipts(ctl)), scripts(calls).count("finalize_task.py"),
+                 "S6 is completed already" in text and "where --task" in text), (0, 1, 1, True))
+        data = _pipeline(root)
+        data["stages"]["S6"]["finished"] = "2000-01-01T00:00:00+00:00"
+        (root / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+        code, text, _ = _close(root, ctl, calls)
+        check_eq("C9c: a finished record older than the completion reads as not written", (code, "S6 is completed already" in text, "--status done --digest" in text), (2, False, True))
+    for name, at, closes in (("C3", "2099-01-01T00:00:00+00:00", True), ("C3b", "2000-01-01T00:00:00+00:00", False)):
+        with temp_dir() as root:                                                               # C3: a person's word, later / earlier
+            ctl, calls = _s6_world(root), []
+            data = _pipeline(root)
+            data["stage_overrides"] = [{"stage": "S6", "match": "stage acceptance", "decision": "fine words", "at": at}]
+            (root / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+            code, text, _ = _close(root, ctl, calls)
+            passes = [c for c in calls if "--acceptance" in c[1]]
+            check_eq(f"{name}: exit 0; the word is recorded and S6 closes only when it is later than the acceptance",
+                     (code, scripts(calls)[0], len(passes), len(_receipts(ctl))), (0, "finalize_task.py", int(closes), int(closes)))
+            if closes:
+                check_in("C3: the quote", "by: person - fine words", " ".join(passes[0][1]))
+    with temp_dir() as root:                                                                   # C4: the no-stand word
+        ctl, calls = _s6_world(root), []
+        data = _pipeline(root)
+        data.update(environment_pending=True, stage_overrides=[{"stage": "S6", "match": "stand not confirmed", "decision": "go on", "at": "2026-11-17T10:00:00+00:00"}])
+        (root / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+        code, text, _ = _close(root, ctl, calls, scope="TC-2", prepare=lambda case: ([f"OB-{case}"], "", ""))
+        refusal = {"refused": {"reason": "not checked by an agent: no stand is confirmed for this story; the person said: \"go on\"",
+                               "door": "record a stand for this project with the onboarding; the next run checks it by hand", "by": "left_unchecked"}}
+        check_eq("C4: every case carries the word's record, then C1's outcome", ([json.loads(manual_evidence.request_path(root, f"TC-{i}").read_text(encoding="utf-8")) == refusal
+                 for i in range(2, 8)], code, "S6 awaits the acceptance" in text), ([True] * 6, 0, True))
+    with temp_dir() as root:                                                                   # C5: no automated half
+        ctl, calls = real_story(root, MIXED_7), []
+        code, text, _ = _close(root, ctl, calls)
+        check_eq("C5: today's refusal + the door of the automated half; no step ran", (code, calls, "the automated half of S6 is not accepted yet" in text,
+                 "acceptance_awaits" in _pipeline(root)), (2, [], True, False))
+    with temp_dir() as root:                                                                   # C6: a case prepares
+        ctl, calls = _s6_world(root), []
+        before = ctl.state()["revision"]
+        code, text, _ = _close(root, ctl, calls, prepare=lambda case: ([f"OB-{case}"], "", "") if case == "TC-7" else ([], f"refused {case}", ""))
+        check_eq("C6: refused with TC-7 as the door; nothing ran, nothing registered", (code, door_scope(text), calls, ctl.state()["revision"] == before,
+                 "acceptance_awaits" in _pipeline(root)), (2, "TC-7", [], True, False))
+    with temp_dir() as root:                                                                   # C7: the reducer fails
+        ctl, calls = _s6_world(root), []
+        code, text, _ = _close(root, ctl, calls, fail={"finalize_task.py": (1, "boom")})
+        check_eq("C7: refused with a door, no marker, no receipt", (code, "S6 was not closed: S6 manual half: finalize_task.py exit 1: boom" in text,
+                 "door:" in text, "acceptance_awaits" in _pipeline(root), _receipts(ctl)), (2, True, True, False, []))
+    with temp_dir() as root:                                                                   # C8: scope not derived
+        ctl, calls = _s6_world(root), []
+        with mock.patch.object(ctl, "stage_scope", lambda *a, **k: {"derived": False, "scope": [], "reason": "x"}):
+            code, text, _ = _close(root, ctl, calls)
+        check_eq("C8: today's lines, no step", (code, calls, "S6 was not closed" in text), (2, [], False))
+    with temp_dir() as root:                                                                   # C9b: the record is refused, twice
+        ctl, calls = _s6_world(root), []
+        BASE.record_stage_acceptance(root, "S6", author)
+        code, text, _ = _close(root, ctl, calls, fail={"done": (1, "refused")})
+        code2, text2, _ = _close(root, ctl, calls)
+        want = f'stage_done.py" --task {TASK} --stage S6 --status done --digest'
+        check_eq("C9b: the first ends with the door; the second is the same door, no reducer, never closed",
+                 (code, want in text.splitlines()[-1], code2, want in text2, scripts(calls).count("finalize_task.py"), "S6 is closed by code" in text2), (2, True, 2, True, 1, False))
+    with temp_dir() as root:                                                                   # C10: no manual half
+        ctl, calls = _s6_world(root, ["automate"] * 7), []
+        code, text, _ = _close(root, ctl, calls)
+        check_eq("C10: today's lines, no step", (calls, "S6 awaits" in text), ([], False))
+    for name, status in (("C11", None), ("C11b", "paused"), ("C11c", "blocked")):             # C11: a live S6 dispatch
+        with temp_dir() as root:
+            ctl, calls, writes = _s6_world(root), [], []
+
+            def counting(case):
+                writes.append(case)
+                manual_evidence.request_path(root, case).parent.mkdir(parents=True, exist_ok=True)
+                manual_evidence.request_path(root, case).write_text(str(len(writes)), encoding="utf-8")
+                return [f"OB-{case}"], "", ""
+            start(root, ctl, "TC-2,TC-3,TC-4", prepare=counting)
+            if status:
+                ctl.apply("checkpoint", {"id": "S6-qa-runner-2", "status": status, "checkpoint": {"completed": [], "next": "resume"},
+                                         "reason": "stopped", "idempotency_key": "stop-" + status})
+            bytes_before = [manual_evidence.request_path(root, f"TC-{i}").read_bytes() for i in (2, 3, 4)]
+            code, text, _ = _close(root, ctl, calls, prepare=counting)
+            check_eq(f"{name}: today's lines, no step, the requests keep their bytes", (calls, "S6 was not closed" in text,
+                     [manual_evidence.request_path(root, f"TC-{i}").read_bytes() for i in (2, 3, 4)] == bytes_before), ([], False, True))
+    with temp_dir() as root:                                                                   # C14: a block already done at X2
+        ctl, calls = _s6_world(root), []
+        start(root, ctl, "TC-2")
+        accept(ctl, root, "S6-qa-runner-2", "manual", ["TC-2"])
+        BASE.record_stage_acceptance(root, "S6", "S6-qa-runner-2")          # the author of S6 is its LAST runner dispatch
+        data = _pipeline(root)
+        data.update(environment_pending=True, stage_overrides=[{"stage": "S6", "match": "stand not confirmed", "decision": "go on", "at": "2026-11-17T10:00:00+00:00"}])
+        (root / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+        code, text, _ = _close(root, ctl, calls, scope="TC-2,TC-3")
+        receipt = _receipts(ctl)[0]
+        check_eq("C14: one case checked, TC-2 neither listed as unchecked nor named in the evidence", (code, "1 case(s) checked by an agent by hand" in receipt["reason"],
+                 "TC-2" in receipt["reason"].split(": ", 2)[-1], [r["path"] for r in receipt["evidence_refs"] if "TC-2" in r["path"]]), (0, True, False, []))
+    with temp_dir() as root:                                                                   # C15: the S8-S10 contract, C16: the controller moved
+        ctl, calls = _s6_world(root), []
+        with mock.patch.object(story_step, "_task_root", lambda task: root):
+            check_eq("C15: `_no_stand_refusal` still returns a list", story_step._no_stand_refusal(TASK, {}, []), [])
+        BASE.record_stage_acceptance(root, "S6", author)
+
+        def moved(self, op, *a, input_data=None):
+            raise StateConflict("moved")
+        with mock.patch.object(stage_close.SkillRoad, "controller", moved):
+            code, text, _ = _close(root, ctl, calls)
+        check_eq("C16: refused with the controller's text, S6 open", (code, "S6 was not closed: moved" in text, ctl.state()["stages"]["S6"].get("status") != "completed"), (2, True, True))
+    _assert_green_since(count)
+
+
+def test_fv3_22_awaits_position():
+    """FV3-22 K5.k P1-P5 (card r2 5.2): the progress position `awaits`, from the one reader. KILLS: a branch ahead of the gate; no
+    `except`; the reader's `completed` guard bypassed."""
+    count = len(harness.RESULTS)
+
+    def world(root, s6_done=False, s7_awaits=False):
+        ctl = _s6_world(root)
+        if s6_done or s7_awaits:
+            BASE.record_stage_acceptance(root, "S6", "S6-qa-runner-1")
+            _close(root, ctl, [])
+        data = _pipeline(root)
+        data.setdefault("acceptance_awaits", {})["S6"] = "S6-qa-runner-1"
+        (root / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+        return ctl
+    with temp_dir() as root:
+        world(root)
+        got = story_progress.progress(root)
+        check_eq("P1: awaits, said in words, no role running", (got["position"]["kind"], "waiting for the failure analyst's acceptance (S7)" in got["line"],
+                 "no role running" in got["line"]), ("awaits", True, True))
+        with mock.patch.object(acceptance, "awaits_acceptance", side_effect=RuntimeError("x")):
+            check_eq("P3: a reader that raises gives today's position", story_progress.progress(root)["position"]["kind"] != "awaits", True)
+        (root / "state").mkdir(exist_ok=True)
+        (root / "state" / "driver-state.json").write_text(json.dumps({"asked": {"kind": "gate_A", "at": "2026-11-17T10:00:00+00:00"}}), encoding="utf-8")
+        check_eq("P4: a gate wait is not hidden by the role's wait", story_progress.progress(root)["position"]["kind"], "gate")
+    with temp_dir() as root:
+        ctl = _s6_world(root)
+        BASE.record_stage_acceptance(root, "S6", "S6-qa-runner-1")
+        _close(root, ctl, [])
+        check_eq("P5: a completed stage never awaits", story_progress.progress(root)["position"]["kind"] != "awaits", True)
+        check_eq("P2: S7 awaiting the doc scribe is named from the same table", story_progress._awaits_position(
+            {"stages": {}, "dispatches": {"d": {"id": "d", "stage": "S7", "role": "qa-failure-analyst", "status": "accepted", "unresolved": ["stage_awaits_acceptance"]}}},
+            {}, "S7") == ({"kind": "awaits", "author": "d", "consumer": "qa-doc-scribe", "consumer_stage": "S8", "who": "doc scribe"}), True)
+    _assert_green_since(count)
+
+
 def main():
     fv3_21b_the_stand_word_on_the_skill_road()
     f5_unprepared_case_stays_in_block()
@@ -860,7 +1078,9 @@ def main():
     rh110_the_automation_half_is_checked_before_anything_is_written()
     the_battery()
     the_cli_refuses_with_the_same_words()
-    the_card_and_the_help_name_the_rule()
+    test_the_card_and_the_help_name_the_rule()
+    test_fv3_22_nothing_left_closes_s6_on_the_skill_road()
+    test_fv3_22_awaits_position()
     the_driver_reads_the_shared_functions()
     finish("test_story_step_manual_block")
 

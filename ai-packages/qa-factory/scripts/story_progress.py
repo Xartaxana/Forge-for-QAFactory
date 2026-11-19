@@ -545,6 +545,8 @@ def progress(task_root, *, now=None, liveness=None, price=None, fresh_ok=False) 
     elif waiting_gate:
         out["waiting"] = {"kind": "gate", "gate": waiting_gate, "question": None, "since": None, "minutes": None}
         out["position"] = {"kind": "gate", "gate": waiting_gate}
+    elif (awaits := _awaits_position(controller_state, pipeline, current)):
+        out["position"] = awaits      # FV3-22 K5.k: a role's wait, after the person's own waits
     elif not here and _code_only(root, current):
         out["position"] = {"kind": "code_only", "reason": _code_only(root, current)}
     elif current == WINDOW_STAGE and dispatches and any(d.get("stage") == current for d in dispatches):
@@ -566,6 +568,25 @@ def progress(task_root, *, now=None, liveness=None, price=None, fresh_ok=False) 
     out["parts"] = _parts(out, run, task, now)
     out["line"] = _compose(out, task)
     return out
+
+
+def _awaits_position(controller_state, pipeline, current):
+    """FV3-22 K5.k (AR-13): `{"kind": "awaits", "author", "consumer", "consumer_stage", "who"}` when `acceptance.awaits_acceptance` (the one
+    reader the gates ask) names an author of `current` that waits for its consumer's acceptance; None otherwise. `who` is the words of
+    `stage_close.CONSUMER_ROUTES`, else of `_role_words(consumer_of)`. ERROR DIRECTION: this is advice for a display line - any exception, an
+    unreadable state or a completed stage reads as None (today's position), never as "awaits" over a stage that is not awaiting."""
+    try:
+        import acceptance
+        import stage_close
+        author = acceptance.awaits_acceptance(controller_state, current, pipeline)
+        if not author:
+            return None
+        consumer = acceptance.consumer_of(current)
+        route = stage_close.CONSUMER_ROUTES.get(current) or {}
+        return {"kind": "awaits", "author": author, "consumer": consumer, "consumer_stage": str(route.get("consumer_stage") or ""),
+                "who": str(route.get("who") or _role_words(consumer))}
+    except Exception:  # noqa: BLE001 - advice: any failure reads as today's position
+        return None
 
 
 def _code_only(root: Path, stage: str) -> str:
@@ -633,6 +654,8 @@ def _parts(d, run, task, now) -> dict:
         parts["position"] = f"waiting for your answer ({pos['question'].replace('_', ' ')})"
         if w.get("since"):
             parts["position"] += f" since {_hhmm(_epoch(w['since']))} ({_words(w['minutes'])})"
+    elif kind == "awaits":
+        parts["position"] = f"waiting for the {pos['who']}'s acceptance" + (f" ({pos['consumer_stage']})" if pos.get("consumer_stage") else "")
     elif kind == "code_only":
         parts["position"] = "closed by the factory itself" + (f": {pos['reason']}" if pos.get("reason") else "")
     if run:
@@ -665,7 +688,7 @@ def _parts(d, run, task, now) -> dict:
             parts["activity"] = "no role running"
         else:
             parts["head"] = "starting " + parts["head"]       # no dispatch of this stage yet
-    elif kind in ("window", "block"):
+    elif kind in ("window", "block", "awaits"):
         parts["activity"] = "no role running"
     parts["spend"] = _spend_text(d["spend"])
     parts["done"] = f"done {_span(d['done'])}" if d["done"] else ""
