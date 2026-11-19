@@ -37,3 +37,42 @@ not run locally: tools/test_dispatch_gate_md.py (markdown variant), canon judges
 - S-C-3 fixed: dead `test_lines` removed (`_test_line_state` is the one loop); `designer_threshold` computed once in check and passed to `_form_missing`; row `test-line-blank-item` in test_dispatch_new.py CASES.
 - S-C-4 fixed: docs/TESTING.md names the gate in tools/dispatch_manifest.py; CLAUDE.md R11-f lists `test:`. BOOT BUDGET before/after: CLAUDE.md 14495 -> 14565 / 16700; total 118404 -> 118474 / 120000.
 - Witness: `python -B -m pytest tools/test_dispatch_manifest.py tools/test_dispatch_new.py tools/test_dispatch_gate_md.py -q` -> `498 passed in 2.43s`; `python -B tools/pointer_lint.py --check` -> `pointer_lint: ok (34 files, 1959 pointers)` rc=0.
+
+## Round 3 (attempt 3, Opus; verdict t-1530 R1-R4)
+- Merge: origin/main (S-B 64186e28, S-D 9ee5c5e2) merged into the branch as d705436c (parents 2b389a03, 9ee5c5e2). CLAUDE.md conflict: R11-f taken from this branch with the R4 fix, R11-h taken verbatim from main (the critic's-probe clause kept); AGENTS.md: main's side taken (`git -C <wt> checkout --theirs AGENTS.md`, my own worktree) then regenerated with `python -B tools/agents_md.py` (114879 bytes).
+- R1 fixed: tools/dispatch_manifest.py `_TEST_KEY_RE` takes an optional backtick before the colon too (`test`: form); row `pass-backticked-word` in TEST_ROWS. Spec 5.1's other PASS forms (bare, bulleted, bold, whole-line backticked, `test:`) already had one row each.
+- R2 fixed: tools/dispatch_manifest.py `_dod_commands` skips a line only when `_test_line_parse` returns a well-formed parse (`got is not None and not got[2]`); row in test_dod_run_check: `- Test: <canon run>` inside the DoD extent -> 2 `test_canon_x.py whole`.
+- R3 fixed: the S-C-2 row in test_dod_run_check now puts the well-formed test line inside the `dod=` value (second line of the DoD section) -> 0.
+- R4 fixed: CLAUDE.md R11-f reads "and, for a builder, `test:` (...)" (resolved in the merge hunk, commit d705436c). CLAUDE.md 14222 bytes (main 14136); BOOT BUDGET 109276 / 120000, CLAUDE.md 14222/16700.
+- docs/TESTING.md, tools/dispatch_new.py, tools/test_dispatch_new.py: no change needed this round.
+
+### Red-before (byte copy of tools/dispatch_manifest.py, each mutation reverted from it)
+```
+9cf42a8914437a69                      <- sha256 prefix before
+== R1 revert
+FAILED tools/test_dispatch_manifest.py::test_test_line_table[pass-backticked-word]
+1 failed, 50 passed, 320 deselected in 0.37s
+== R2 revert
+FAILED tools/test_dispatch_manifest.py::test_dod_run_check[python -m pytest test_a.py -q`\n- Test: `python -m pytest test_canon_x.py -q--builder-cls4-
+1 failed, 50 passed, 320 deselected in 0.27s
+== skip removed (R3)
+FAILED tools/test_dispatch_manifest.py::test_dod_run_check[python -m pytest test_a.py -q`\n`test: test_canon_x.py | expected from: owner--builder-cls3
+1 failed, 50 passed, 320 deselected in 0.27s
+9cf42a8914437a69                      <- file after restore
+9cf42a8914437a69                      <- byte copy
+```
+
+### Witness (one run after all code edits, from the worktree root)
+```
+$ python -m pytest tools/test_dispatch_manifest.py tools/test_dispatch_new.py tools/test_dispatch_gate_md.py -q
+500 passed in 4.30s
+$ python -B tools/agents_md.py --check
+AGENTS.md: up to date (114879 bytes)
+$ python -B tools/pointer_lint.py --check
+pointer_lint: ok (34 files, 1985 pointers)
+pointer_lint exit 0
+$ python -B tools/session_context.py | grep 'BOOT BUDGET'
+BOOT BUDGET: 109276 bytes / 120000 (9 files) | CLAUDE.md: 14222/16700
+```
+- Tests: +3 rows / -1 row in tools/test_dispatch_manifest.py (+1 comment line); code +2 / -1 lines.
+- Notes: FG7-95's READERS NOTE untouched. Spec 5.1 item 1 still names `test_lines(cut)`, which the code no longer has (critic seam note, for the Lead). Merge-commit hook printed a WARN on a journal event without `feature` (logs/journal/dev1.jsonl line 4255, t-1523) -- not this task's.

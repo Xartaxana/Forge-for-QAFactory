@@ -1215,6 +1215,7 @@ TEST_ROWS = [  # (id, prompt, expected: [] passes, ["test"] refused as missing, 
     ("pass-bold", _over(test="**" + TESTL), []),
     ("pass-backticked", _over(test="`" + TESTL + "`"), []),
     ("pass-backticked-key", _over(test="`test:` a.py::t | expected from: owner"), []),
+    ("pass-backticked-word", _over(test="`test`: a.py::t | expected from: owner"), []),
     ("pass-crlf", _over().replace("\n", "\r\n"), []),
     ("pass-pipe-in-where", _over(test="test: a.py::t | b.py::u | expected from: owner"), []),
     ("pass-expected-from-any-case", _over(test="test: a.py::t | Expected From: owner"), []),
@@ -1441,7 +1442,9 @@ _SKIP_RUN = "manifest-skip: dod-run -- it is the file under change"
     (_PT.format("test_canon_x.py"), "", "builder", _CLASS, 2, "test_canon_x.py whole", ""),
     (_PT.format("test_slow_a.py"), "", "builder", _CLASS, 2, "test_slow_a.py whole", ""),
     (_PT.format("test_canon_x.py::test_one"), "", "builder", _CLASS, 0, "", ""),
-    (_PT.format("test_a.py"), "\n`test: test_canon_x.py | expected from: owner`\n", "builder", _CLASS, 0, "", ""),  # S-C-2
+    # S-C-2 / t-1530 R2-R3: inside the DoD a well-formed test line is no run, a malformed `Test:` line still is
+    (_PT.format("test_a.py") + "`\n`test: test_canon_x.py | expected from: owner", "", "builder", _CLASS, 0, "", ""),
+    (_PT.format("test_a.py") + "`\n- Test: `" + _PT.format("test_canon_x.py"), "", "builder", _CLASS, 2, "test_canon_x.py whole", ""),
     (_PT.format("tools/test_slow_a.py"), "", "builder", _CLASS, 0, "", ""),
     (_PT.format("test_slow_a.py;") + " echo ok", "", "builder", _CLASS, 2, "test_slow_a.py whole", ""),
     (_PT.format("ai-packages/qa-factory/scripts/tests/"), "", "builder", _CLASS, 2, "package tests directory whole", ""),

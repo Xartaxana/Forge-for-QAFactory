@@ -967,7 +967,7 @@ def _form_missing(cut: DispatchCut, missing: dict, counts):
     return skip_reason
 
 
-_TEST_KEY_RE = re.compile(r"test(?:\*\*)?[ \t]*:(?:\*\*)?`?", re.IGNORECASE)
+_TEST_KEY_RE = re.compile(r"test(?:\*\*)?`?[ \t]*:(?:\*\*)?`?", re.IGNORECASE)  # `test:` and `test`: both (t-1530 R1)
 _TEST_FROM_RE = re.compile(r"\|[ \t]*expected[ \t]+from[ \t]*:", re.IGNORECASE)
 _TEST_NONE_RE = re.compile(r"none(?![\w./\\:])", re.IGNORECASE)
 
@@ -1062,8 +1062,9 @@ def _dod_commands(cut: DispatchCut) -> list:
     for li in _command_lines(cut):
         if any(s.header_line <= li <= s.last_line for s in cut.sections["dod"]):
             line = cut.lines[li]
-            if _test_line_parse(line) is not None:
-                continue  # a test line is data about the run, never a command of it (S-C-2)
+            got = _test_line_parse(line)
+            if got is not None and not got[2]:
+                continue  # a test line is data about the run, never a command of it (S-C-2); a malformed one stays a run (t-1530 R2)
             out += [line] if cut.quoted[li] else [m.group(2) for m in _INLINE_SPAN_RE.finditer(line) if _tokens_ok(m.group(2))]
     return out
 
