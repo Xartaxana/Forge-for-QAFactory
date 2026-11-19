@@ -84,6 +84,7 @@ POINTERS = [
     (".claude/agents/designer.md", "the text is CLAUDE.md rule 11", "CLAUDE.md", "11. DoD in every dispatch (DoD-in-every-dispatch rule)"),
     (CRITIC, "docs/TESTING.md «Бюджет»", TESTING, "### Бюджет"),
     (COORD, "`docs/TESTING.md` «Что запускать по своей правке»", TESTING, TESTING_RUN),
+    (COORD, "the bounded probe of `.claude/agents/critic.md` rule 21", CRITIC, CRIT_21),
     (".claude/agents/designer.md", "`docs/TESTING.md` («Что запускать по своей правке», «Строка теста в DoD»", TESTING, "### Строка теста в DoD"),
     (".claude/agents/designer.md", "`.claude/agents/critic.md` rule 24, Q13 (d)", CRITIC, "Q13. **FACTS AND EDGES**"),
     (COORD, "`.claude/agents/critic.md` rule 22, Q6-Q7", CRITIC, "Q7. **CODE QUALITY**"),

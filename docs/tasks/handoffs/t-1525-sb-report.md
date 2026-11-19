@@ -66,3 +66,21 @@ absent = [...5 keys of the card "Absent" list verbatim...]
 - Line wrapping: T1's sentence is inserted on the existing line then wrapped by me; T3/T5 insertions make some lines longer than the 120-col neighbours (no cap checked).
 - Analogs seen: none beyond the list above. Readers outside owns: not run.
 - Needed beyond the manifest: COORDINATOR.md rule 3 lines 120-131 read; docs/SIBLING_MAP.md rows; the spec section 9.
+
+## Round 2 (Lead answers)
+- T6 DONE: COORDINATOR.md rule 3, sentence appended after «...control re-run: `.claude/agents/critic.md` rule 21.»; POINTERS row `(COORD, "the bounded probe of `.claude/agents/critic.md` rule 21", CRITIC, CRIT_21)` added (test file, 2 test lines total).
+- Axis 38: Lead's commit block, nothing written. Changelog fragment unstaged and deleted (no package file touched).
+- AGENTS.md regenerated: 114793 bytes. COORDINATOR.md 43156 -> 43282 (+126).
+- Mechanism files are STAGED (builder/critic/designer.md, AGENTS.md, CLAUDE.md, COORDINATOR.md, calibration, SIBLING_MAP, handoff_gate.py); the report and test file are committed.
+Witness (one run, after all edits):
+```
+pytest (3 files) -q            -> 223 passed in 1.54s
+install_parity --check         -> MISSING (0)
+agents_md --check              -> AGENTS.md: up to date (114793 bytes)
+pointer_lint --check           -> pointer_lint: ok (34 files, 1976 pointers)
+registry_preflight check lint  -> registry preflight: lint ok (0.1 s)
+BOOT BUDGET: 109190 bytes / 120000 (9 files) | CLAUDE.md: 14136/16700
+sb_witness.py                  -> all 18 present OK, 5 absent OK, FAILURES 0
+negative control (key "Bash is not gated hereX") -> MISSING line, FAILURES 1
+E-B6 grep (4 files)            -> no output, rc=1; control `byte copy` finds handoff_gate.py:10
+```
