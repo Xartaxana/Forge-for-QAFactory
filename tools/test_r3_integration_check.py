@@ -194,6 +194,14 @@ def test_find_critic_trail_matches_accepted_basis_critic():
     assert len(result) == 1
 
 
+def test_find_critic_trail_matches_accepted_basis_critic_cited_task():
+    # FG7-88 Q2: basis `critic:t-NNN` is a trail; a malformed one is not
+    def one(basis):
+        return [_line({"ts": "2026-08-25T10:00:00", "event": "accepted", "agent": "builder", "basis": basis})]
+    assert len(r3.find_critic_trail(one("critic:t-123"), "2026-08-25T09:00:00", "2026-08-25T11:00:00")) == 1
+    assert r3.find_critic_trail(one("critic:t-12"), "2026-08-25T09:00:00", "2026-08-25T11:00:00") == []
+
+
 def test_find_critic_trail_matches_notes_substring_critic_colon():
     lines = [
         _line(

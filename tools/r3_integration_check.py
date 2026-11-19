@@ -144,6 +144,16 @@ def parse_git_log_numstat(raw: str) -> List[Dict[str, Any]]:
     return commits
 
 
+def _is_critic_basis(basis) -> bool:
+    """The one critic-basis grammar (journal_validator.critic_basis, FG7-88 Q2); lazy import, the old exact
+    compare when the validator cannot be imported."""
+    try:
+        import journal_validator
+    except ImportError:
+        return basis == _CRITIC_MARKER[:-1]
+    return journal_validator.critic_basis(basis)[0]
+
+
 _CRITIC_MARKER = "critic:"
 _NOTES_FRAGMENT_RADIUS = 40  # characters around a match, for the printed trail
 
@@ -193,7 +203,7 @@ def find_critic_trail(
     [window_start, window_end] (both bounds inclusive; window_start=
     None means the lower bound is unbounded). A match is any of:
         - event == "delegated" and agent == "critic"
-        - event == "accepted" and basis == "critic"
+        - event == "accepted" and basis == "critic" or `critic:<task id>` (critic_basis)
         - event == "accepted" and a valid (non-anti-trail) "critic:"
           occurrence in notes -- see _find_critic_notes_match
     Timestamps are compared as strings (this journal's own format --
@@ -235,7 +245,7 @@ def find_critic_trail(
         notes = obj.get("notes")
         notes_text = notes if isinstance(notes, str) else ""
         is_critic_delegated = event == "delegated" and agent == "critic"
-        is_basis_critic = event == "accepted" and obj.get("basis") == "critic"
+        is_basis_critic = event == "accepted" and _is_critic_basis(obj.get("basis"))
         notes_matched, notes_fragment = (
             _find_critic_notes_match(notes_text) if event == "accepted" else (False, None)
         )

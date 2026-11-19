@@ -602,6 +602,15 @@ MATRIX_ROWS = [
     _row("by-capitalised-queued", CFG_TODAY, "scout", "Sonnet", "queued-to-lead", UNKNOWN_BY),
     _row("by-missing", CFG_TODAY, "scout", None, None, "'by'"),
 ]
+# FG7-88 Q2 / QE1, QE4: a `critic:<task id>` twin of every row whose basis is `critic` -- the same verdict
+MATRIX_ROWS += [_row(p.id + "-cited", *p.values[:3], "critic:t-123", p.values[5], p.values[4])
+                for p in list(MATRIX_ROWS) if p.values[3] == "critic"]
+# QE2: a malformed critic basis gets the verdict of basis None (builder/sonnet: GENERIC), never a pass
+MATRIX_ROWS += [_row("qe2-" + rid, CFG_AFTER, "builder", "sonnet", b, GENERIC) for rid, b in [
+    ("empty-id", "critic:"), ("short-id", "critic:t-12"), ("trailing-space", "critic:t-123 "),
+    ("leading-space", "critic: t-123"), ("upper", "CRITIC:t-123"), ("fullwidth", "critic:t-１２３"),
+    ("upper-suffix", "critic:t-123A"), ("semicolon", "critic:t-123;x"), ("word", "critic:lead"),
+    ("list", ["critic"]), ("int", 7), ("huge", "critic:t-" + "9" * 5000), ("cyrillic", "critic:t-123а")]]
 
 
 @pytest.mark.parametrize("cfg,agent,by,basis,category,expect", MATRIX_ROWS)
