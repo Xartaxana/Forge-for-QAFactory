@@ -1,0 +1,102 @@
+{
+ "schema": 1,
+ "group": "s6-s9",
+ "recipes": {
+  "to-s6.stand_login": [
+   {
+    "drive_until": {
+     "stage": "S6",
+     "question": "s6.stand_login"
+    }
+   }
+  ],
+  "to-s6.stand_confirm": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "s6.stand_confirm"
+    }
+   }
+  ],
+  "to-s6.stand_confirm.login": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "s6.stand_confirm.login"
+    }
+   }
+  ],
+  "to-s6.gate_a_dry": [
+   {
+    "drive_until": {
+     "stage": "S6",
+     "question": "s6.gate_a_dry"
+    }
+   }
+  ],
+  "to-s7.repair_limit": [
+   {
+    "drive_until": {
+     "stage": "S7",
+     "question": "s7.repair_limit"
+    }
+   }
+  ],
+  "to-s7.open_work": [
+   {
+    "drive_until": {
+     "stage": "S7",
+     "question": "s7.open_work"
+    }
+   }
+  ],
+  "to-closed.held": [
+   {
+    "drive_until": {
+     "stage": "S9",
+     "question": "closed.held"
+    }
+   }
+  ],
+  "to-s8.report_match": [
+   {
+    "drive_until": {
+     "stage": "S8",
+     "question": "s8.report_match"
+    }
+   }
+  ],
+  "to-s8.delivery_check": [
+   {
+    "drive_until": {
+     "stage": "S8",
+     "question": "s8.delivery_check"
+    }
+   }
+  ],
+  "to-s8.delivery.yes": [
+   {
+    "drive_until": {
+     "stage": "S8",
+     "question": "s8.delivery.yes"
+    }
+   }
+  ],
+  "to-s8.delivery.after_checks": [
+   {
+    "drive_until": {
+     "stage": "S8",
+     "question": "s8.delivery.after_checks"
+    }
+   }
+  ],
+  "to-s8.delivery.no": [
+   {
+    "drive_until": {
+     "stage": "S8",
+     "question": "s8.delivery.no"
+    }
+   }
+  ]
+ }
+}

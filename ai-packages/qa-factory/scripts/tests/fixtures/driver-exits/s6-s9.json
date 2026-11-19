@@ -3,8 +3,8 @@
  "group": "s6-s9",
  "routes": {
   "report_check": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the route is a refusal of the S8 report build ('report check:' -> rebuild_report); the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made, and a later-role refusal is not read by the walker's one-boundary post-answer window (finding 20261117-p1b-walker-post-answer-window-one-boundary.md)"
   }
  },
  "joints": {
@@ -13,8 +13,8 @@
    "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
   },
   "check_coverage:*": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the check refuses a role handoff inside a stage turn; the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made, and the walker reads the refusal line of the answer turns only (walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md)"
   },
   "estimate_record:facts_problems": {
    "reach": "unwalked",
@@ -275,22 +275,22 @@
  },
  "kinds_without_key": {
   "environment": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the S5/S6 stand_check question needs a stand config the dry world does not hold; the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made",
    "raised_at": [
     "driver_stage_build:stand_check"
    ]
   },
   "retro": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the S9 retro question is asked at the end of the story; the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made",
    "raised_at": [
     "driver_stage_s8s9:stage_S9"
    ]
   },
   "stand_identity": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the stand-identity ask (again/build_person/take_build_answer) needs a stand and a changed identity the dry world does not hold; the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made",
    "raised_at": [
     "driver_stage_build:again",
     "driver_stage_build:build_person",
@@ -298,8 +298,8 @@
    ]
   },
   "stand_login": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the S6 stand-login gate needs a stand to log in to, and the dry world holds none (known_red main/S6 text: a capture needs a stand and the dry world holds none); the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made",
    "raised_at": [
     "driver_stage_s6:stand_login_gate"
    ]
@@ -308,9 +308,15 @@
  "ratchet": {
   "live_only": 0,
   "after": 0,
-  "unwalked": 6,
+  "unwalked": 0,
   "hook_layer": 0,
   "raised_by": [
+   "live_only | routes/report_check | N4:s6-s9 t-1194, census row",
+   "live_only | joints/check_coverage:* | N4:s6-s9 t-1194, census row",
+   "live_only | kinds_without_key/environment | N4:s6-s9 t-1194, census row",
+   "live_only | kinds_without_key/stand_identity | N4:s6-s9 t-1194, census row",
+   "live_only | kinds_without_key/stand_login | N4:s6-s9 t-1194, census row",
+   "live_only | kinds_without_key/retro | N4:s6-s9 t-1194, census row",
    "unwalked | joints/first_look:put.input | L1c census catch-up, 2026-11-17",
    "unwalked | joints/first_look:put.inputs_current | L1c census catch-up, 2026-11-17",
    "unwalked | joints/first_look:put.null_reason | L1c census catch-up, 2026-11-17",

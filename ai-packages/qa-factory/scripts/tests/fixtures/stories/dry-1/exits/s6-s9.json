@@ -1,0 +1,946 @@
+{
+ "schema": 1,
+ "group": "s6-s9",
+ "rows": [
+  {
+   "id": "s6.stand_login/retry",
+   "start": "S5",
+   "seed": "to-s6.stand_login",
+   "answer": {
+    "token": "retry",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_login/by hand",
+   "start": "S5",
+   "seed": "to-s6.stand_login",
+   "answer": {
+    "token": "by hand",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_login/go on",
+   "start": "S5",
+   "seed": "to-s6.stand_login",
+   "answer": {
+    "token": "go on",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_login/free words",
+   "start": "S5",
+   "seed": "to-s6.stand_login",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_login/empty",
+   "start": "S5",
+   "seed": "to-s6.stand_login",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_confirm/go on",
+   "start": "S4",
+   "seed": "to-s6.stand_confirm",
+   "answer": {
+    "token": "go on",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_confirm/free words",
+   "start": "S4",
+   "seed": "to-s6.stand_confirm",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_confirm/empty",
+   "start": "S4",
+   "seed": "to-s6.stand_confirm",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_confirm.login/retry",
+   "start": "S4",
+   "seed": "to-s6.stand_confirm.login",
+   "answer": {
+    "token": "retry",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_confirm.login/go on",
+   "start": "S4",
+   "seed": "to-s6.stand_confirm.login",
+   "answer": {
+    "token": "go on",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_confirm.login/free words",
+   "start": "S4",
+   "seed": "to-s6.stand_confirm.login",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.stand_confirm.login/empty",
+   "start": "S4",
+   "seed": "to-s6.stand_confirm.login",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s6.gate_a_dry/go on",
+   "start": "S5",
+   "seed": "to-s6.gate_a_dry",
+   "answer": {
+    "token": "go on",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.gate_a_dry/stop",
+   "start": "S5",
+   "seed": "to-s6.gate_a_dry",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.gate_a_dry/free words",
+   "start": "S5",
+   "seed": "to-s6.gate_a_dry",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s6.gate_a_dry/empty",
+   "start": "S5",
+   "seed": "to-s6.gate_a_dry",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s7.repair_limit/debt",
+   "start": "S6",
+   "seed": "to-s7.repair_limit",
+   "answer": {
+    "token": "debt",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s7.repair_limit/stop",
+   "start": "S6",
+   "seed": "to-s7.repair_limit",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s7.repair_limit/free words",
+   "start": "S6",
+   "seed": "to-s7.repair_limit",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s7.repair_limit/empty",
+   "start": "S6",
+   "seed": "to-s7.repair_limit",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s7.open_work/close",
+   "start": "S6",
+   "seed": "to-s7.open_work",
+   "answer": {
+    "token": "close",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s7.open_work/stop",
+   "start": "S6",
+   "seed": "to-s7.open_work",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s7.open_work/free words",
+   "start": "S6",
+   "seed": "to-s7.open_work",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s7.open_work/empty",
+   "start": "S6",
+   "seed": "to-s7.open_work",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "closed.held/run again",
+   "start": "S8",
+   "seed": "to-closed.held",
+   "answer": {
+    "token": "run again",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "closed.held/leave",
+   "start": "S8",
+   "seed": "to-closed.held",
+   "answer": {
+    "token": "leave",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "closed.held/stop",
+   "start": "S8",
+   "seed": "to-closed.held",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "closed.held/free words",
+   "start": "S8",
+   "seed": "to-closed.held",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "closed.held/empty",
+   "start": "S8",
+   "seed": "to-closed.held",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s8.report_match/no delivery",
+   "start": "S7",
+   "seed": "to-s8.report_match",
+   "answer": {
+    "token": "no delivery",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.report_match/stop",
+   "start": "S7",
+   "seed": "to-s8.report_match",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.report_match/free words",
+   "start": "S7",
+   "seed": "to-s8.report_match",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.report_match/empty",
+   "start": "S7",
+   "seed": "to-s8.report_match",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery_check/retry",
+   "start": "S7",
+   "seed": "to-s8.delivery_check",
+   "answer": {
+    "token": "retry",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery_check/no delivery",
+   "start": "S7",
+   "seed": "to-s8.delivery_check",
+   "answer": {
+    "token": "no delivery",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery_check/stop",
+   "start": "S7",
+   "seed": "to-s8.delivery_check",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery_check/free words",
+   "start": "S7",
+   "seed": "to-s8.delivery_check",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery_check/empty",
+   "start": "S7",
+   "seed": "to-s8.delivery_check",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.yes/go on",
+   "start": "S7",
+   "seed": "to-s8.delivery.yes",
+   "answer": {
+    "token": "go on",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.yes/retry",
+   "start": "S7",
+   "seed": "to-s8.delivery.yes",
+   "answer": {
+    "token": "retry",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.yes/no delivery",
+   "start": "S7",
+   "seed": "to-s8.delivery.yes",
+   "answer": {
+    "token": "no delivery",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.yes/stop",
+   "start": "S7",
+   "seed": "to-s8.delivery.yes",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.yes/free words",
+   "start": "S7",
+   "seed": "to-s8.delivery.yes",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.yes/empty",
+   "start": "S7",
+   "seed": "to-s8.delivery.yes",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.after_checks/go on",
+   "start": "S7",
+   "seed": "to-s8.delivery.after_checks",
+   "answer": {
+    "token": "go on",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.after_checks/retry",
+   "start": "S7",
+   "seed": "to-s8.delivery.after_checks",
+   "answer": {
+    "token": "retry",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.after_checks/no delivery",
+   "start": "S7",
+   "seed": "to-s8.delivery.after_checks",
+   "answer": {
+    "token": "no delivery",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.after_checks/stop",
+   "start": "S7",
+   "seed": "to-s8.delivery.after_checks",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.after_checks/free words",
+   "start": "S7",
+   "seed": "to-s8.delivery.after_checks",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.after_checks/empty",
+   "start": "S7",
+   "seed": "to-s8.delivery.after_checks",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.no/go on",
+   "start": "S7",
+   "seed": "to-s8.delivery.no",
+   "answer": {
+    "token": "go on",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.no/retry",
+   "start": "S7",
+   "seed": "to-s8.delivery.no",
+   "answer": {
+    "token": "retry",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.no/no delivery",
+   "start": "S7",
+   "seed": "to-s8.delivery.no",
+   "answer": {
+    "token": "no delivery",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.no/stop",
+   "start": "S7",
+   "seed": "to-s8.delivery.no",
+   "answer": {
+    "token": "stop",
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.no/free words",
+   "start": "S7",
+   "seed": "to-s8.delivery.no",
+   "answer": {
+    "token": null,
+    "words": "Both options were read; go on as the report says.",
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "C2",
+     "C3"
+    ]
+   }
+  },
+  {
+   "id": "s8.delivery.no/empty",
+   "start": "S7",
+   "seed": "to-s8.delivery.no",
+   "answer": {
+    "token": null,
+    "words": null,
+    "words_file": null
+   },
+   "reach": "story",
+   "expect": {
+    "checks": [
+     "empty"
+    ]
+   }
+  }
+ ]
+}
