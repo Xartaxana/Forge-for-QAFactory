@@ -135,6 +135,16 @@
     "work/triage.json": {"triage": []}
    }
   },
+  "qa-doc-scribe@S8": {
+   "verdict": "ok",
+   "result_text": "qa-doc-scribe S8 DRY-1 · ok\nTC-1 · passed · the S6 run is green; nothing left with the person for this case\nTC-2 · manual_skipped · left unchecked by the person's word at S6; it stays with the person\ntest-report.md\nwork/handoffs/S8-qa-doc-scribe-1.yaml",
+   "overrides": {
+    "s8-scribe-to-gate-b": {
+     "inputs_read[0].path": "work/handoffs/S7-qa-failure-analyst-1.yaml",
+     "questions": []
+    }
+   }
+  },
   "qa-case-designer@S4": {
    "result_text": "qa-case-designer S4 DRY-1 · ok\nTC-1 · created · the case checks the cart total with a quantity\nwork/handoffs/S4-qa-case-designer-1.yaml",
    "overrides": {
@@ -181,7 +191,7 @@
   {"stage": "S5", "role": "qa-automator", "door": {"kind": "driver"}, "answers": {"environment": "go on"}},
   {"stage": "S6", "role": "qa-runner", "door": {"kind": "driver"}},
   {"stage": "S7", "role": "qa-failure-analyst", "door": {"kind": "driver"}},
-  {"stage": "S8", "role": "qa-doc-scribe", "door": {"kind": "driver"}},
+  {"stage": "S8", "role": "qa-doc-scribe", "door": {"kind": "driver"}, "answers": {"gate_B": "approve"}},
   {"stage": "S9", "role": "qa-retro-analyst", "door": {"kind": "driver"}}
  ]
 }

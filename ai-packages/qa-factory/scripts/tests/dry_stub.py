@@ -44,7 +44,9 @@ ROLE_STEPS = {"qa-scout": [("work/source-inventory.json", "ticket_adapter.py",
 # skills/qa-story/phases/s2.md "Exit" 1) and the recording of the size it printed (`stage_done.py --task <TICKET> --set size=<XS|S|M|L|XL|XXL>`, same text).
 # `{size}` is the `size` of the `work/sizing.json` the first step wrote: a value computed by code, never one of the stub's own.
 AFTER_STEPS = {("qa-requirements-tester", "S2"): [("work/sizing.json", "sizing.py", ["--task", "{task}"]),
-                                                   ("pipeline.size", "stage_done.py", ["--task", "{task}", "--set", "size={size}"])]}
+                                                   ("pipeline.size", "stage_done.py", ["--task", "{task}", "--set", "size={size}"])],
+               # brief_pack.py "qa-doc-scribe": `check_coverage.py --write` is the ONE writer of records/coverage-map.md and its receipt (FV3-42)
+               ("qa-doc-scribe", "S8"): [("records/coverage-map.md", "check_coverage.py", ["--write"])]}
 MOVE_LINE = re.compile(r"^- `(\w+)`(?: — token `([^`]+)`)?;")
 FORM_CONTRACT = re.compile(r"^contract:\s*(\S+)", re.M)
 FORM_STAGE = re.compile(r"^stage:\s*(\S+)", re.M)

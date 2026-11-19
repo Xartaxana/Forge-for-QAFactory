@@ -1,9 +1,9 @@
 {
  "_about": "The label ledger of the main pass of the dry walk (the `main/*` rows only; a group's rows are in known_red/<group>.json), read ONLY by scripts/tests/known_red.py (P1-a spec 3.6): `known_red` holds one row per walk-row id (`<key|route|joint|kind>/<variant>`) that is red today because of a defect of main - `{node, raised_by[, note]}` - and `pins.known_red` is the number of rows (equality, both directions). Empty until the walk nodes (N3, N4) measure their first red rows; a raise is named in raised_by of the row.",
  "known_red": {
-  "main/S7": {
+  "main/S9": {
    "node": "FV3-42",
-   "raised_by": "t-1562 critic: measured on f8d132f7, --part main: the S7 analyst passes (FV3-23); the pass stops at the S8 doc scribe's exit gate (no stub row qa-doc-scribe@S8: digest; records/coverage-map.md never built); S7 stays pending because it closes only at s7.accepted"
+   "raised_by": "t-1565 builder: measured --part main after the S8 scribe row (qa-doc-scribe@S8) and the gate_B answer: S7 and S8 pass; after gate B the pass stops at the exit gate of S8-qa-bug-reporter-1 (qa-bug-reporter, S8): no stub row qa-bug-reporter@S8 (digest not the handoff form, inputs_read, scope, header.verdict, claims, tried unfilled); S9 stays pending"
   }
  },
  "pins": {
