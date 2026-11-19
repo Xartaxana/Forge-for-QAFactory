@@ -404,8 +404,8 @@ class SkillRoad:
             self.py("stage_done.py", "--task", self.task, "--stage", stage, *args, check=True)
         except Refused as exc:
             raise Refused(f"{exc}\n{record_door(self.task, stage, args)}", title=exc.title) from None
-        for row in tail:
-            self.py("log_append.py", *row)
+        for row in tail:  # FV3-29: a failed tail row was dropped silently (q3c); now one note, the loop goes on, never a raise
+            self.owe_row("log_append.py", *row, what=f"journal row {row[0] if row else '(empty)'}")
 
     def manual_request_paths(self, cases) -> list:
         import manual_evidence

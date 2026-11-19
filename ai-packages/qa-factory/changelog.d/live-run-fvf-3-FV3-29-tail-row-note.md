@@ -1,0 +1,1 @@
+- A failed journal row in the tail of a skill-road stage close now prints one `note:` line naming the event instead of being dropped silently; the remaining rows still run and the close is never refused over it.
