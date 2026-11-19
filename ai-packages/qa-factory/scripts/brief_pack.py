@@ -388,10 +388,6 @@ TOOLING_NO_SHELL = {
 }
 
 
-# The rules the code will apply to this handoff, said to the role BEFORE the work instead of
-# after it (factory rule FR-38). The cards are data - references/ahead-cards.json - so a check
-# and the sentence that announces it are changed in one place, by whoever changes the check,
-# with no Python edit (FR-13). A role with no card gets no such section.
 def digest_template_lines(role: str, stage: str, dispatch_id: str, dispatch, path_override: str = "") -> list:
     """F11 (t-1701 D5-C): the section `## Your final message` - the digest form of THIS dispatch, its scope ids already rows.
     The ids come from the gate's own reader (`exit_gate._scope_of`, so the template and the gate never disagree on the scope)
@@ -414,12 +410,8 @@ def digest_template_lines(role: str, stage: str, dispatch_id: str, dispatch, pat
         return []
 
 
-def ahead_card(role: str) -> str:
-    """The card this role is handed, or "" when the table names none for it."""
-    cards = hooklib.load_ref_json("ahead-cards.json").get("cards") or {}
-    entry = cards.get(role)
-    return str((entry or {}).get("text") or "").strip() if isinstance(entry, dict) else ""
-
+# The rules code will apply to a handoff reach the role through its injected key page (`contract_slices.handoff_keys_page`, told-before-work
+# T3b): the brief carries one line naming the page's groups that hold for this dispatch (`dispatch_groups`), never a copy of the rules.
 
 # The roles that write a case id: the designer names the file and its `id:`, the automator copies
 # the id into `case=`. Their cards and charters say "in the form your brief names", so the brief
@@ -2210,13 +2202,7 @@ def _row_field_lines() -> list:
     AR-13) in the words of `manifest_from_tests._legend_line`: no list of names is spelled here."""
     try:
         import window_record as WR
-        out = []
-        for name, spec in WR.REQUIRED_ROW_FIELDS.items():
-            if spec.filled_by == "automator":
-                out.append(f"- {name}: {spec.what}" + (f" (one of: {', '.join(spec.values)})" if spec.values else ""))
-            else:
-                out.append(f"- {name}: {spec.what}; written by the marker, not by hand: {spec.origin_door}")
-        return out
+        return WR.row_field_lines()      # told-before-work T3b: the renderer moved to the carrier's module
     except Exception as exc:  # noqa: BLE001
         return [f"- the row fields could not be read ({type(exc).__name__}); `manifest_from_tests.py` prints them after its write"]
 
@@ -2702,7 +2688,7 @@ def _stand_text(text) -> str:
 
 
 def _stand_names(names: list, limit=None) -> str:
-    """Every name, comma-joined. `limit` is accepted and unused: the count bound is gone (its callers still pass a constant of the first-look lines)."""
+    """Every name, comma-joined. `limit` is accepted and unused: the count bound is gone (no caller passes one now; kept for the old call shape)."""
     return ", ".join(names)
 
 
@@ -4011,6 +3997,90 @@ def walk_record(task_root: Path, dispatch_id: str) -> dict:
     return rec if isinstance(rec, dict) and rec.get("items") else {}
 
 
+# --- the groups line (told-before-work T3b, B3) -----------------------------------------------------------------------------------
+# The rules code applies reach the role on its injected key page (`contract_slices.handoff_keys_page`), in sub-sections by dispatch kind.
+# Which of them are for THIS dispatch is told by one line, from the facts below - moved out of `build`, so the brief and the prompt
+# (`story_step._card_text`) read one function. A fact that cannot be read never names a member of an exclusive pair (FR-59).
+COULD_NOT_TELL = "could not tell: "
+UNREADABLE_HEAD = "Code checks for this dispatch could not be read"      # the rows (or the stage list) could not be read: ONE line, never a silent absence (AR-28)
+GROUPS_LINE_HEAD = 'What code will check of this dispatch: your injected key page, section "What code will check of you"'
+
+
+def _is_first_look(role: str, dispatch: dict) -> bool:
+    """The optional S3 dispatch of the runner that looks at the stand before the plan (the word is the record's `purpose`)."""
+    return role == "qa-runner" and str(dispatch.get("purpose") or "") == FIRST_LOOK_PURPOSE
+
+
+def _plan_role(stage: str, role: str) -> bool:
+    """An S5 dispatch of a plan role: the one whose plan/window form `_s5_kind` reads."""
+    from controller import S5_PLAN_ROLES      # the one list of the plan's roles (no import cycle: nothing imports brief_pack at top level)
+    return stage == "S5" and role in S5_PLAN_ROLES
+
+
+def _manual_runner(role: str, dispatch: dict, first_look: bool) -> bool:
+    """A manual runner dispatch that is no first look: the one that may carry a walk session."""
+    return role == "qa-runner" and _record_kind(dispatch) == "manual" and not first_look
+
+
+def dispatch_groups(task_root: Path, stage: str, role: str, dispatch_id: str) -> list:
+    """`_dispatch_groups`, never raising: when the rows or the stage list cannot be read the answer is ONE entry that says so (`groups_line`
+    prints it alone), because a prompt with no line would hide the gap (AR-28)."""
+    try:
+        return _dispatch_groups(task_root, stage, role, dispatch_id)
+    except Exception as exc:  # noqa: BLE001
+        return [f"{UNREADABLE_HEAD} ({type(exc).__name__}: {_text_whole(exc)[:120]}); the role page is the only list"]
+
+
+def _dispatch_groups(task_root: Path, stage: str, role: str, dispatch_id: str) -> list:
+    """The sub-sections of the role's key page that hold for this dispatch, as the page's own headings (without the `### `) in page
+    order, then one `could not tell: ...` entry per exclusive pair whose fact cannot be read (a plan form that could not be
+    established, no record of the dispatch where the pair depends on it): neither member of such a pair is named. Only groups the role
+    has rows in are named. Raises on an unreadable rows file (see `dispatch_groups`)."""
+    import contract_slices as CS
+    import stage_joints as SJ
+    task_root = Path(task_root)
+    controller = _load(task_root / "state" / "controller.json")
+    records = controller.get("dispatches")
+    dispatch = (records.get(dispatch_id) if isinstance(records, dict) else None) or {}      # no state, a broken one, no record: {}
+    first_look = _is_first_look(role, dispatch)
+    s5_kind = _s5_kind(task_root, controller, dispatch)[0] if _plan_role(stage, role) else ""
+    facts = {"plan": s5_kind == "plan", "window": s5_kind == "window", "manual": _record_kind(dispatch) == "manual",
+             "first_look": first_look, "not_first_look": not first_look,
+             "walk": _manual_runner(role, dispatch, first_look) and bool(walk_record(task_root, dispatch_id))}
+    unreadable = set()
+    if _plan_role(stage, role) and (s5_kind == "unknown" or not dispatch):
+        unreadable |= {"plan", "window"}
+    if role == "qa-runner" and not dispatch:
+        unreadable |= {"first_look", "not_first_look"}
+    from stage_guard import stages_of_role      # the page lays the rows of ALL the role's stages (a first look runs at S3, its rows say S6)
+    ids = [str(s.get("id")) for s in stages_of_role(hooklib.load_ref_json("stages.json"), role)]
+    held = SJ.rows_for(role, ids, {t: v and t not in unreadable for t, v in facts.items()})
+    data, why = SJ.load_rows()
+    if data is None:
+        raise ValueError(why)
+    exclusive = data.get("when_exclusive") or []
+    mine = {t for r in held for t in r.get("when") or []}
+    out = [CS._group_heading(token, exclusive)[len("### "):] for token, _name in CS.GROUPS if token in mine]
+    wanted = {t for r in SJ.rows_for(role, ids, None) for t in r.get("when") or []}
+    names = dict(CS.GROUPS)
+    for pair in exclusive:
+        if isinstance(pair, list) and len(pair) == 2 and all(t in names for t in pair) and wanted & set(pair) and unreadable & set(pair):
+            out.append(f'{COULD_NOT_TELL}read both "{names[pair[0]]}" and "{names[pair[1]]}" and ask the conductor')
+    return out
+
+
+def groups_line(groups) -> str:
+    """THE one sentence of the groups (`dispatch_groups`): the brief prints it under `## Commands`, `story_step._prompt` in the prompt."""
+    if any(g.startswith(UNREADABLE_HEAD) for g in groups):
+        return next(g for g in groups if g.startswith(UNREADABLE_HEAD)) + "."
+    named = [g for g in groups if not g.startswith(COULD_NOT_TELL)]
+    unsure = [g for g in groups if g.startswith(COULD_NOT_TELL)]
+    tail = " and its sub-sections " + ", ".join(f"`{g}`" for g in named) if named else ' and none of its "Only in" sub-sections'
+    if unsure:
+        return GROUPS_LINE_HEAD + tail + "; " + "; ".join(unsure) + "."
+    return GROUPS_LINE_HEAD + tail + ("; the other sub-sections are not for this dispatch." if named else ".")
+
+
 def _case_sections(text: str) -> dict:
     """{lower-case heading: [lines]} of the `## ` sections of a case file (the one section reader, `traceability._sections`)."""
     import traceability
@@ -4097,7 +4167,6 @@ FIRST_LOOK_PURPOSE = "first_look"             # the purpose of the optional qa-r
 FIRST_LOOK_CONTRACT = "artifact-contract-first-look.md"
 FIRST_LOOK_REQ_MAX = 20                       # requirement lines of the runner's brief; the rest is counted and the register named
 FIRST_LOOK_REQ_CHARS = 70                     # how much of a requirement's statement a line keeps
-FIRST_LOOK_ROLES_MAX = 8                      # account / role names named in one line
 FIRST_LOOK_VERBS = ("item", "step", "look", "done")     # the walk commands the first look uses: ONE table, WALK_COMMANDS (F7)
 FIRST_LOOK_STEP_NOTE = "; for a requirement with no screen the step is `http <METHOD> <path> [--body-file <file>]`"
 FIRST_LOOK_PUT = "first_look.py put --task-root <task root> --file <rows.yaml> - your rows, once: the record of the first look"
@@ -4106,9 +4175,8 @@ FIRST_LOOK_COMMANDS = tuple(
     for verb in FIRST_LOOK_VERBS for line in WALK_COMMANDS if line.split()[1] == verb) + (FIRST_LOOK_PUT,)
 FIRST_LOOK_GOAL = ("Survey the new version on the stand once, before any plan exists: per requirement of the register, what the stand shows, "
                    "in one record sent with `first_look.py put`")
-FIRST_LOOK_DOD = ("One row per requirement of the register, each with a status, where you looked and a quote of a capture of this walk; "
-                  "`first_look.py put` checks the record when you send it and refuses with the row and the field")
-FIRST_LOOK_AHEAD = "The record is checked by `first_look.py put` when you send it: it refuses with the row and the field."
+# The deliverable only: what `first_look.py put` checks of it is told by the key page (rows `first_look:put.*`), not by this line (T3b).
+FIRST_LOOK_DOD = "One row per requirement of the register, each with a status, where you looked and a quote of a capture of this walk"
 
 
 def first_look_input_line(task_root: Path, display: str, size: str = "") -> str:
@@ -4146,16 +4214,16 @@ def _first_look_accounts(task_root: Path, stand: str, opened: list) -> str:
         root = RP.project_for_task(task_root)
         got = FL.walk_actors(root, hooklib.load_config() or {}, stand, WS.data()["max_actors"])
         have, none, problem = got["accounts"], got["none"], got["problem"]
-        shown = _stand_names(have, FIRST_LOOK_ROLES_MAX) if have else "none found"
+        shown = _stand_names(have) if have else "none found"
         left = [a for a in have if a not in opened]
         text = f"Accounts the factory has on {stand or 'the stand'} (names only): {shown}. You sign in only as the walk actors above."
         if left:        # the walk holds at most `max_actors`: an account that exists but is not open is named, never dropped silently
-            text += (f" Known but NOT opened in this walk: {_stand_names(left, FIRST_LOOK_ROLES_MAX)} - a requirement that needs one of them is "
+            text += (f" Known but NOT opened in this walk: {_stand_names(left)} - a requirement that needs one of them is "
                      "`unreachable` with `blocked_by: access`, and its `why` names that account.")
         if problem:     # AR-23: an unreadable registry narrows the roles to the stand's accounts - say so
             text += f" The record of earlier answers cannot be read ({_text_whole(problem)}): listed from the stand's accounts only."
         if none:
-            text += (" Roles with no account found: " + _stand_names(none, FIRST_LOOK_ROLES_MAX)
+            text += (" Roles with no account found: " + _stand_names(none)
                      + " - `access` with the role's name is also for these.")
         return text
     except Exception as exc:  # noqa: BLE001 - a courtesy line
@@ -4539,7 +4607,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     stage_def = _stages().get(stage) or {}
     # t-2277 FL-3: the optional S3 dispatch of the runner that looks at the stand before the plan. Every gate below that is keyed on
     # this word leaves the brief of any other dispatch exactly as it was.
-    first_look = role == "qa-runner" and str(dispatch.get("purpose") or "") == FIRST_LOOK_PURPOSE
+    first_look = _is_first_look(role, dispatch)
     briefs_dir = task_root / "work" / "briefs"
     brief_rel = RP.story_text(task_root, f"work/briefs/{dispatch_id}.md")
 
@@ -4555,8 +4623,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     # SC1-14 C2 / TQ2-1 K2: which S5 dispatch this is. `legacy` is the brief as it was plus the case critic's concerns for its
     # window; every other stage or role is the brief as it was, byte for byte.
     s5_kind, s5_why, s5_state = "", "", None
-    from controller import S5_PLAN_ROLES      # the one list of the plan's roles (no import cycle: nothing imports brief_pack at top level)
-    if stage == "S5" and role in S5_PLAN_ROLES:
+    if _plan_role(stage, role):
         s5_kind, s5_why, s5_state = _s5_kind(task_root, controller, dispatch)
     win = (window_line(controller_obj, stage, scope)
            if controller_obj and stage in ("S5", "S6") and s5_kind != "plan" else "")      # the plan's scope is all cases, not a window
@@ -4686,7 +4753,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     sd_head = sd_head_lines(task_root, stage, role, dispatch_id, names, stage_def, plan_road=s5_kind == "plan", first_look=first_look)
     head[2:2] = sd_head
     walking = False       # t-1957 N3: a manual dispatch with a walk session gets the thin walk brief
-    if role == "qa-runner" and _record_kind(dispatch) == "manual" and not first_look:
+    if _manual_runner(role, dispatch, first_look):
         walk_rec = walk_record(task_root, dispatch_id)
         walking = bool(walk_rec)
         # after `sd_head_lines` (head[2:2] above): the charter header lines stay; the first lane alone gets the cells (exploration_lines
@@ -4751,14 +4818,21 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         if TOOLING_MANUAL_APP.get(role) and _has_device_stand(hooklib.load_config() or {}):
             doc = (HERE.parent / "references" / "manual-evidence-app.md").as_posix()
             lines += [line.replace("<APP_DOC>", doc) for line in TOOLING_MANUAL_APP[role]]
-    card += ["- " + line.replace("<T>", task).replace("<ID>", dispatch_id).replace("<home>", _home_text(project)) for line in lines]
+    import stage_joints      # the one filler of `<T>`, `<ID>`, `<home>` (I-S: the page line and the brief line fill the same way)
+    values = {"T": task, "ID": dispatch_id, "home": _home_text(project)}
+    card += ["- " + stage_joints.fill(line, values) for line in lines]
     card += judge_lines(role, shell, dispatch_id)
     if walking:     # t-1957 N3: only the walk commands - no manifest line, no env_probe, no finalize_task (code does those)
         card = command_card_lines(task_root, dispatch_id, WALK_COMMANDS, ". `--help` of a script is allowed.")
     if first_look:      # t-2277 FL-3: the commands are in the head (`first_look_runner_lines`), with the walk and the stand they are about
         card = ["The commands of this dispatch are the lines under `Every command is` in the head above; `--help` of a script is allowed."]
-    # The first look hands in ONE record, `first_look.py put` - its handoff is not a run report (FR-10, AR-10): its own ahead card and path.
-    ahead = FIRST_LOOK_AHEAD if first_look else ahead_card(role)
+    # The rules code applies stand on the role's key page; the brief says which of its sub-sections are for this dispatch (T3b). A line
+    # that cannot be built is no line: the page, which holds every group, stands alone.
+    try:
+        groups_text = groups_line(dispatch_groups(task_root, stage, role, dispatch_id))
+    except Exception:  # noqa: BLE001 - a brief is never lost to a courtesy line
+        groups_text = ""
+    # The first look hands in ONE record, `first_look.py put` - its handoff is not a run report (FR-10, AR-10): its own path.
     digest_form = digest_template_lines(role, stage, dispatch_id, dispatch, FIRST_LOOK_FILE if first_look else "")
 
     # 4. the person's words
@@ -4822,8 +4896,8 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         if p1_areas:
             parts += ["", "## P1 areas", ""] + p1_areas
         parts += ["", "## Commands", ""] + card
-        if ahead:
-            parts += ["", "## The rules code will apply to your handoff", "", ahead]
+        if groups_text:
+            parts.append(groups_text)
         if repo:
             parts += ["", "## Repository map of the window", ""]
             if repo.get("error"):

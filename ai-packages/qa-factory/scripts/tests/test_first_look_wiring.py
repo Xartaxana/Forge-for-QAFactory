@@ -269,9 +269,10 @@ def test_first_look_brief_names_no_run_report():
         check_not_in("first_look_brief_names_no_run_report: nor its goal", "Every manual-agent case walked live", text)
         check_not_in("first_look_brief_names_no_run_report: nor the zero-run refusal of the role-level card", "zero run", text)
         check_in("first_look_brief_names_no_run_report: the final message names the record's path", "\nwork/first-look.yaml\n", text)
-        check("first_look_brief_names_no_run_report: the goal is the first look's, recorded with put",
-              bool(lines_of(text, "goal: Survey the new version")) and "first_look.py put" in (lines_of(text, "DoD: ") or [""])[0], text[:900])
-        check_in("first_look_brief_names_no_run_report: the ahead card says put checks the record", "The record is checked by `first_look.py put`", text)
+        check("first_look_brief_names_no_run_report: the goal is the first look's, recorded with put; its DoD is the deliverable only (T3b)",
+              bool(lines_of(text, "goal: Survey the new version")) and "first_look.py put" not in (lines_of(text, "DoD: ") or [""])[0], text[:900])
+        check_in("first_look_brief_names_no_run_report: the groups line says which sub-sections of the page are for this dispatch (T3b)",
+                 "What code will check of this dispatch:", text)
         check_eq("first_look_brief_names_no_run_report: ONE command card in the brief", text.count("Every command is `python"), 1)
         other = p.brief("S6", "qa-runner", "S6-qa-runner-1")
         check_in("first_look_brief_names_no_run_report: the control - the S6 runner brief still names it", "run-report.json", other)

@@ -355,9 +355,6 @@ def main() -> None:
             for role in stage.get("roles") or []:
                 dispatch = f"{stage_id}-{role}-1"
                 result = brief_pack.build("QA-9", stage_id, role, dispatch, write=False)
-                check_in(f"{role}: the brief carries the rules ahead of the work",
-                         "## The rules code will apply to your handoff", result["markdown"])
-                check_in(f"{role}: and the card itself", table[role]["text"][:60], result["markdown"])
                 # FV1-4: no size row here (the per-role watch is `ROLE_BRIEF_BYTES_MAX` in test_brief_pack.py), and no
                 # "the card cost no path" row (with no trimming it is trivially true; N1 DoD key (4) is the invariant)
     finally:
