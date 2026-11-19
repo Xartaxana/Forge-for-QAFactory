@@ -1298,27 +1298,31 @@ class DriverStagePlan:
             except Exception:
                 return False
             mine = set(record.get("scope") or [])
+            # FV3-35 B [F2 (a)]: a window that is not the last no longer returns here - an approved one still ends in `False`, a send-back
+            # in `OpenWork`, both decided by `s5_critic_completion` below (`last` False)
+            last = True
             if self.s5_parallel_cap() != 1:
                 # TR3-6: other windows through `s5_open_windows` (a running dispatch, an owed round or a live chain keep a window open as
                 # well as a missing acceptance); unreadable is open, never a close (FR-59). `mine == scope` is still skipped there.
                 try:
                     if self.s5_open_windows(excluding=mine):
-                        return False
+                        last = False
                 except Exception:       # noqa: BLE001
-                    return False
+                    last = False
             else:
                 for window in windows:
                     if set(window.get("scope") or []) == mine:
                         continue
                     if "qa-code-critic" not in (window.get("accepted_by") or {}):
-                        return False
+                        last = False
+                        break
             # t-698 A4/L6: the last critic closes S5 only by the SAME rule the loop applies - the route of ITS review (read after the
             # role wrote the form: `finish` evaluates the callable) and the person's answer for THIS critic dispatch.
             cases, dispatch = list(record.get("scope") or []), str(record.get("id") or getattr(self, "last_dispatch", ""))
 
-            def closes(digest: str) -> bool:
+            def closes(digest: str):
                 route, _form = self.route_of(digest, self.budget_or_none("S5", "qa-automator", cases, ref=dispatch), dispatch)
-                return self.s5_window_closed(route, self.repair_answer(cases, dispatch))
+                return self.s5_critic_completion(route, self.repair_answer(cases, dispatch), last, cases=cases, critic=dispatch)
             return closes
         if stage == "S4" and role == "qa-case-critic":
             # C2-4 (t-909 F-4): the recovery road closes S4 by the SAME rule the live stage applies (`s4_critic_completion`). POSITION

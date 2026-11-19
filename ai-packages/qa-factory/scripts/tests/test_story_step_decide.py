@@ -68,6 +68,11 @@ def decide_door_checks(root: Path, env: dict) -> None:
     check_eq("T6: on S5 --unresolved with --not-complete is still refused",
              (finish_s5(root, env, "QA-T1", "--not-complete", "--unresolved", "x", "--reason", "y").returncode,),
              (2,))
+    # FV3-35 B (E10): the one reserved word passes the door with --not-complete and reaches the controller; `x` above stays refused
+    art6, _w = s5_window_story(root, "QA-T6", handed=False)
+    sent = finish_s5(root, env, "QA-T6", "--not-complete", "--unresolved", "tests_in_repair", "--reason", "y")
+    check_eq("T6: the reserved word `tests_in_repair` reaches the controller - the critic is accepted with it",
+             (sent.returncode, Controller(art6).state()["dispatches"]["s5-critic"].get("unresolved")), (0, "tests_in_repair"))
     (art / "work/windows").mkdir(parents=True, exist_ok=True)
     (art / "work/windows/s5-critic.json").write_text(json.dumps(window), encoding="utf-8")
     fin = finish_s5(root, env, "QA-T1")
