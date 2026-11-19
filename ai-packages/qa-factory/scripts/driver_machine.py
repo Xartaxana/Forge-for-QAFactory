@@ -3560,11 +3560,18 @@ class DriverMachine:
             # of sources not to read, given on a command line of a story whose sources were already
             # collected (t-172 C1), is asked at S0 and read by `skip_sources_late`, not by a conductor.
             self._keep_s0_words(words)
-        elif (halt_free_words and not (stage == "S1" and self.s0_normalize(words) == "not built yet" and self.s1_has_no_diff())):
+        elif kind == "halt" and stage == "S1" and self.s0_normalize(words) == "not built yet" and self.s1_has_no_diff():
+            # t-2181 PC-7 B3 (FR-9, AR-19), FV3-34: the `not built yet` answer of `s1.no_diff` - the twin of the `s0.no_change` answer -
+            # records the side before the words go to the scout, on BOTH roads: the first answer (no `offered`) and the re-raised
+            # question (`offered`; it is a token of s1.no_diff, which used to go to `take_seam_answer`: side never recorded, words never
+            # filed - t-1300 N-A5). POSITION INVARIANT: only kind `halt` at S1 with the manifest's `none` source, the WHOLE answer
+            # (`not built yet please` is other words: the halt road below); BEFORE the generic `offered` branch, so every other offered
+            # token (`stop`) still reaches `take_seam_answer`; story parks after S5 instead of reading the default `product: real`.
+            self._answer_s1_not_built(words, dispatch)
+        elif halt_free_words:
             # FV3-16 P3 POSITION INVARIANT: right BEFORE the generic `offered` branch, so EVERY token of `asked.offered`, `stop` included,
             # still reaches `take_seam_answer` (`halt_free_words` is False for a token); only free words of a `halt` seam question come
-            # here, to the halt road below (`_unread_halt_or_review`), so they are filed for the role as the first answer's were. The
-            # `not built yet` answer keeps today's road (the generic branch), as before.
+            # here, to the halt road below (`_unread_halt_or_review`), so they are filed for the role as the first answer's were.
             self._unread_halt_or_review(kind, stage, dispatch, qtext, words)
         elif asked.get("offered") and not seam_gate_words:
             # A question the seam (`no_move`) raised, and only such a question: `ask()` writes `offered` from its Person alone, so
@@ -3584,12 +3591,6 @@ class DriverMachine:
             # A threshold stop (t-113 B2, R17, FV1-3): tokens are recorded by code; words code could
             # not read go to the conductor (`register_words_to_conductor`); the words go to the role's own session. Only this kind reaches it.
             self.take_question_answer(stage, dispatch, words, qtext)
-        elif kind == "halt" and stage == "S1" and self.s0_normalize(words) == "not built yet" and self.s1_has_no_diff():
-            # t-2181 PC-7 B3 (FR-9, AR-19): the `not built yet` answer of `s1.no_diff` - the twin of the `s0.no_change` answer - records the
-            # side before the words go to the scout. POSITION INVARIANT: only kind `halt` at S1 with the manifest's `none` source, the WHOLE
-            # answer (`not built yet please` is other words and takes the unread road below); before `judged_reply` / `unread`, so the
-            # story parks after S5 instead of reading the default `product: real`.
-            self._answer_s1_not_built(words, dispatch)
         elif kind == "halt" and self.s0_normalize(words) == "stop":
             # The halt question's one token (`halt` / `s1.no_diff` of question-prices.json). POSITION INVARIANT: only kind `halt`,
             # the WHOLE answer, and BEFORE `judged_reply` / `unread` - the conductor is not called and the words are not filed

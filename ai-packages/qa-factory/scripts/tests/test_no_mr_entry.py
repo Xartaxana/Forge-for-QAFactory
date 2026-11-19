@@ -520,6 +520,39 @@ def the_texts_of_the_twins() -> None:
         harness.cleanup(root)
 
 
+import pytest  # noqa: E402
+
+OFFERED = {"offered": True, "options": [{"token": "not built yet", "move": "chosen"}, {"token": "stop", "move": "stop"}]}
+
+
+@pytest.mark.parametrize("asked_extra, words, no_diff, stage, road", [
+    (OFFERED, "Not built yet", True, "S1", "not_built"),         # road 1: the re-raised question carries `offered`
+    ({}, "not built yet", True, "S1", "not_built"),              # road 2: the first answer
+    (OFFERED, "stop", True, "S1", "seam"),                       # another offered token: as today
+    (OFFERED, "not built yet please", True, "S1", "free"),       # not the token: free words of a halt
+    (OFFERED, "not built yet", False, "S1", "seam"),             # S1 with a diff: today's road
+    (OFFERED, "not built yet", True, "S2", "seam"),              # another stage: today's road
+])
+def test_fv3_34_not_built_yet_one_road(asked_extra, words, no_diff, stage, road):
+    """FV3-34 (t-1300 N-A5): `not built yet` is a token of s1.no_diff; it reaches `_answer_s1_not_built` on both roads."""
+    from story_run_common import seed
+    root, task_root, env = seed("QA-5")
+    try:
+        driver = driver_for(root, env, "QA-5")
+        reached = []
+        driver.s1_has_no_diff = lambda: no_diff
+        driver._answer_s1_not_built = lambda *a, **k: reached.append("not_built")
+        driver.take_seam_answer = lambda *a, **k: reached.append("seam") or True
+        driver._unread_halt_or_review = lambda *a, **k: reached.append("free")
+        driver.state["asked"] = dict({"kind": "halt", "stage": stage, "dispatch": "S1-qa-scout-1"}, **asked_extra)
+        (root / "answer.txt").write_text(words + "\n", encoding="utf-8")
+        with redirect_stdout(io.StringIO()):
+            driver.take_answer(root / "answer.txt")
+        assert reached == [road]
+    finally:
+        harness.cleanup(root)
+
+
 def main():
     the_twins_say_the_same()
     run_scenarios([the_answers_end_to_end, a_real_ticket_goes_the_old_road, not_built_yet_and_the_sides_at_launch, an_unknown_reality_is_refused],
