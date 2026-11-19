@@ -58,6 +58,7 @@ OWNER_KEYS = [
     # scope:mutation retired by the owner's word 28.10 and 10.11.2026 (docs/TESTING.md): the mutation list is no longer written
     ("scope:tests", TESTING, "Покраснел пин из таблицы выше — удаляется, не чинится"),
     ("review:critic", CRITIC, "functions over roughly 60 lines or with more than three nesting levels in the NEW code"),
+    ("review:probe", CRITIC, "The ONE road is the runner, by Bash, never Write or Edit"),
     ("review:one-road", CRITIC, "a line for the coordinator to tell someone is itself a finding"),
     ("routing:rule-11", "CLAUDE.md", "a spec silent on an edge that its own requirements create is a dispatcher defect"),
     ("routing:hygiene-6", "CLAUDE.md", "from an INCORRECTLY invoked tool is a miscall, not proof the object is absent"),
