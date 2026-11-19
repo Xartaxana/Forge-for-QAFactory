@@ -30,3 +30,10 @@ not run locally: tools/test_dispatch_gate_md.py (markdown variant), canon judges
 - No CHANGELOG fragment: tools/ is not package.
 - Analog: the `EXTRA_SKIP_ITEMS` comment ("kept out of ITEMS so texts stay byte for byte") is now partly stale for SKIP_REFUSED text. No other.
 - Staged mechanism files: tools/dispatch_manifest.py, tools/dispatch_new.py.
+
+## Round 2
+- S-C-1 fixed: tools/dispatch_manifest.py `_TEST_KEY_RE` (optional closing backtick) + `_test_line_parse` (leading backtick stripped alone); row `pass-backticked-key` in TEST_ROWS.
+- S-C-2 fixed: `_dod_commands` skips lines where `_test_line_parse` is not None; row in test_dod_run_check (test line naming a canon file inside the DoD extent -> 0).
+- S-C-3 fixed: dead `test_lines` removed (`_test_line_state` is the one loop); `designer_threshold` computed once in check and passed to `_form_missing`; row `test-line-blank-item` in test_dispatch_new.py CASES.
+- S-C-4 fixed: docs/TESTING.md names the gate in tools/dispatch_manifest.py; CLAUDE.md R11-f lists `test:`. BOOT BUDGET before/after: CLAUDE.md 14495 -> 14565 / 16700; total 118404 -> 118474 / 120000.
+- Witness: `python -B -m pytest tools/test_dispatch_manifest.py tools/test_dispatch_new.py tools/test_dispatch_gate_md.py -q` -> `498 passed in 2.43s`; `python -B tools/pointer_lint.py --check` -> `pointer_lint: ok (34 files, 1959 pointers)` rc=0.

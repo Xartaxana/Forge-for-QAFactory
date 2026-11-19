@@ -62,6 +62,7 @@ CASES = [
     ("test-line-printed", THREE_OWNS + TEST + ["--designer", "skip -- tiny"], 0,
      ["test: tools/test_x.py::table | expected from: spec 5.1 item 7\nsiblings:"], []),
     ("test-line-absent-over-threshold", THREE_OWNS + ["--designer", "skip -- tiny"], 2, [], ["DISPATCH INCOMPLETE", "test ("]),
+    ("test-line-blank-item", THREE_OWNS + ["--test", " ", "--designer", "skip -- tiny"], 2, [], ["ARGUMENT REFUSED", "--test", "empty"]),
     ("E-C1-5-missing-given", swap(BASE, "--given", str(HERE / "no_such_spec.md")), 2, [], ["DISPATCH PATHS MISSING", "(new)"]),
     ("C1-1-new-owns-unmarked", swap(BASE, "--owns", NEWFILE), 2, [], ["DISPATCH PATHS MISSING"]),
     ("C1-1-new-owns-marked", swap(BASE, "--owns", NEWFILE + " (new)"), 0, [NEWFILE + " (new)"], []),
