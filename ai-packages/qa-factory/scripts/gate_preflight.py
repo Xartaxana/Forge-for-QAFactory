@@ -705,6 +705,21 @@ def plan_rows_of(task_root: Path, dispositions) -> list:
     return out
 
 
+def case_account_roles(items) -> list:
+    """The roles a case's parsed preconditions name: `kind: account` + `stand_account` with a non-blank spec, in order. The ONE
+    predicate of `default_login_needed` and `Rehearsal._actors_of_manual_cases` (PK2-17: it was copied in both). An `env` account
+    names no role. Each caller keeps its own direction on an unreadable line (the rule: needed; the rehearsal: empty)."""
+    out = []
+    for item in items or []:
+        try:
+            name, spec = next(iter(item["check"].items()))
+        except (AttributeError, KeyError, StopIteration, TypeError):
+            continue
+        if item.get("kind") == "account" and name == "stand_account" and str(spec).strip():
+            out.append(str(spec).strip())
+    return out
+
+
 def default_login_needed(task_root, cfg) -> bool:
     """Does this story need the stand's DEFAULT account (the project's login keys)? The ONE rule of gate A (`check_s5_credentials`)
     and S6 (`Driver.stand_login_problem`) - AR-19: both ask the same question of the same data. PURE: reads the plan, the cases, the
@@ -750,8 +765,7 @@ def default_login_needed(task_root, cfg) -> bool:
                 continue
             if any(name == "case_seeds" for name, _ in checks):
                 return True
-            named = [str(spec).strip() for i, (name, spec) in zip(items, checks)
-                     if i.get("kind") == "account" and name == "stand_account" and str(spec).strip()]
+            named = case_account_roles(items)
             if not named:
                 return True
             roles.extend(named)
@@ -2383,10 +2397,8 @@ class Rehearsal:
                 continue
             if errors:
                 continue
-            for item in items:
-                name, spec = next(iter(item["check"].items()))
-                if item.get("kind") == "account" and name == "stand_account" and str(spec).strip():
-                    out.setdefault(str(spec).strip(), []).append(case)
+            for role in case_account_roles(items):
+                out.setdefault(role, []).append(case)
         # TR3-10 D8 (F14): the project's EXTRA accounts of a role a manual case names are probed too, so `walk_pool.pool_of` can keep
         # only the handles with an `ok` row. `self._extra_accounts` = {handle: (role, position)} tells `_probe_actor` which rows are
         # extras (a failed extra is a note and "dropped", never a question). The supply is read ONLY through its reader (AR-13); its
