@@ -69,15 +69,7 @@
    "live_only | routes/story_budget | N4:s0 t-824: needs a spend over a ceiling",
    "live_only | routes/uninitialized | N4:s0 t-824: code move, no question to observe",
    "live_only | kinds_without_key/package | N4:s0 t-824: needs another run mode",
-   "live_only | kinds_without_key/ticket_changed | N4:s0 t-824: needs a changed ticket",
-   "live_only | walk/route:executor/free words | N4:s0 t-824: same reason as routes/executor",
-   "live_only | walk/route:no_project/code move | N4:s0 t-824: same reason as routes/no_project",
-   "live_only | walk/route:readiness/free words | N4:s0 t-824: same reason as routes/readiness",
-   "live_only | walk/route:s0_receipt/code move | N4:s0 t-824: same reason as routes/s0_receipt",
-   "live_only | walk/route:story_budget/free words | N4:s0 t-824: same reason as routes/story_budget",
-   "live_only | walk/route:uninitialized/code move | N4:s0 t-824: same reason as routes/uninitialized",
-   "live_only | walk/kind:package/free words | N4:s0 t-824: same reason as kinds_without_key/package",
-   "live_only | walk/kind:ticket_changed/free words | N4:s0 t-824: same reason as kinds_without_key/ticket_changed"
+   "live_only | kinds_without_key/ticket_changed | N4:s0 t-824: needs a changed ticket"
   ]
  }
 }

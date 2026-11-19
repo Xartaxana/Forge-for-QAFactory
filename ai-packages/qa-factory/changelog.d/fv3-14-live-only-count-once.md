@@ -1,0 +1,1 @@
+The dry-story census now counts a live_only subject once: a live_only walk row whose route, joint or kind has a live_only census row of its own is no longer a second count, and a leftover `raised_by` entry for it is reported as stale naming the counting row.

@@ -635,15 +635,35 @@ def _side(universe: Universe) -> dict:
     return {"routes": set(universe.routes), "joints": set(universe.joints), "kinds_without_key": set(universe.kinds)}
 
 
-def _count_reach(census: dict, walk: dict) -> dict:
-    counts = {"live_only": 0, "after": 0, "unwalked": 0}
-    rows = [row for section in SECTIONS for row in census[section].values()] + list(walk.values())
-    for row in rows:
+def _absorbing_row(census: dict, rid: str) -> str:
+    """The live_only census row `<section>/<name>` that counts a live_only walk row's subject, or "". Exact section and name, a LIVE_ONLY
+    census row only; a malformed or unknown subject has none (AR-28: errs toward counting)."""
+    section, name = _subject_of(rid)[:2]
+    if section in SECTIONS and (census[section].get(name) or {}).get("reach") == "live_only":
+        return f"{section}/{name}"
+    return ""
+
+
+def _counted_refs(census: dict, walk: dict) -> dict:
+    """`{count name: set of refs}` in the `raised_by` row form (`<section>/<name>`, `walk/<rid>`): the ONE definition of a counted row (AR-13).
+    A live_only walk row is left out when its subject has a live_only census row: one count per subject (FV3-14, F-P8 reading 2)."""
+    refs: dict = {"live_only": set(), "after": set(), "unwalked": set()}
+    for section in SECTIONS:
+        for name, row in census[section].items():
+            reach = str(row.get("reach"))
+            key = "after" if reach.startswith("after:") else reach
+            if key in refs:
+                refs[key].add(f"{section}/{name}")
+    for rid, row in walk.items():
         reach = str(row.get("reach"))
         key = "after" if reach.startswith("after:") else reach
-        if key in counts:
-            counts[key] += 1
-    return counts
+        if key in refs and not (key == "live_only" and _absorbing_row(census, rid)):
+            refs[key].add(f"walk/{rid}")
+    return refs
+
+
+def _count_reach(census: dict, walk: dict) -> dict:
+    return {key: len(refs) for key, refs in _counted_refs(census, walk).items()}
 
 
 def check(directory=None, walk_dir=None, universe: Universe | None = None, ledger_path=None) -> Report:
@@ -719,17 +739,16 @@ def _walk_problems(census: dict, walk: dict, universe: Universe, red) -> None:
 def _raised(census: dict, walk: dict, universe: Universe) -> tuple:
     """`({count name: [valid entry text]}, [problem])`: each `raised_by` entry names its count and ITS row; the row must exist and carry
     that count's reach (a hook_layer entry names a scanned registry id). An entry whose row is gone, or twice for one row, is stale."""
-    refs = {"hook_layer": {str(r.get("id")) for r in _hook_bans(universe)}}
-    for key in ("live_only", "unwalked"):
-        refs[key] = {f"{section}/{name}" for section in SECTIONS for name, row in census[section].items() if row.get("reach") == key}
-        refs[key] |= {f"walk/{rid}" for rid, row in walk.items() if row.get("reach") == key}
-    refs["after"] = {f"{section}/{name}" for section in SECTIONS for name, row in census[section].items() if str(row.get("reach")).startswith("after:")}
-    refs["after"] |= {f"walk/{rid}" for rid, row in walk.items() if str(row.get("reach")).startswith("after:")}
+    refs = {"hook_layer": {str(r.get("id")) for r in _hook_bans(universe)}, **_counted_refs(census, walk)}
+    absorbed = {f"walk/{rid}": owner for rid, row in walk.items() if row.get("reach") == "live_only" and (owner := _absorbing_row(census, rid))}
     valid: dict = {key: [] for key in RATCHET_COUNTS}
     problems, seen = [], set()
     for item in census["raised_by"]:
         count, row, _who = _raise_entry(item)
-        if row not in refs[count]:
+        if count == "live_only" and row in absorbed:
+            problems.append(f"ratchet {count}: stale raise {item!r}: its row {row!r} is counted on its census row {absorbed[row]!r} "
+                            f"(one count per subject, FV3-14); drop the entry")
+        elif row not in refs[count]:
             problems.append(f"ratchet {count}: stale raise {item!r}: its row {row!r} is gone or no longer has that reach; drop the entry")
         elif (count, row) in seen:
             problems.append(f"ratchet {count}: raise {item!r} names a row twice; one entry per row")
@@ -2082,6 +2101,41 @@ def _selftest_cases() -> list:
         except ExitsUnreadable as exc:
             return None if "g.json" in str(exc) and "<count> | <row> | <who, where>" in str(exc) else f"got {exc}"
         return "no refusal"
+
+    # ---- FV3-14: one live_only count per subject; a walk row is absorbed only by a live_only census row of the same section and name
+    def live_walk(census_reach, rids, **ratchet):
+        root = tmp()
+        _write(root / "exits" / "g.json", {"schema": 1, "group": "g", "rows": [{"id": r, "reach": "live_only", "start": "S1", "why_unreached": "x"} for r in rids]})
+        group = _group(routes={"r1": _row(census_reach), UNMATCHED: _row()},
+                       ratchet=_ratchet(unwalked=3 + (census_reach == "unwalked"), **ratchet), **stay)
+        return check(_tree(root, group), root / "exits", universe=_universe())
+
+    leftover = "live_only | walk/route:r1/a | Lead, 2026-11-19"
+
+    @case("ratchet live_only: a subject with a census row and one or two walk rows counts once (E-A1, E-A2)")
+    def _():
+        one = live_walk("live_only", ["route:r1/a"], live_only=0, raised_by=["live_only | routes/r1 | Lead, 2026-11-19"])
+        two = live_walk("live_only", ["route:r1/a", "route:r1/code move"], live_only=0, raised_by=["live_only | routes/r1 | Lead, 2026-11-19"])
+        return None if not one.problems and not two.problems else f"got {one.problems} {two.problems}"
+
+    @case("ratchet live_only: a leftover walk/ raise of an absorbed row is red naming the counting census row (E-A1)")
+    def _():
+        report = live_walk("live_only", ["route:r1/a"], live_only=0, raised_by=["live_only | routes/r1 | Lead, 2026-11-19", leftover])
+        return None if any("walk/route:r1/a" in p and "counted on its census row 'routes/r1'" in p for p in report.problems) else f"got {report.problems}"
+
+    @case("ratchet live_only: a walk row with no live_only census row counts on its own, census seed or unwalked (E-A3, E-A5)")
+    def _():
+        got = [live_walk(reach, ["route:r1/a"], live_only=0, raised_by=[leftover]) for reach in ("seed", "unwalked")]
+        return None if all(not r.problems for r in got) else f"got {[r.problems for r in got]}"
+
+    @case("counted refs: the subject is (section, name), a malformed id is counted (E-A6, E-A9)")
+    def _():
+        lo = {"reach": "live_only"}
+        census = {"routes": {"x": {"reach": "seed"}}, "joints": {}, "kinds_without_key": {"x": lo, "y": lo}}
+        walk = {"route:x/a": lo, "route:/v": lo, "kind:y/a": lo, "kind:y": lo}
+        got = _counted_refs(census, walk)["live_only"]
+        want = {"kinds_without_key/x", "kinds_without_key/y", "walk/route:x/a", "walk/route:/v"}
+        return None if got == want else f"got {sorted(got)}"
 
     # ---- E1 both ways (F3): a row that claims it is run has a walk row behind it
     def walk_with(root: Path, rid: str, reach="seed") -> Path:
