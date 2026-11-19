@@ -1,0 +1,1 @@
+- The project-knowledge and project-decisions writers now share one lock helper (`event_store.hold_registry_lock`), and `project_knowledge.py role` and `account` read the held role row under the same lock they write under, so a parallel writer's change to a role's `sign_in` or a role that became known in between is no longer overwritten.

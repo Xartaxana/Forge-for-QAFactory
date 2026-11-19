@@ -219,16 +219,9 @@ def lock(root, timeout: float = 10.0):
     """The writers' lock: an OS byte lock on a file (`event_store.take_file_lock`, as `project_decisions.lock`). A busy or an
     unmakeable lock is a `TimeoutError` that says so; the CLI prints it and exits 2."""
     import event_store as ES
-    try:
-        held = ES.take_file_lock(Path(root) / Path(LOCK_REL), timeout, purpose="project knowledge", record_holder=True)
-    except ES.LockBusy as exc:
-        raise TimeoutError(f"the record of project knowledge is busy; run the same command again ({exc.holder_clause})") from exc
-    except ES.LockBroken as exc:
-        raise TimeoutError(str(exc)) from exc
-    try:
+    with ES.hold_registry_lock(Path(root) / Path(LOCK_REL), timeout, "project knowledge",
+                               "the record of project knowledge is busy; run the same command again ({holder})"):
         yield
-    finally:
-        held.release()
 
 
 def _usable(row) -> bool:
@@ -972,8 +965,12 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
     return out
 
 
-def record(root, *, key, environment, element, state, scope, value, words, source, story, by, where="", task_root=None, only_if_latest=None) -> tuple:
+def record(root, *, key, environment, element, state, scope, value, words, source, story, by, where="", task_root=None, only_if_latest=None, from_held=None) -> tuple:
     """`(row, problem, created)`: ONE fact put in the registry, with the person's words whole.
+
+    `from_held` (default None: `value` is used as given) is a pure function of the subject's latest live row (or None), run HERE
+    under the lock; it returns `(value, skip)`: the value to write, and `skip` True to write nothing (`(None, "", False)`, after the
+    same refusals). It is how a caller carries a held field or declines a write without reading the registry outside the lock.
 
     `only_if_latest` (default None: no guard) is a tuple of states: the write happens only when the subject has no live row or its
     latest state is one of them, checked HERE under the lock with the other checks (a caller's earlier read is not a check). When
@@ -987,13 +984,18 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
     root = Path(root)
     with lock(root):
         rows, load_problem = load(root)
+        held = _latest(rows, key, environment, element)
+        skip = False
+        if from_held is not None:       # PK2-20: the value is decided from the row held NOW, under the lock, never from an earlier read
+            value, skip = from_held(held)
         problems = record_problems(key, environment, element, state, scope, words, source, by, load_problem, value)
         if problems:
             return None, "; ".join(problems), False
         reason = _refuse_no_trace(task_root)
         if reason:
             return None, reason, False
-        held = _latest(rows, key, environment, element)
+        if skip:
+            return None, "", False
         if only_if_latest is not None and held is not None and held.get("state") not in only_if_latest:
             return None, "", False                      # already decided by a later answer: not an error, not a write
         if held is not None and held.get("state") == state and held.get("value") == value:     # a changed value is the person's new word
@@ -1198,11 +1200,13 @@ def cmd_account(ns) -> int:
                       "run the same command again once that is fixed")
     line = f"{where}: " + (f"already recorded ({row['id']})" if result.get("unchanged") else
                            f"recorded ({result.get('decision', '-')}, {row['id']})")
-    if state(root, ROLES_KEY, "", result["role"])["state"] != KNOWN:
-        role_row, problem, _ = record(root, key=ROLES_KEY, environment="", element=result["role"], state=KNOWN, scope="project",
-                                      value={"sign_in": "account"}, words=words, source="person", story=story, by="conductor",
-                                      task_root=task_root)
-        line += f"; the role is a product role now ({role_row['id']})" if role_row else f"; the role itself was not recorded ({problem})"
+    role_row, problem, _ = record(root, key=ROLES_KEY, environment="", element=result["role"], state=KNOWN, scope="project",
+                                  value=None, words=words, source="person", story=story, by="conductor", task_root=task_root,
+                                  from_held=lambda held: ({"sign_in": "account"}, bool(held) and held.get("state") == KNOWN))
+    if role_row:
+        line += f"; the role is a product role now ({role_row['id']})"
+    elif problem:
+        line += f"; the role itself was not recorded ({problem})"
     print(line)
     return 0
 
@@ -1214,14 +1218,15 @@ def cmd_role(ns) -> int:
     root, task_root, _cfg, story, problem = _context(ns.task)
     if problem:
         return _fail(problem)
-    sign_in = ns.sign_in
-    if ns.state == KNOWN and not sign_in:
-        held = state(root, ROLES_KEY, "", ns.role)["row"]
+    def carry(held):        # the held row's sign_in, read under record's lock
+        if ns.state != KNOWN:
+            return None, False
         value = held.get("value") if isinstance(held, dict) else None
-        sign_in = value.get("sign_in") if isinstance(value, dict) and value.get("sign_in") in SIGN_INS else "account"
+        held_in = value.get("sign_in") if isinstance(value, dict) and value.get("sign_in") in SIGN_INS else "account"
+        return {"sign_in": ns.sign_in or held_in}, False
     row, problem, created = record(root, key=ROLES_KEY, environment="", element=ns.role, state=ns.state, scope="project",
-                                   value={"sign_in": sign_in} if ns.state == KNOWN else None, words=words, source="person",
-                                   story=story, by="conductor", task_root=task_root)
+                                   value=None, words=words, source="person", story=story, by="conductor", task_root=task_root,
+                                   from_held=carry)
     if row is None:
         return _fail(problem)
     print(f"{ns.role}: {ns.state} " + _verb(row, created))

@@ -239,14 +239,8 @@ def lock(root: Path, timeout: float = 10.0):
     # an OS byte lock on a FILE (TR4-2 part D); the older generation's `.project-decisions.lock` FOLDER is never touched
     import event_store as ES
     lock_file = root / "qa-factory" / "state" / "project-decisions.lock"
-    try:
-        held = ES.take_file_lock(lock_file, timeout, purpose="project decisions", record_holder=True)
-    except ES.LockBusy as exc:
-        raise TimeoutError(f"project decisions lock is busy; {exc.holder_clause}") from exc
-    except ES.LockBroken as exc:
-        raise TimeoutError(str(exc)) from exc
-    try: yield
-    finally: held.release()
+    with ES.hold_registry_lock(lock_file, timeout, "project decisions", "project decisions lock is busy; {holder}"):
+        yield
 
 
 def _registry_busy_line(action: str, exc: TimeoutError) -> str:

@@ -1278,6 +1278,50 @@ def test_record_guard_on_an_unreadable_registry_is_todays_refusal(proj):        
     assert row is None and created is False and "nothing was written over it" in problem
 
 
+def _another_writer_before_the_lock(monkeypatch, act, nth=1):
+    """Run `act` once, just before the `nth` lock entry: what a parallel writer does between a caller's old unlocked read and its write."""
+    real, seen = PK.lock, []
+
+    def racing(root, *a, **k):
+        seen.append(1)
+        if len(seen) == nth:
+            act()
+        return real(root, *a, **k)
+
+    monkeypatch.setattr(PK, "lock", racing)
+
+
+# (case, held row at start (None: no registry), --sign-in, another writer's sign_in, sign_in written) - PK2-20: the held row is read under the lock
+ROLE_CASES = [
+    ("held_account_then_another_writer_sets_none", {"sign_in": "account"}, None, "none", "none"),
+    ("held_none_kept", {"sign_in": "none"}, None, None, "none"),
+    ("outside_SIGN_INS_reads_account", {"sign_in": "kiosk"}, None, None, "account"),
+    ("no_registry_reads_account", None, None, None, "account"),
+    ("explicit_flag_wins_over_the_held_row", {"sign_in": "none"}, "account", None, "account"),
+]
+
+
+@pytest.mark.parametrize("case", ROLE_CASES, ids=[c[0] for c in ROLE_CASES])
+def test_role_cli_carries_the_sign_in_held_under_the_lock(proj, monkeypatch, case):          # PK2-20
+    _, held, flag, other, wrote = case
+    if held is not None:
+        proj.facts([role_fact("PK-1", "auditor", PK.KNOWN, "2026-11-01T10:00:00+00:00", value=held)])
+    if other:
+        _another_writer_before_the_lock(monkeypatch, lambda: proj.record(value={"sign_in": other}))
+    argv = ["role", "--task", "T-1", "--role", "auditor", "--state", "known", "--words-file", str(proj.words)]
+    assert run(argv + (["--sign-in", flag] if flag else [])) == 0
+    assert proj.rows()[-1]["value"] == {"sign_in": wrote}
+
+
+@pytest.mark.parametrize("known_meanwhile", [False, True])
+def test_account_cli_writes_no_second_role_row_for_a_role_that_became_known(proj, monkeypatch, known_meanwhile):          # PK2-20
+    if known_meanwhile:      # the 1st lock entry is the account row's own, the 2nd the role row's
+        _another_writer_before_the_lock(monkeypatch, lambda: proj.record(value={"sign_in": "none"}), nth=2)
+    assert run(["account", *STAND_ARGS, "--words-file", str(proj.words)]) == 0
+    roles = [r for r in proj.rows() if r["key"] == PK.ROLES_KEY]
+    assert len(roles) == 1 and roles[0]["value"] == ({"sign_in": "none"} if known_meanwhile else {"sign_in": "account"})
+
+
 # FV1-28 C1: the data join producer `first_look.put` (`sign_in`) -> `first_look.record_sign_in` -> registry row -> reader `sign_in`.
 # (case id, what the walk's dispatch is for the controller, the rows' `blocked_by`, the story's pipeline extras, rows in the registry, text of the line)
 SIGN_IN_CASES = [
