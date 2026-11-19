@@ -1284,6 +1284,36 @@ def _rework_facts(ask: dict) -> dict:
     return {"options": ask.get("options") or [], "author": next((str(s.get("role") or "") for s in stages if s.get("id") == stage), "")}
 
 
+def inventory_unavailable(copy: World):
+    """The world fact behind `offered_if: inventory_unavailable` (FV3-17): True when something is still ASKED at S1 - the inventory's `completeness` has
+    `unavailable` or `unavailable_materials` - the product's own call (`driver_sources.py` offers `unavailable` on exactly this, AR-13: one reader, nothing
+    re-implemented). None = "no world": the copy holds no readable source inventory, so the fact cannot be established (never False, FR-59)."""
+    path = copy.task_root / "work" / "source-inventory.json"
+    if not path.is_file():
+        return None
+    import source_inventory as SI
+    try:
+        summary = SI.completeness(SI.load_inventory(path), **SI.class_kwargs(copy.task_root))
+    except (OSError, ValueError):      # an unreadable or malformed inventory is "no world"; any other exception is a broken reader and propagates (F4)
+        return None
+    return bool(summary.get("unavailable") or summary.get("unavailable_materials"))
+
+
+# The facts a walk row's `offered_if` may name: key -> reader `(World) -> True | False | None` (None: no world for it). The condition is DATA in the row (AR-1);
+# the walker only reads it through this table. Door for a new fact: add a reader here.
+WORLD_FACTS = {"inventory_unavailable": inventory_unavailable}
+
+
+def offered_if_fact(copy: World, row: dict):
+    """`facts["offered_if"]` of a row that names a condition: `{"key", "value"}` read at the ask (True / False / None = no world; an unknown key is None too,
+    the grammar refuses it before a world runs); None when the row names none."""
+    key = row.get("offered_if")
+    if key is None:
+        return None
+    reader = WORLD_FACTS.get(key) if isinstance(key, str) else None
+    return {"key": key, "value": reader(copy) if reader else None}
+
+
 def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_dir, *, cap=ROW_CAP_EXITS, drive_fn=None, line=None) -> dict:
     """The facts of ONE row (`judge_row` judges them): a copy of the start snapshot with its OWN `snaps` dir (a gate rehearsal copies the copy, never the
     main snapshots, EW20), the row's control, the seed, the answer, then single-boundary turns until the fingerprint changed with a new ask, the driver
@@ -1306,6 +1336,8 @@ def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_di
             return facts
         ask = pending_ask(copy)
         facts["ask"] = dict(ask, offered=list(ask.get("offered") or [])) if ask else None
+        if ask:
+            facts["offered_if"] = offered_if_fact(copy, row)      # read AT the ask, before the answer changes the world
         facts["ask_ordinal"], facts["priced_window"] = ask_window(copy)
         questions = _state_rows(copy, "driver-questions.jsonl", "the driver's question records")
         facts["priced_seen"] = [{"key": r.get("key"), "q": r.get("q"), "prompt": r.get("prompt")}
