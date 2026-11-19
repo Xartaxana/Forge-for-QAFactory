@@ -317,11 +317,12 @@ RESUME_ROWS = [
     ("send-inside-a-worker", ["launch", "stop", "send:worker"], ["delegated", "returned"], 0),                      # E3
     ("accepted-task", ["launch", "stop", "accept", "send"], ["delegated", "returned", "accepted"], 0),              # E6
     ("two-sends", ["launch", "stop", "send", "send"], ["delegated", "returned", "resumed"], 1),                     # E10
+    ("post-send-through-main", ["launch", "stop", "send:main"], ["delegated", "returned", "resumed"], 1),           # verdict t-1529 F1
 ]
 
 
 @pytest.mark.parametrize("steps,kinds,said", [r[1:] for r in RESUME_ROWS], ids=[r[0] for r in RESUME_ROWS])
-def test_fg7_88_a_resumed_round_is_journaled_once_and_only_for_this_sessions_worker(repo, steps, kinds, said):
+def test_fg7_88_a_resumed_round_is_journaled_once_and_only_for_this_sessions_worker(repo, monkeypatch, capsys, steps, kinds, said):
     out = []
     for step in steps:
         name, _, flavor = step.partition(":")
@@ -331,6 +332,9 @@ def test_fg7_88_a_resumed_round_is_journaled_once_and_only_for_this_sessions_wor
             jh.record_returned(stop(repo))
         elif name == "accept":
             _accept(repo)
+        elif flavor == "main":                # the `main` branch for mode post-send: stdin bytes in, hook JSON out
+            _, printed = run_main("post-send", json.dumps(send(repo)).encode(), monkeypatch, capsys)
+            out += json.loads(printed)["hookSpecificOutput"]["additionalContext"].split(" | ") if printed else []
         else:
             extra = {"peer": {"tool_input": {"to": "peer-pipe-x"}}, "other": {"session_id": "zzzz9999-abcd"},
                      "worker": {"agent_id": "w9"}}.get(flavor, {})

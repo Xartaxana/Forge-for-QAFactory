@@ -1710,7 +1710,7 @@ def _rs(tid, wref, ts="2026-07-10T09:30:00", agent="builder"):
 
 
 _NOW = datetime.datetime(2026, 7, 12, 12, 0, 0)
-_ACC =lambda tid: _event("accepted", ts="2026-07-10T10:00:00", agent="builder", task_id=tid)  # noqa: E731
+_ACC = lambda tid: _event("accepted", ts="2026-07-10T10:00:00", agent="builder", task_id=tid)  # noqa: E731
 
 
 def _week(n, day=10):

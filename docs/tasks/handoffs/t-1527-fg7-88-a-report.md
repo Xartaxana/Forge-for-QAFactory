@@ -35,3 +35,9 @@ Acceptance 2 Grep `_round_step\(`: def :800 + calls :846 (returned_order_warning
 - `hook_liveness_probe` has no `post-send` case (card section 10).
 - Mechanism files STAGED, not committed (Lead commits): tools/journal_hooks.py, journal_validator.py, session_context.py, compact_snapshot.py. Committed with the branch: the four test files and this report.
 - Needed beyond the manifest: tools/journal_write.py (`write_event`, `_fill_returned`, category rule); validator `_line_form_violations` category check.
+
+## Round 2
+- F1 fixed: tools/test_journal_hooks.py RESUME_ROWS row `post-send-through-main` (step `send:main` drives `run_main('post-send', ...)`, reads the hook JSON).
+- F2 fixed: AGENT_ID_MAX and its check removed from tools/journal_hooks.py; the `to-huge` row stays, still [] with journal bytes unchanged.
+- F3 fixed: `SESSION_RE = re.compile` (journal_hooks.py) and `_ACC = lambda` (test_session_context.py) restored; no whitespace-only hunk vs origin/main.
+- Witness: `python -m pytest tools/test_journal_hooks.py tools/test_session_context.py -q` -> 486 passed in 57.54s
