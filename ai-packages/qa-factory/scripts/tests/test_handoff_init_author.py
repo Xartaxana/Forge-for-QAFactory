@@ -140,7 +140,7 @@ def emptied_sections(name: str, text: str) -> tuple:
 
 @pytest.mark.parametrize("name", ALL_CONTRACTS)
 def test_uniform_rule_every_contract(name):
-    """E1-E3: only a top-level, non-required, non-null-outcome list is emptied; nested and required lists stay as written."""
+    """E1-E3: a required list that no null_outcome declares stays as written; a declared list whose condition opens rows stays too; nested lists stay."""
     text = contract_text(name)
     out = handoff_init.empty_optional_lists(text, name)
     import null_outcomes as NO       # FV3-30: a declared list whose condition reads the form (`rounds`) is an ordinary optional list
