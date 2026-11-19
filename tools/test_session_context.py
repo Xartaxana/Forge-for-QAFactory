@@ -1705,8 +1705,12 @@ def _r(tid, wref, ts="2026-07-10T09:00:00", agent="builder"):
     return _event("returned", ts=ts, agent=agent, task_id=tid, worker_ref=wref, model="sonnet")
 
 
+def _rs(tid, wref, ts="2026-07-10T09:30:00", agent="builder"):
+    return _event("resumed", ts=ts, agent=agent, task_id=tid, worker_ref=wref, model="sonnet")
+
+
 _NOW = datetime.datetime(2026, 7, 12, 12, 0, 0)
-_ACC = lambda tid: _event("accepted", ts="2026-07-10T10:00:00", agent="builder", task_id=tid)  # noqa: E731
+_ACC =lambda tid: _event("accepted", ts="2026-07-10T10:00:00", agent="builder", task_id=tid)  # noqa: E731
 
 
 def _week(n, day=10):
@@ -1750,6 +1754,11 @@ def _week(n, day=10):
      ["OPEN DISPATCHES: 2 (returned, not accepted: 1)",
       "RESULT PENDING: t-123a agent=builder returned 2026-07-10T09:00:00"]),
     ("a-returned-alone-opens-nothing", [_r("t-001", "agent:a")], []),
+    ("resumed-after-returned-is-running", [_d("t-001", "agent:a"), _r("t-001", "agent:a"), _rs("t-001", "agent:a")],
+     ["OPEN DISPATCHES: 1 (returned, not accepted: 0)"]),                                                  # FG7-88 E16
+    ("second-returned-after-resumed-is-pending",
+     [_d("t-001", "agent:a"), _r("t-001", "agent:a"), _rs("t-001", "agent:a"), _r("t-001", "agent:a", ts="2026-07-10T10:00:00")],
+     ["OPEN DISPATCHES: 1 (returned, not accepted: 1)", "RESULT PENDING: t-001 agent=builder returned 2026-07-10T10:00:00"]),
 ])
 def test_result_pending_and_the_returned_that_never_closes(name, events, want):
     assert sc.open_dispatch_lines(events, now=_NOW) == want
