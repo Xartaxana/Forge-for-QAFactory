@@ -684,7 +684,7 @@ class DriverCore:
 
     def no_trace(self) -> bool:
         """Is this run an experiment that leaves no trace? The record is `pipeline.no_trace`
-        (read through `external_writes.closed_by_run`, the reader every other consumer shares);
+        (read through `external_writes.trace_state`, the one reader every other consumer shares);
         before pipeline.json exists, S0 has only the command line to go by. A flag absent from a
         later command line never reopens what pipeline.json closed.
 
@@ -692,11 +692,12 @@ class DriverCore:
         cannot say: unreadable, or with no `no_trace` key at all - a damaged file must not reopen
         writes (Lead's decision Q6). A key that IS there and says false is the person's way out
         (`stage_done --set no_trace=false`, FR-40) and wins over the launch."""
-        if (self.state.get("launch") or {}).get("no_trace") and "no_trace" not in self.pipeline():
+        import external_writes
+        state, carrier = external_writes.trace_state(self.task_root, self.state.get("launch"))
+        if state == "closed":
             return True
-        if (self.task_root / "pipeline.json").is_file():
-            import external_writes
-            return bool(external_writes.closed_by_run(self.task_root))
+        if state == "open" and carrier == "pipeline":
+            return False
         return bool(getattr(self.flags, "no_trace", False))
 
     def delivery_word(self) -> str:

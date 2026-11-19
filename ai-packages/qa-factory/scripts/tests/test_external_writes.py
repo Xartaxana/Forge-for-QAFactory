@@ -7,8 +7,12 @@ import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from harness import check, check_eq, check_in, cleanup, finish, run_script, temp_project  # noqa: E402
 
@@ -285,6 +289,65 @@ def main() -> None:
         cleanup(root)
 
     finish("test_external_writes")
+
+
+# --- PK2-11/19: the ONE reader of a story's experiment flag, every carrier world (card §2 E1-E12) ----------------------------
+# id: (story, pipeline.json, driver-state.json, (state, carrier), refusal, closed_by_run, closed_by_run(unreadable_closes), Driver.no_trace
+# with the command-line flag False / True). story: None = no story named, "gone" = a folder that is not there, "dir" = a folder.
+# Bytes are written raw; None = no file. Every expectation is the card's table, not a read of the code (FR-40, FR-59).
+LAUNCH_YES, LAUNCH_NO = b'{"launch": {"no_trace": true}}', b'{"launch": {}}'
+CLOSED_L, CLOSED_P, UNKNOWN_P = ("closed", "launch"), ("closed", "pipeline"), ("unknown", "pipeline")
+NO_FILE = ("unknown", "none")
+TRACE_CASES = {
+    "E1-no-story": (None, None, None, ("open", "no_story"), False, False, False, (False, True)),
+    "E2-folder-gone": ("gone", None, None, NO_FILE, True, False, True, (False, True)),
+    "E3-truthy-over-launch-no": ("dir", b'{"no_trace": "yes"}', LAUNCH_NO, CLOSED_P, True, True, True, (True, True)),
+    "E3-string-false-is-truthy": ("dir", b'{"no_trace": "false"}', LAUNCH_NO, CLOSED_P, True, True, True, (True, True)),
+    "E4-false-over-launch-yes": ("dir", b'{"no_trace": false}', LAUNCH_YES, ("open", "pipeline"), False, False, False, (False, False)),
+    "E5-keyless-launch-yes": ("dir", b"{}", LAUNCH_YES, CLOSED_L, True, True, True, (True, True)),
+    "E6-keyless-launch-damaged": ("dir", b"{}", b"\xff not json", ("open", "pipeline"), False, False, False, (False, False)),
+    "E7-null-launch-yes": ("dir", b'{"no_trace": null}', LAUNCH_YES, CLOSED_L, True, True, True, (True, True)),
+    "E7-null-launch-silent": ("dir", b'{"no_trace": null}', LAUNCH_NO, UNKNOWN_P, True, False, False, (False, True)),
+    "E7-zero": ("dir", b'{"no_trace": 0}', None, UNKNOWN_P, True, False, False, (False, True)),
+    "E8-S0-launch-yes": ("dir", None, LAUNCH_YES, CLOSED_L, True, True, True, (True, True)),
+    "E9-S0-launch-silent": ("dir", None, LAUNCH_NO, ("open", "launch"), False, False, True, (False, True)),
+    "E10-neither-file": ("dir", None, None, NO_FILE, True, False, True, (False, True)),
+    "E10-launch-is-a-list": ("dir", None, b'{"launch": [1]}', NO_FILE, True, False, True, (False, True)),
+    "E10-no-launch-object": ("dir", None, b'{"stage": "S0"}', NO_FILE, True, False, True, (False, True)),
+    "E11-pipeline-a-list": ("dir", b"[1]", LAUNCH_NO, UNKNOWN_P, True, False, True, (False, True)),
+    "E11-pipeline-a-list-launch-yes": ("dir", b"[1]", LAUNCH_YES, CLOSED_L, True, True, True, (True, True)),
+    "E11-pipeline-bom": ("dir", b'\xef\xbb\xbf{"no_trace": true}', LAUNCH_NO, UNKNOWN_P, True, False, True, (False, True)),
+    "F8-skill-road-keyless-no-driver-state": ("dir", b'{"ticket": "T-1"}', None, ("open", "pipeline"), False, False, False, (False, False)),
+    "E12-story-not-a-path": (5, None, None, NO_FILE, True, None, None, None),
+}
+
+
+@pytest.mark.parametrize("case", TRACE_CASES)
+def test_trace_cases(case, tmp_path):
+    import driver_core
+    import external_writes as EW
+    story, pipeline, driver_state, want_state, want_refusal, want_closed, want_closed_u, want_driver = TRACE_CASES[case]
+    root = {None: None, "gone": tmp_path / "gone", "dir": tmp_path / "story", 5: 5}[story]
+    if story == "dir":
+        (root / "state").mkdir(parents=True)
+        if pipeline is not None:
+            (root / "pipeline.json").write_bytes(pipeline)
+        if driver_state is not None:
+            (root / "state" / "driver-state.json").write_bytes(driver_state)
+    assert EW.trace_state(root) == want_state
+    refusal = EW.trace_refusal(root)
+    assert bool(refusal) == want_refusal
+    assert refusal in ("", EW.NO_TRACE_WORDS) or ("could not be established" in refusal and "nothing was recorded" in refusal)
+    if want_closed is None:
+        return
+    assert bool(EW.closed_by_run(root)) is want_closed and bool(EW.closed_by_run(root, unreadable_closes=True)) is want_closed_u
+    try:
+        state = json.loads(driver_state) if driver_state else {}
+    except ValueError:
+        state = {}
+    for flag, want in zip((False, True), want_driver):
+        me = SimpleNamespace(task_root=root, flags=SimpleNamespace(no_trace=flag), state=state if isinstance(state, dict) else {})
+        assert driver_core.DriverCore.no_trace(me) is want, (case, flag)
 
 
 if __name__ == "__main__":

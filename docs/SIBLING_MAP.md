@@ -674,6 +674,18 @@ Told-before-work (axis 39, 19.11.2026): the census relabels of T4b / T7f / T9c /
 | Gap (declared) | a sentence that over-claims its body is caught by reading, not by code: the critic's question on every diff that touches a row sentence and the weekly calibration check (`PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md`) |
 | The cost (rule 10 (a)) | every package commit that adds or renames a check id writes its row and its site in the same commit; every mechanism commit enumerates one more axis |
 
+## Axis 40 — The experiment flag of a story: one reader `external_writes.trace_state` / `trace_refusal` <-> the writers of project records (card §3 C1-C14) <-> `closed_by_run` <-> `Driver.no_trace` (PK2-11/19, card `docs/tasks/specs/20261119-pk2-11-19-no-trace-card.md`, Lead 19.11.2026)
+
+| Component | Path |
+|---|---|
+| The one reader | `scripts/external_writes.py` `trace_state(task_root, launch=None)` -> (`open` / `closed` / `unknown`, carrier); the carriers are `pipeline.json` key `no_trace` and the driver's launch record (`state/driver-state.json`, `launch`); the launch record can only close, only an explicit pipeline `false` opens over it; unknown (no readable carrier, an unreadable file, a folder that is not there) is never a pass (FR-59) |
+| The one refusal | `trace_refusal(task_root, launch=None)` -> "" / `NO_TRACE_WORDS` / `UNKNOWN_WORDS`-shaped text; a writer runs it after its story is placed and before the first byte of any file |
+| The writers wired (N1) | `project_knowledge.py` `record` / `revoke` / `cmd_account` (through `_refuse_no_trace`), `driver_s0.py` sides keep (through `Driver.no_trace`, then `PK.record(task_root=)`); N2 / N3 of the card wire C5-C14 |
+| The other readers | `closed_by_run` (outward readers; closed only, an unknown state closes nothing there) and `DriverCore.no_trace` (the command line decides only when neither carrier says); `driver_machine.py::accept_no_trace` moves the launch record into `pipeline.json` and reads both itself by design (F10) |
+| The symmetry | a new writer of a project-level record (a file under `<project>/qa-factory/` outside `artifacts/<story>/`) calls `trace_refusal` with its story, or names why it is exempt (card §3 C15-C19); a second reader of `no_trace` is a discrepancy |
+| Detectors | `scripts/tests/test_external_writes.py::TRACE_CASES` (every carrier world, E1-E12) and `scripts/tests/test_project_knowledge.py::test_writers_under_trace` |
+| The cost (rule 10 (a)) | every new writer of a project record carries one `trace_refusal` call and one row of the writers table; every mechanism commit enumerates one more axis |
+
 ## Keeping the map up to date
 
 This map has exactly one owner: whoever is running Lead-tier work in

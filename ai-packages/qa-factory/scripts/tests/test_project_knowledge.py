@@ -37,10 +37,13 @@ WORDS = "yes, auditor is a read-only role;\nits account is QA_AUDITOR_EMAIL / QA
 STAND_ARGS = ["--task", "T-1", "--role", "auditor", "--user-key", "QA_AUDITOR_EMAIL", "--secret-key", "QA_AUDITOR_PASSWORD"]
 
 
+OPEN_LAUNCH = {"launch": {}}      # E9: a normal story at an S0 stop; the default of `Proj(driver_state=)`
+
+
 class Proj:
     """A throwaway project: `qa-factory/config.json` with the stands, one story folder `T-1`, the hook layer pointed at it."""
 
-    def __init__(self, path: Path, monkeypatch, stands=None, pipeline=None):
+    def __init__(self, path: Path, monkeypatch, stands=None, pipeline=None, driver_state=OPEN_LAUNCH):
         self.root = path / "proj"
         self.stands = stands if stands is not None else [{"name": "dev", "base_url": "http://localhost:8080", "credentials_by_role": {}}]
         self.config = self.root / "qa-factory" / "config.json"
@@ -50,6 +53,10 @@ class Proj:
         self.task.mkdir(parents=True)
         if pipeline is not None:
             (self.task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+        if driver_state is not None:                    # None = no file; bytes = written raw (PK2-19: the launch record is a carrier)
+            (self.task / "state").mkdir()
+            (self.task / "state" / "driver-state.json").write_bytes(driver_state if isinstance(driver_state, bytes)
+                                                                    else json.dumps(driver_state).encode("utf-8"))
         self.words = path / "words.txt"
         self.words.write_bytes(WORDS.encode("utf-8"))                                        # bytes: no platform line-ending change
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(self.root))
@@ -348,6 +355,47 @@ def test_account_record_failure_after_config_names_the_move(proj, monkeypatch, c
 
 
 # --- writing ---------------------------------------------------------------------------------------------------------------
+
+# PK2-11/19: the writers refuse through ONE reader that reads both carriers (pipeline.json, the driver's launch record).
+# world -> (Proj kwargs, expected exit of a CLI writer); `none` = a story with neither file (E10, FR-59); E4 = the person's explicit way out
+WORLDS = {
+    "launch_yes": (dict(driver_state={"launch": {"no_trace": True}}), 2),
+    "none": (dict(driver_state=None), 2),
+    "launch_open": (dict(), 0),
+    "pipeline_no_over_launch": (dict(pipeline={"ticket": "T-1", "no_trace": False}, driver_state={"launch": {"no_trace": True}}), 0),
+}
+WRITERS = {
+    "side": lambda p: ["side", "--task", "T-1", "--name", "ui", "--deliverable", "no", "--words-file", str(p.words)],
+    "account": lambda p: ["account", *STAND_ARGS, "--words-file", str(p.words)],
+    "revoke": lambda p: ["revoke", "--task", "T-1", "--id", "PK-1", "--words-file", str(p.words)],
+}
+
+
+@pytest.mark.parametrize("world", WORLDS)
+@pytest.mark.parametrize("writer", WRITERS)
+def test_writers_under_trace(writer, world, tmp_path, monkeypatch, capsys):
+    kwargs, want = WORLDS[world]
+    proj = Proj(tmp_path, monkeypatch, **kwargs)
+    proj.facts([role_fact("PK-1", "auditor", "known", "2026-11-12T09:40:00+00:00")])      # a carried row for `revoke` to take back
+    before = (proj.config.read_bytes(), proj.path().read_bytes())
+    capsys.readouterr()
+    code = run(WRITERS[writer](proj))
+    err = capsys.readouterr().err
+    assert code == want, err
+    assert ((proj.config.read_bytes(), proj.path().read_bytes()) == before) == bool(want)     # refused: nothing written anywhere
+    if want:
+        assert ("could not be established" in err) == (world == "none") and ("(waiver)" in err) == (world == "launch_yes")
+
+
+def test_driver_dry_mode_launch_in_memory(tmp_path, monkeypatch):
+    """Dry mode: no files on disk (not even the story folder), only the driver's in-memory launch record (PK2-19 round 2, sides keep)."""
+    proj = Proj(tmp_path, monkeypatch, driver_state=None)
+    ghost = proj.root / "qa-factory" / "artifacts" / "T-dry"
+    assert proj.record(task_root=ghost, launch={}, by="driver")[0] is not None                        # no no_trace: the row is written
+    row, problem, _ = proj.record(task_root=ghost, launch={"no_trace": True}, by="driver", element="other")
+    assert row is None and "(waiver)" in problem                                                  # no_trace in memory: closed
+    assert "could not be established" in proj.record(task_root=ghost, element="third")[1]       # no launch given: unknown, refused
+
 
 def test_no_trace_refused(tmp_path, monkeypatch):
     proj = Proj(tmp_path, monkeypatch, pipeline={"ticket": "T-1", "no_trace": True})
