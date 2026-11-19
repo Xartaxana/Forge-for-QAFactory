@@ -1094,7 +1094,7 @@ def one_definition_no_local_set_building() -> None:
     check("sentinel: finalize_task.reduce decides its triage `reason` through contract.triage_targets",
           "C.triage_targets(report)" in reduce_source)
     for path, functions in ((scripts / "finalize_task.py", {"refresh"}),
-                            (DRIVER, {"failures_to_triage"}),
+                            (DRIVER, {"failures_to_triage"}), (scripts / "stage_close.py", {"s7_failures_to_triage"}),
                             (scripts / "handoff_check.py", None)):
         check_eq(f"sentinel: no local failed/error set-building in {label(path)} {sorted(functions or ['<whole file>'])}",
                  hits(path, functions), [])
@@ -1120,7 +1120,7 @@ def one_definition_no_local_set_building() -> None:
     for path, functions in ((scripts / "judge_results.py", None), (scripts / "ledger.py", None),
                             (scripts / "traceability.py", None), (scripts / "handoff_check.py", None),
                             (scripts / "finalize_task.py", {"refresh"}), (scripts / "check_delivery.py", {"_triage_failures", "_bind_triage", "triage_reasons"}),
-                            (DRIVER, {"failures_to_triage"})):
+                            (DRIVER, {"failures_to_triage"}), (scripts / "stage_close.py", {"s7_failures_to_triage"})):
         check_eq(f"raw sentinel: no raw failed/error tuple in {label(path)} {sorted(functions or ['<whole file>'])}",
                  raw_hits(path, functions), [])
     # t-323 A1: the BINDING of rows to failures is one too (`contract.bind_triage`); the six readers call it - the

@@ -10,13 +10,15 @@ the road member of the same name the old body called as `self.<member>`, never t
 attribute keeps its effect (E-M6). Road members: `task`, `task_root`, `project`, `dry`, `controller_state()`, `pipeline()`,
 `py(script, *args, check, expect)`, `owe_row(...)`, `accepted_at(author)`, `consumer_pending(stage)`, `person_pass(...)`,
 `consumer_person_pass(...)`, `consumer_need_record(stage, site)`, `consumer_await(...)`, `close_by_code(...)`, `close_receipt(...)`,
-`file_passed_over(...)`, `record_close(...)`, `manual_request_paths(cases)`. The skill road's road is `SkillRoad` (FV3-22-2).
+`file_passed_over(...)`, `record_close(...)`, `manual_request_paths(cases)`, and for S7 (FV3-26) `plugin`, `failures_to_triage(awaiting)`,
+`s7_close_places(why)`, `s7_investigation_gate()`, `s7_investigation_dispatch(targets, budget)`. The skill road's road is `SkillRoad` (FV3-22-2).
 
 This module imports no `story_step` and no `driver_*` (so no cycle and no `allowed_importers` row, L11); the package modules it needs
 are imported inside the functions, as `waiver` is by the driver parts.
 """
 
 import hashlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -320,6 +322,161 @@ def stage_record_written(task_root, controller, stage: str) -> bool:
         return finished is not None and finished >= completed
     except Exception:  # noqa: BLE001 - a time that cannot be read is the safe side: the record counts as not written
         return False
+
+
+def s7_failures_to_triage(task_root, awaiting: str = "") -> str:
+    """The reasons S7 has something to triage, `"; "`-joined (`""` = nothing to triage); the ONE body of it (AR-13, FV3-26), the Driver's
+    `failures_to_triage` delegates here. Reads only `task_root`. A halted run (`broken_run`, `timeout`, `env_blocked`) or a `not_executed`
+    with neither an S6 code-only receipt nor a target a role can triage raises `Refused` before any register write."""
+    import hooklib
+    task_root = Path(task_root)
+    report = hooklib.read_json(task_root / "work/run-report.json", {})
+    status = report.get("execution_status")
+    if status not in ("passed", "failed"):
+        # t-305 N1 (Q19 a): `not_executed` is also what S6 leaves on purpose when it closes on a CODE-ONLY receipt
+        # (nothing to execute, or everything handed to a person); S7 reads that report. U7 7a: and what a FINISHED S6
+        # leaves over a manual-only story (an `inconclusive` or `unprepared` walk) - `triageable_not_executed`, the one
+        # predicate delivery's `run_reasons` reads too. Still refused: an S6 halt, and a `not_executed` with neither
+        # receipt nor a target a role can triage; the refusal below stands word for word. Read only on this branch.
+        import s7_pretriage
+        if not (status == "not_executed" and (s7_pretriage.s6_closed_by_code(task_root)
+                                              or s7_pretriage.triageable_not_executed(task_root, awaiting=awaiting))):
+            raise Refused(f"S7 entry: run-report.json execution_status is `{status}` — nothing to triage yet; "
+                          "the S6 halt that produced it stands")
+    totals = report.get("current_totals") or report.get("totals") or {}
+    reasons = []
+    if int(totals.get("failed") or 0):
+        reasons.append(f"failed={totals.get('failed')}")
+    # t-309: the one definition of a failure that needs triage (contract.triage_targets), shared with the
+    # reducer and the S7 handover check - a manual `inconclusive` or `error` is a failure here as there.
+    import contract
+    targets = contract.triage_targets(report)
+    bad = sorted(targets["manual"]) + sorted(targets["unnamed_manual"])
+    if bad:
+        reasons.append("manual " + ",".join(bad))
+    # P26 / RN1-10 (AR-28): a runner's observation, whatever its check's result, wants the analyst's verdict - a green check
+    # with an observation dispatches the analyst; a report with none reads exactly as before
+    if targets["observations"]:
+        reasons.append("manual observations " + ",".join(sorted(targets["observations"])))
+    # t-323 C2: a failed RESULT row with no id sits in `unnamed` beside the nameless manual checks, and was worded
+    # "manual" with them - a failure of the automated run named as a manual check; it gets its own words
+    nameless = sorted(targets["unnamed"] - targets["unnamed_manual"])
+    if nameless:
+        reasons.append(f"{len(nameless)} failed result row(s) with no id")
+    if targets["results"] and not int(totals.get("failed") or 0):
+        reasons.append("failed results " + ",".join(sorted(targets["results"])))
+    # U7 7b-A: a coded `report_unread` row is a target the analyst reads from the log; reasons are never "" over one, so
+    # the S7 close cannot run over it (an `unread` target is no `s7.no_failures`)
+    if targets["unread"]:
+        reasons.append("results the run could not read " + ",".join(sorted(targets["unread"])))
+    manifest = hooklib.read_json(task_root / "work/automation-manifest.json", {})
+    if "contradicts_requirement" in json.dumps(manifest.get("unresolved") or []):
+        reasons.append("contradicts_requirement rows")
+    return "; ".join(reasons)
+
+
+def gap_reason_text(name: str) -> str:
+    """t-1991 U3a: the text `place_answers.close_unsettled` is given, chosen by NAME from `references/place-answers.json` `gap_reason_names`
+    (a reorder of the list cannot give a false text). `""` after one printed line when the texts cannot be read: `close_unsettled` then
+    refuses and `s7_close_places` prints one line (E-M4)."""
+    try:
+        import place_answers
+        return place_answers._data()["gap_reason_names"][name]
+    except Exception as exc:  # noqa: BLE001 - the same printed line as before the move
+        print(f"S7: the reason for the places nobody settled could not be chosen ({type(exc).__name__}: {exc})")
+        return ""
+
+
+def s7_close_places(road, why: str) -> list:
+    """t-1991 U3a: ONE call at each S7 code closer, BEFORE `s7_investigation_gate` (INVARIANT: a place is never both a settle
+    gap and an investigation gap; `close_unsettled` never writes a plain `open` place, and its `by` is outside the investigation's
+    prefix). The ids of the register lines written. The list that could not be read whole is one printed line and the close still runs
+    on what was read; an exception is one printed line and S7 goes on - it never reads as "no places" (P1, AR-28)."""
+    try:
+        import place_answers
+        found = place_answers.places(road.task_root)
+        if found["unreadable"]:
+            print("S7: the places to settle could not be computed whole: " + "; ".join(f"{rec}: {w}" for rec, w in found["unreadable"]))
+        printed: list = []
+        written = place_answers.close_unsettled(road.task_root, why, printed, found=found)
+    except Exception as exc:  # noqa: BLE001
+        print(f"S7: the places nobody settled could not be recorded as gaps ({type(exc).__name__}: {exc}); S7 goes on")
+        return []
+    for line in printed:
+        print(f"S7: {line}")
+    if written:
+        print(f"S7: {len(written)} place(s) nobody settled were recorded as coverage gaps: {why}")
+    return written
+
+
+def s7_investigation_gate(road) -> tuple:
+    """What S7 does about the observations the run left open BEFORE it closes by code (P2 M3): `(verdict, suffix)`, verdict
+    `proceed` | `dispatched` | `dispatch_owed` | `wait`, suffix the text added to the close reason and digest (`""` when nothing happened).
+    Called ONLY at the S7 code closers, never at the stage entry. `wait`: the caller returns WITHOUT a close (a running pass; the next
+    `where` resumes it). A stage the controller holds `completed` is never worked on. An exception of the investigation code is one printed
+    line and today's close (P1, F-5). The decision itself is `investigation.decision` (pure); the register is written only through
+    `investigation.project` / `close_gaps`. What the role still decides: the investigation itself (targets worth a probe, what the probe
+    shows, how it is recorded). The pass is started by the road (`s7_investigation_dispatch`): the Driver runs it, the skill road says it is owed."""
+    held = ((road.controller_state().get("stages") or {}).get("S7") or {}).get("status")
+    if held == "completed":
+        return "proceed", ""
+    try:
+        import investigation
+        budget, _ = investigation.load_budget(road.plugin)
+    except Exception as exc:  # noqa: BLE001
+        print(f"S7: the investigation could not be loaded ({type(exc).__name__}: {exc}); S7 closes as it did without it")
+        return "proceed", ""
+    try:
+        investigation.project(road.task_root, "S7")
+    except Exception as exc:  # noqa: BLE001
+        print(f"S7: the observations the run left open could not be projected ({type(exc).__name__}: {exc}); "
+              "S7 goes on with what the register holds")
+    try:
+        word, why = investigation.decision(road.task_root, road.controller_state(), road.pipeline(), budget)
+        targets = (investigation.open_targets(road.task_root, budget)["unresolved"] if word == "dispatch" else [])
+    except Exception as exc:  # noqa: BLE001
+        print(f"S7: the investigation could not be decided ({type(exc).__name__}: {exc}); S7 closes as it did without it")
+        return "proceed", ""
+    if word == "wait":
+        print(f"S7: the investigation {why} is running; S7 is not closed over it")
+        return "wait", ""
+    if word == "none":
+        if why:
+            print(f"S7: {why}")
+        return "proceed", ""
+    printed: list = []
+    if word == "gaps":
+        try:
+            if why == investigation.WHY_TEXTS[0]:
+                print("S7: the investigation budget cannot be used (" + "; ".join(investigation.budget_problems(budget)) + ")")
+            g = len(investigation.close_gaps(road.task_root, why, printed, budget=budget))
+        except Exception as exc:  # noqa: BLE001
+            print(f"S7: the observations the run left open could not be recorded as gaps ({type(exc).__name__}: {exc}); "
+                  "S7 closes as it did without it")
+            return "proceed", ""
+        for line in printed:
+            print(f"S7: {line}")
+        return "proceed", (f"; {g} observation(s) the run left open were not investigated: {why}" if g else "")
+    return road.s7_investigation_dispatch(targets, budget)
+
+
+def s7_code_close(road, kind: str) -> str:
+    """The shared tail of the S7 close by code at `s7.no_failures` (FV3-26; `kind` is `no_failures` only in this node): the places nobody
+    settled become gaps, THEN the investigation gate (a place is never both gaps), then the `code_only` receipt over the run report (and the
+    register when it exists) with the stage record and the `dispatch_skipped` journal row. POSITION INVARIANT: after the caller's
+    `failures_to_triage` (a halted run raises before any register write) and before the receipt (which hashes the register a pass wrote).
+    Returns `wait` (a pass running: nothing closed), `dispatch_owed` (the road owes the pass: nothing closed) or `closed`."""
+    road.s7_close_places(gap_reason_text(kind))      # t-1991 U3a: BEFORE the gate (a place is never both gaps)
+    verdict, suffix = road.s7_investigation_gate()
+    if verdict == "wait":
+        return "wait"
+    if verdict == "dispatch_owed":
+        return "dispatch_owed"
+    register = ["work/exploratory-findings.jsonl"] if (road.task_root / "work" / "exploratory-findings.jsonl").is_file() else []
+    road.close_by_code("S7", "no failures — nothing to triage" + suffix, ["work/run-report.json"] + register,
+                       site="s7.no_failures", finalize=False,
+                       tail=[["--event", "dispatch_skipped", "--task", road.task, "--reason", "S7: no failures to triage"]])
+    return "closed"
 
 
 class SkillRoad:

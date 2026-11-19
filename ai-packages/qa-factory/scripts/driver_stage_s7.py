@@ -1,7 +1,6 @@
 """driver_stage_s7.py - Driver members homed here by ai-packages/qa-factory/scripts/tests/fixtures/driver-layers.json (TD-11 cut by tools/source_split.py); no behaviour of its own."""
 
 import hashlib
-import json
 import re
 import stage_close
 from driver_core import OpenWork, Person, Refusal, ReworkRefused, _now, _read_json, _write_json, open_work_reason
@@ -15,49 +14,12 @@ EXTRA_LEAD_CASES = 10       # the cases the question names; the rest is "and K m
 
 class DriverStageS7:
     def failures_to_triage(self, awaiting: str = "") -> str:
-        report = _read_json(self.task_root / "work/run-report.json")
-        status = report.get("execution_status")
-        if status not in ("passed", "failed"):
-            # t-305 N1 (Q19 a): `not_executed` is also what S6 leaves on purpose when it closes on a CODE-ONLY receipt
-            # (nothing to execute, or everything handed to a person); S7 reads that report. U7 7a: and what a FINISHED S6
-            # leaves over a manual-only story (an `inconclusive` or `unprepared` walk) - `triageable_not_executed`, the one
-            # predicate delivery's `run_reasons` reads too. Still refused: an S6 halt, and a `not_executed` with neither
-            # receipt nor a target a role can triage; the refusal below stands word for word. Read only on this branch.
-            import s7_pretriage
-            if not (status == "not_executed" and (s7_pretriage.s6_closed_by_code(self.task_root)
-                                                  or s7_pretriage.triageable_not_executed(self.task_root, awaiting=awaiting))):
-                raise Refusal(f"S7 entry: run-report.json execution_status is `{status}` — nothing to triage yet; "
-                              "the S6 halt that produced it stands")
-        totals = report.get("current_totals") or report.get("totals") or {}
-        reasons = []
-        if int(totals.get("failed") or 0):
-            reasons.append(f"failed={totals.get('failed')}")
-        # t-309: the one definition of a failure that needs triage (contract.triage_targets), shared with the
-        # reducer and the S7 handover check - a manual `inconclusive` or `error` is a failure here as there.
-        import contract
-        targets = contract.triage_targets(report)
-        bad = sorted(targets["manual"]) + sorted(targets["unnamed_manual"])
-        if bad:
-            reasons.append("manual " + ",".join(bad))
-        # P26 / RN1-10 (AR-28): a runner's observation, whatever its check's result, wants the analyst's verdict - a green check
-        # with an observation dispatches the analyst; a report with none reads exactly as before
-        if targets["observations"]:
-            reasons.append("manual observations " + ",".join(sorted(targets["observations"])))
-        # t-323 C2: a failed RESULT row with no id sits in `unnamed` beside the nameless manual checks, and was worded
-        # "manual" with them - a failure of the automated run named as a manual check; it gets its own words
-        nameless = sorted(targets["unnamed"] - targets["unnamed_manual"])
-        if nameless:
-            reasons.append(f"{len(nameless)} failed result row(s) with no id")
-        if targets["results"] and not int(totals.get("failed") or 0):
-            reasons.append("failed results " + ",".join(sorted(targets["results"])))
-        # U7 7b-A: a coded `report_unread` row is a target the analyst reads from the log; reasons are never "" over one, so
-        # `stage_S7` cannot close by code over it (an `unread` target is no `s7.no_failures`)
-        if targets["unread"]:
-            reasons.append("results the run could not read " + ",".join(sorted(targets["unread"])))
-        manifest = _read_json(self.task_root / "work/automation-manifest.json")
-        if "contradicts_requirement" in json.dumps(manifest.get("unresolved") or []):
-            reasons.append("contradicts_requirement rows")
-        return "; ".join(reasons)
+        """FV3-26: delegate of `stage_close.s7_failures_to_triage` (the one body, both roads); reads only `self.task_root`, so it works on a bare
+        namespace. Its `Refused` is this driver's Refusal (converted once)."""
+        try:
+            return stage_close.s7_failures_to_triage(self.task_root, awaiting)
+        except stage_close.Refused as exc:
+            raise Refusal(str(exc), title=exc.title) from None
 
     def stage_S7(self) -> None:
         state = self.controller_state()
@@ -98,15 +60,8 @@ class DriverStageS7:
             reasons = self.failures_to_triage(awaiting=awaiting)
             if not reasons and not awaiting:
                 # P2 M3 (the investigation before a close by code). POSITION INVARIANT: after `failures_to_triage` (a halted run raises
-                # before any register write) and before the receipt (which hashes the register the pass wrote).
-                self.s7_close_places(self.s7_gap_reason("no_failures"))      # t-1991 U3a: BEFORE the gate (a place is never both gaps)
-                verdict, suffix = self.s7_investigation_gate()
-                if verdict == "wait":
-                    return
-                register = ["work/exploratory-findings.jsonl"] if (self.task_root / "work" / "exploratory-findings.jsonl").is_file() else []
-                self.close_by_code("S7", "no failures — nothing to triage" + suffix,
-                                   ["work/run-report.json"] + register, site="s7.no_failures", finalize=False,
-                                   tail=[["--event", "dispatch_skipped", "--task", self.task, "--reason", "S7: no failures to triage"]])
+                # before any register write) and before the receipt (which hashes the register the pass wrote): `stage_close.s7_code_close`.
+                self.s7_code_close("no_failures")
                 return
             # t-305 N1 (Q23): code decides what the run already recorded BEFORE the analyst is asked (`s7_pretriage`:
             # a manual `inconclusive` whose own record says what stopped it; a red test is never pre-judged). POSITION
@@ -801,11 +756,11 @@ class DriverStageS7:
         """t-1991 U3a: the text the driver gives `place_answers.close_unsettled` (`references/place-answers.json` `gap_reason_names`, five texts picked by name).
         `kind` `no_failures` / `pretriaged` -> those names (no analyst ran). Otherwise `unanswered` - true whether or not the dispatch was told -
         unless the record U3b writes for the last S7 triage dispatch (`state["s7_walk"][<id>]["failed"]`) names `stand` or `session`. `""` when the texts cannot be read: `close_unsettled` then refuses and `s7_close_places` prints one line."""
+        if kind in ("no_failures", "pretriaged"):
+            return stage_close.gap_reason_text(kind)           # FV3-26: the lookup half is one definition (chosen by NAME)
         try:
             import place_answers
             texts = place_answers._data()["gap_reason_names"]           # chosen by NAME: a reorder of the list cannot give a false text
-            if kind in ("no_failures", "pretriaged"):
-                return texts[kind]
             import controller as CT
             ids = [str(d.get("id") or key) for key, d in (self.controller_state().get("dispatches") or {}).items()
                    if isinstance(d, dict) and d.get("stage") == "S7" and d.get("role") == "qa-failure-analyst" and CT.s7_part_of(d) != "investigation"]
@@ -817,25 +772,16 @@ class DriverStageS7:
             return ""
 
     def s7_close_places(self, why: str) -> list:
-        """t-1991 U3a: ONE call at each of the three S7 code closers, BEFORE `s7_investigation_gate` (INVARIANT: a place is never both a settle
-        gap and an investigation gap; `close_unsettled` never writes a plain `open` place, and its `by` is outside the investigation's
-        prefix). The ids of the register lines written. The list that could not be read whole is one printed line and the close still runs
-        on what was read; an exception is one printed line and S7 goes on - it never reads as "no places" (P1, AR-28)."""
+        """FV3-26: delegate of `stage_close.s7_close_places` (t-1991 U3a: the places nobody settled become gaps, BEFORE the investigation gate)."""
+        return stage_close.s7_close_places(self, why)
+
+    def s7_code_close(self, kind: str) -> str:
+        """FV3-26: delegate of `stage_close.s7_code_close` (the S7 close by code at `s7.no_failures`); its `Refused` is this driver's Refusal, a
+        Refusal of a Driver member inside (`run_role`) passes untouched with its retry/close (E-M5)."""
         try:
-            import place_answers
-            found = place_answers.places(self.task_root)
-            if found["unreadable"]:
-                print("S7: the places to settle could not be computed whole: " + "; ".join(f"{rec}: {w}" for rec, w in found["unreadable"]))
-            printed: list = []
-            written = place_answers.close_unsettled(self.task_root, why, printed, found=found)
-        except Exception as exc:
-            print(f"S7: the places nobody settled could not be recorded as gaps ({type(exc).__name__}: {exc}); S7 goes on")
-            return []
-        for line in printed:
-            print(f"S7: {line}")
-        if written:
-            print(f"S7: {len(written)} place(s) nobody settled were recorded as coverage gaps: {why}")
-        return written
+            return stage_close.s7_code_close(self, kind)
+        except stage_close.Refused as exc:
+            raise Refusal(str(exc), title=exc.title) from None
 
     def s7_places_scribe_line(self) -> list:
         """t-1991 U3a: the ONE line the S8 scribe gets about the places of S7 - settled ones with the answer and the source of its
@@ -877,55 +823,17 @@ class DriverStageS7:
         return [render(0)]
 
     def s7_investigation_gate(self) -> tuple:
-        """What S7 does about the observations the run left open BEFORE it closes by code (P2 M3): `(verdict, suffix)`, verdict
-        `proceed` | `dispatched` | `wait`, suffix the text added to the close reason and digest (`""` when nothing happened). Called
-        ONLY at the three code closers (`s7.no_failures`, `s7.pretriaged`, `s7.after_repairs`), never at the stage entry. `wait`: the
-        caller returns WITHOUT a close (a running pass; the next `where` resumes it). A stage the controller holds `completed` is
-        never worked on. An exception of the investigation code is one printed line and today's close (P1, F-5). The decision itself
-        is `investigation.decision` (pure); the register is written only through `investigation.project` / `close_gaps`. What the
-        role still decides: the investigation itself (targets worth a probe, what the probe shows, how it is recorded)."""
-        held = ((self.controller_state().get("stages") or {}).get("S7") or {}).get("status")
-        if held == "completed":
-            return "proceed", ""
-        try:
-            import investigation
-            budget, _ = investigation.load_budget(self.plugin)
-        except Exception as exc:
-            print(f"S7: the investigation could not be loaded ({type(exc).__name__}: {exc}); S7 closes as it did without it")
-            return "proceed", ""
-        try:
-            investigation.project(self.task_root, "S7")
-        except Exception as exc:
-            print(f"S7: the observations the run left open could not be projected ({type(exc).__name__}: {exc}); "
-                  "S7 goes on with what the register holds")
-        try:
-            word, why = investigation.decision(self.task_root, self.controller_state(), self.pipeline(), budget)
-            targets = (investigation.open_targets(self.task_root, budget)["unresolved"] if word == "dispatch" else [])
-        except Exception as exc:
-            print(f"S7: the investigation could not be decided ({type(exc).__name__}: {exc}); S7 closes as it did without it")
-            return "proceed", ""
-        if word == "wait":
-            print(f"S7: the investigation {why} is running; S7 is not closed over it")
-            return "wait", ""
-        if word == "none":
-            if why:
-                print(f"S7: {why}")
-            return "proceed", ""
-        printed: list = []
-        if word == "gaps":
-            try:
-                if why == investigation.WHY_TEXTS[0]:
-                    print("S7: the investigation budget cannot be used (" + "; ".join(investigation.budget_problems(budget)) + ")")
-                g = len(investigation.close_gaps(self.task_root, why, printed, budget=budget))
-            except Exception as exc:
-                print(f"S7: the observations the run left open could not be recorded as gaps ({type(exc).__name__}: {exc}); "
-                      "S7 closes as it did without it")
-                return "proceed", ""
-            for line in printed:
-                print(f"S7: {line}")
-            return "proceed", (f"; {g} observation(s) the run left open were not investigated: {why}" if g else "")
+        """FV3-26: delegate of `stage_close.s7_investigation_gate` (P2 M3: the investigation decision at the three S7 code closers; the
+        `dispatch` branch comes back through `s7_investigation_dispatch`)."""
+        return stage_close.s7_investigation_gate(self)
+
+    def s7_investigation_dispatch(self, targets: list, budget) -> tuple:
+        """FV3-26: the `dispatch` branch of the investigation gate, the Driver's own: `(verdict, suffix)`, verdict `dispatched`. The skill road
+        owes the pass instead (`SkillRoad.s7_investigation_dispatch`, `dispatch_owed`)."""
+        import investigation
         # dispatch: ONE bounded read-only pass, synchronous like the triage; a halt, a question threshold or a Refusal of
         # `run_role` interrupts the gate and leaves the dispatch `running` (the next entry goes through `wait_existing_job`)
+        printed: list = []
         print(f"S7: {len(targets)} observation(s) the run left open are not investigated; one bounded read-only investigation is dispatched")
         self.run_role("S7", "qa-failure-analyst", purpose="investigation", complete=False,
                       extra=self.role_lines("S7", "qa-failure-analyst", {"stage": "S7", "purpose": "investigation"}))
