@@ -1,0 +1,1 @@
+- Fixed: `not built yet` answered to the re-raised `s1.no_diff` halt question now records the product side and files the words for the scout, exactly as the first answer does. It used to take the generic offered road, so the side was never recorded.
