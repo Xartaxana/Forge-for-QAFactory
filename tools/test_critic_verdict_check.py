@@ -603,7 +603,7 @@ MUTANT_ROWS = [
     ("empty without reason", {k: v for k, v in _base_fit().items() if k != "mutants_none"}, "mutants_none"),
     ("reason with probes", _mv(_mut(), mutants_none="why"), "mutants_none"),
     ("restore-mismatch in fit", _edit(lambda o: o.update(verdict="fit", blockers=[]), _mut(outcome="restore-mismatch", remark="F2")), "restore-mismatch"),
-    ("restore-mismatch no door", _mv(_mut(outcome="restore-mismatch", remark="M1")), "restore door"),
+    ("restore-mismatch no door", _mv(_mut(outcome="restore-mismatch", remark="F2"), fixes=("M1 x", "F2 restore tools/x.py by hand")), "restore door"),
     ("restore-mismatch no target", _mv(_mut(outcome="restore-mismatch", remark="F2"), fixes=("M1 x", "F2 show HEAD:other")), "restore door"),
     ("old verdict line", _edit(lambda o: o.pop("mutants")), "verdict predates a required field (mutants)"),
 ]

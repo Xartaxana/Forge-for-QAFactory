@@ -27,3 +27,9 @@ critic_verdict_check.py and schema.json left STAGED for the Lead; test file and 
 
 ## Analogs seen
 None outside owns. dup-baseline.json not checked (only lint run). No changelog fragment required by the dispatch.
+
+## Round 2
+
+- S-D-1 fixed: tools/test_critic_verdict_check.py::MUTANT_ROWS row "restore-mismatch no door" now names the target (fix "F2 restore tools/x.py by hand") but lacks `show HEAD:`; the "no target" row is kept. Red-before: with the `and "show HEAD:" in hits[0]` line deleted on a byte copy, `pytest -k door` -> `FAILED test_mutants_rows[restore-mismatch no door]`, 1 failed; restored by byte copy, sha256 0c1cab62d19ee880 equal before/after.
+- S-D-2 fixed: tools/critic_verdict_check.py _mutant_errors split into _one_mutant (per item), _survivor_errors, _restore_errors; bodies moved verbatim, diagnostics unchanged; max nesting 3.
+- Witness: `python -m pytest tools/test_critic_verdict_check.py -q` -> `73 passed in 2.01s`.
