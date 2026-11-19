@@ -267,7 +267,10 @@ class DriverStageS5:
                                digest="nothing to automate")
             return
         todo = self.s5_todo(windows)
-        owed, owed_window = self.repair_owed(windows)       # a round the person chose at the repair limit and not run yet (t-698 A4)
+        # FV3-35b2 (E12): a window whose last round is an accepted critic with `tests_in_repair` owes its author round; recorded as `route`
+        # just before the owed read. POSITION INVARIANT: before `repair_owed`, so the round is run and never reaches the L5 refusal below.
+        self.s5_owe_sendbacks(windows)
+        owed, owed_window = self.repair_owed(windows)     # a round the person chose at the repair limit and not run yet (t-698 A4)
         # t-733: a `debt` that consumed an owed round leaves its critic's finish (`--not-complete`) to be completed; no role runs, so no stand or
         # build check is owed. POSITION INVARIANT: before the L5 refusal (which has no door for it) and before any review (a fresh critic would
         # be asked the same question again), never while a round is owed (that round runs first). The critic is finished only while it can
