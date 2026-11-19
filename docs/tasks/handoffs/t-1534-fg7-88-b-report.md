@@ -11,3 +11,9 @@ Witness: `python -B -m pytest tools/test_journal_validator.py tools/test_journal
 ```
 492 passed in 4.97s
 ```
+
+## Round 2
+
+- M3 fixed: tools/test_journal_echo_r3.py:121-131 -- `basis` is a parameter; the `(None, ...)` row is replaced by basis="critic:t-77", critic delegated under "t-77" -> [("no_input", "t-001")]. Row count unchanged. Probe: journal_echo.py:2193 mutated to a loose `(True, basis[7:])` parse on a `critic:` prefix -> `1 failed, 2 passed` (the t-77 row failed); restored from byte copy, sha256 before = after = e02065f6924c1813f2c89b9000071c48981fb87aba380ba0b7a3d649dab9e181.
+- F1 fixed: docstrings only, journal_validator.py:158 and :676, r3_integration_check.py:206 now say "or `critic:<task id>` (critic_basis)"; the `basis *== *"critic"` grep finds docstring lines only.
+- Witness: `python -m pytest tools/test_journal_echo_r3.py tools/test_journal_validator.py tools/test_r3_integration_check.py -q` -> `491 passed in 5.05s`.
