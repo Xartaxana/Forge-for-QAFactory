@@ -49,8 +49,7 @@ WRITER = "python -B tools/journal_write.py"
 DELEGATED_DOOR = f"write it: {WRITER} delegated …"
 EDIT_DOOR = (f"the writer is {WRITER} <event> … (event --json for a retro line)")
 WARN_LOG = "warn.log"               # <common>/forge-journal/warn.log: the stop-side WARN lines, read by calibration check 48(c)
-AGENT_ID_MAX = 64                   # a real agent id is ~17 characters; a longer `to` is no worker (and no file name)
-SESSION_RE =re.compile(r"^[A-Za-z0-9-]{1,16}$")
+SESSION_RE = re.compile(r"^[A-Za-z0-9-]{1,16}$")
 
 
 # ---------------------------------------------------------------- small helpers
@@ -297,8 +296,8 @@ def post_send(payload) -> list:
 
 def _post_send(payload, to) -> list:
     jw, _jl, jk, transcripts = _imports()
-    if transcripts.agent_file_name(to) is None or len(to) > AGENT_ID_MAX or "agent_id" in payload:
-        return []                    # not an agent id (a peer pipe, junk, an absurd length), or a send made inside a worker (X3)
+    if transcripts.agent_file_name(to) is None or "agent_id" in payload:
+        return []                    # not an agent id (a peer pipe, junk), or a send made inside a worker (X3)
     try:
         root = jw.repo_root(payload.get("cwd") or os.getcwd())
     except jw.Refused:
