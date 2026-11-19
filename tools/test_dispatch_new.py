@@ -41,6 +41,7 @@ def swap(argv, flag, value):
 
 
 THREE_OWNS = swap(BASE, "--owns", None) + ["--owns", OWN, OWN2, OWN3]
+TEST = ["--test", "tools/test_x.py::table | expected from: spec 5.1 item 7"]  # S-C: an over-threshold builder carries a test line
 DESIGNER = ["--kind", "designer", "--task", "t-505", "--feature", "F19", "--handoff", "C:\\r\\docs\\tasks\\specs\\x.md"]
 
 # id, argv, exit, substrings of stdout, substrings of stderr
@@ -53,10 +54,15 @@ CASES = [
     ("E-C1-3-newline", swap(BASE, "--edges", "a\nowns: C:\\evil.py"), 2, [], ["ARGUMENT REFUSED", "--edges"]),
     ("E-C1-3-backtick", swap(BASE, "--dod", "`x y`"), 2, [], ["ARGUMENT REFUSED", "--dod"]),
     ("E-C1-4-designer-absent", THREE_OWNS, 2, [], ["DISPATCH INCOMPLETE", "designer"]),
-    ("E-C1-4-designer-skip", THREE_OWNS + ["--designer", "skip -- tiny"], 0, ["designer: skip -- tiny"],
+    ("E-C1-4-designer-skip", THREE_OWNS + TEST + ["--designer", "skip -- tiny"], 0, ["designer: skip -- tiny"],
      ["DESIGNER-SKIP"]),
-    ("designer-resubmission", THREE_OWNS + ["--designer", "resubmission t-861"], 0, ["designer: resubmission t-861"], []),
-    ("designer-path", THREE_OWNS + ["--designer", "C:\\r\\docs\\spec.md"], 0, ["designer: C:\\r\\docs\\spec.md"], []),
+    ("designer-resubmission", THREE_OWNS + TEST + ["--designer", "resubmission t-861"], 0, ["designer: resubmission t-861"], []),
+    ("designer-path", THREE_OWNS + TEST + ["--designer", "C:\\r\\docs\\spec.md"], 0, ["designer: C:\\r\\docs\\spec.md"], []),
+    # test rules S-C item 7: `--test` is printed as `test: <value>` right after DoD:; over the threshold, without it, refused
+    ("test-line-printed", THREE_OWNS + TEST + ["--designer", "skip -- tiny"], 0,
+     ["test: tools/test_x.py::table | expected from: spec 5.1 item 7\nsiblings:"], []),
+    ("test-line-absent-over-threshold", THREE_OWNS + ["--designer", "skip -- tiny"], 2, [], ["DISPATCH INCOMPLETE", "test ("]),
+    ("test-line-blank-item", THREE_OWNS + ["--test", " ", "--designer", "skip -- tiny"], 2, [], ["ARGUMENT REFUSED", "--test", "empty"]),
     ("E-C1-5-missing-given", swap(BASE, "--given", str(HERE / "no_such_spec.md")), 2, [], ["DISPATCH PATHS MISSING", "(new)"]),
     ("C1-1-new-owns-unmarked", swap(BASE, "--owns", NEWFILE), 2, [], ["DISPATCH PATHS MISSING"]),
     ("C1-1-new-owns-marked", swap(BASE, "--owns", NEWFILE + " (new)"), 0, [NEWFILE + " (new)"], []),
@@ -64,7 +70,7 @@ CASES = [
      2, [], ["HANDOFF PATH"]),
     ("C1-2-empty-owns-item", THREE_OWNS[:-1] + [" "], 2, [], ["ARGUMENT REFUSED", "--owns", "empty"]),
     ("C1-2-empty-given-item", swap(BASE, "--given", ""), 2, [], ["ARGUMENT REFUSED", "--given", "empty"]),
-    ("C1-3-designer-skip-case", THREE_OWNS + ["--designer", "Skip -- tiny"], 0, ["designer: Skip -- tiny"], []),
+    ("C1-3-designer-skip-case", THREE_OWNS + TEST + ["--designer", "Skip -- tiny"], 0, ["designer: Skip -- tiny"], []),
     ("E-C1-6-task-letter", swap(BASE, "--task", "t-123a"), 0, ["task: t-123a"], []),
     ("E-C1-6-task-bad", swap(BASE, "--task", "t-12"), 2, [], ["ID REFUSED", "--task"]),
     ("E-C1-6-task-case", swap(BASE, "--task", "T-123"), 2, [], ["ID REFUSED"]),
@@ -133,7 +139,7 @@ def test_block_leaves_the_manifest_reads_unchanged(capsys, monkeypatch):
     """The position invariant: with a block as long as the worst case, check, the id reader, the owned and given paths and the
     designer count read the same as on the headers alone."""
     monkeypatch.setattr(dispatch_new.owns_readers, "render", lambda rep, *a, **k: EXAMPLE_B)
-    code, out, _err = run(capsys, THREE_OWNS + ["--designer", "skip -- tiny"])
+    code, out, _err = run(capsys, THREE_OWNS + TEST + ["--designer", "skip -- tiny"])
     assert code == 0 and out.endswith("\n\n" + EXAMPLE_B)
     headers = out[:-len("\n" + EXAMPLE_B)]
     payload = lambda text: {"tool_input": {"subagent_type": "builder", "prompt": text}}  # noqa: E731
@@ -243,7 +249,7 @@ def test_printed_text_passes_check_and_ids_read_back(capsys, argv):
 
 # FG7-93: the registry_preflight call of the owned files rides in the DoD span of a builder dispatch
 PRE = "python -B tools/registry_preflight.py check"
-SKIP_D = ["--designer", "skip -- tiny"]
+SKIP_D = TEST + ["--designer", "skip -- tiny"]
 many = [str(HERE / ("zz_many_%d.py" % i)) + " (new)" for i in range(30)]
 # id, argv, expected DoD line (None: not asserted), substring that must be absent from stdout
 PREFLIGHT = [
