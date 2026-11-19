@@ -705,7 +705,8 @@ account: it is carried as not run with that answer named (§3 (2b)).
 - The stand's DEFAULT account is needed when ANY of (FK-3 (a) as amended):
   (a) a case declares `{"stand_account": "default"}`;
   (b) the plan (`work/test-plan.json`) has a row with disposition `automate` (the project's harness may sign in; nothing declares it);
-  (c) a case of a `manual-agent` row declares NO account precondition (today's S6 reading of a screen case, F-10);
+  (c) a case of a `manual-agent` row has NO precondition of `kind: account` whose `name` is `stand_account` with a non-default role (an `env:`
+      account alone does not name a role, so it counts here; PK2-15, Lead 19.11.2026: the code and the summary below already read it so);
   (d) any case's preconditions, any case's plan row (the case's `plan_row` front matter -> the row's disposition) or the plan cannot be read, or a row's
       disposition is not one of the known words (AR-28);
   (e) an EXECUTED case (row disposition `automate` or `manual-agent`) declares a `case_seeds` precondition - seeding runs as default (F-10b);
