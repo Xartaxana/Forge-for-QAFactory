@@ -188,26 +188,95 @@ def gate_b_decision(ticket: str) -> str:
     return str(((pipe.get("gates") or {}).get("B") or {}).get("decision") or "").strip()
 
 
+NO_TRACE_WORDS = "an experiment leaves no trace: the answer stays in this story's words (waiver); nothing was recorded"
+_UNKNOWN_HEAD = "whether this story is an experiment that leaves no trace could not be established: "
+_UNKNOWN_TAIL = ("of the story cannot be read; start or resume the story with the driver (its S0 records it), or repair that file, "
+                 "then run the same command again; nothing was recorded")
+UNKNOWN_WORDS = _UNKNOWN_HEAD + "<what> " + _UNKNOWN_TAIL
+
+
+def trace_state(task_root, launch=None) -> tuple:
+    """(state, carrier) of a story's experiment flag, the ONE reader (PK2-11/19, AR-13): state `open` | `closed` | `unknown`,
+    carrier `pipeline` | `launch` | `none` | `no_story`. Never raises; an error reads `unknown`, never open (FR-59).
+
+    Carriers: `pipeline.json` key `no_trace`, then the driver's launch record (`state/driver-state.json`, object `launch`; `launch`
+    given = the driver's newer in-memory copy, replaces the file read). The launch record can only CLOSE; only an explicit
+    pipeline `false` opens over it (FR-40). A write naming no story (`task_root` None) is outside any story: open. A keyless
+    readable pipeline is a normal story (S0 writes the key for every experiment, and the skill road has no driver-state): open."""
+    try:
+        if task_root is None:
+            return "open", "no_story"
+        root = Path(task_root)
+        if not root.is_dir():
+            return "unknown", "none"
+        pipe_file = root / "pipeline.json"
+        pipeline = load_json(pipe_file)[0] if pipe_file.is_file() else None
+
+        def launch_record():
+            if launch is not None:
+                rec = launch
+            else:
+                ds_file = root / "state" / "driver-state.json"
+                ds = load_json(ds_file)[0] if ds_file.is_file() else None
+                rec = ds.get("launch") if isinstance(ds, dict) else None
+            return rec if isinstance(rec, dict) else None
+
+        rec = launch_record()
+        launch_closes = bool(rec) and bool(rec.get("no_trace"))
+        if isinstance(pipeline, dict):
+            if "no_trace" in pipeline:
+                value = pipeline["no_trace"]
+                if value:
+                    return "closed", "pipeline"
+                if value is False:
+                    return "open", "pipeline"
+                return ("closed", "launch") if launch_closes else ("unknown", "pipeline")
+            return ("closed", "launch") if launch_closes else ("open", "pipeline")
+        if pipe_file.is_file():                      # exists, unreadable or not an object
+            return ("closed", "launch") if launch_closes else ("unknown", "pipeline")
+        if rec is None:
+            return "unknown", "none"
+        return ("closed", "launch") if launch_closes else ("open", "launch")
+    except Exception:
+        return "unknown", "none"
+
+
+def trace_refusal(task_root, launch=None) -> str:
+    """"" when the story is open, else the words a writer of a project record refuses with (FR-53, FR-59). Never raises."""
+    state, carrier = trace_state(task_root, launch)
+    if state == "open":
+        return ""
+    if state == "closed":
+        return NO_TRACE_WORDS
+    what = "neither pipeline.json nor state/driver-state.json"
+    if carrier == "pipeline":
+        what = "pipeline.json"
+    else:
+        try:
+            if task_root is not None and not Path(task_root).is_dir():
+                what = "the story folder"
+        except Exception:
+            pass
+    return f"{_UNKNOWN_HEAD}{what} {_UNKNOWN_TAIL}"
+
+
 def closed_by_run(task_root, unreadable_closes=False) -> str:
     """Why this run may send nothing outward, or "" when it may (t-017 D3, B-003).
 
-    The record is `pipeline.no_trace` and nothing else: written at S0 by `story_run.py
-    --no-trace` or accepted on a resume by `stage_done.py --set no_trace=true`, and read HERE by
-    every reader - the gate B filing line, both rehearsal checks, this executor - so that no two
-    of them can disagree about whether the run is an experiment (P8, FR-53; a comparison run
-    that filed a tracker comment on a real ticket is what the rule is for). Truthy closes: a
-    pipeline that cannot be read, or that has no such key, closes nothing, and the way out of a
-    wrongly closed run is `stage_done.py --set no_trace=false` (FR-40).
+    Reads through `trace_state` (PK2-11/19), the reader every consumer shares, so that no two of them can disagree about whether
+    the run is an experiment (P8, FR-53). Closed means the pipeline's `no_trace` is truthy, or the driver's launch record says
+    so while the pipeline cannot; an unknown state closes nothing here (writers of project records read `trace_refusal`, which
+    refuses it). The way out of a wrongly closed run is `stage_done.py --set no_trace=false` (FR-40).
 
     `unreadable_closes=True` (FG7-8 part B, I-7, AR-28): the one caller that WRITES into the person's repository
     (`gate_preflight.check_vcs`, `commit` / `stash`) cannot tell an experiment from a normal run when the record is
-    unreadable, so for it a pipeline that cannot be read or is not an object closes the write too. Every other
-    caller keeps the default and is byte-identical."""
-    pipeline, _ = load_json(Path(task_root) / "pipeline.json")
-    if isinstance(pipeline, dict) and pipeline.get("no_trace"):
+    unreadable, so for it a pipeline that cannot be read or is not an object closes the write too."""
+    if trace_state(task_root)[0] == "closed":
         return "it is an experiment that leaves no trace"
-    if unreadable_closes and not isinstance(pipeline, dict):
-        return "the run's record cannot be read, so nothing is written into your repository"
+    if unreadable_closes and task_root is not None:
+        pipeline, _ = load_json(Path(task_root) / "pipeline.json")
+        if not isinstance(pipeline, dict):
+            return "the run's record cannot be read, so nothing is written into your repository"
     return ""
 
 

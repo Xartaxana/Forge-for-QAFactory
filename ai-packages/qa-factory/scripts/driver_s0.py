@@ -1135,14 +1135,14 @@ class DriverS0:
         # PC-1b, writer 2 of the registry (`by: driver`, `source: person`): the project keeps the answer, so the next story is not
         # asked. An experiment (`--no-trace`) records nothing (P8): the answer stays in this story's `pipeline.sides`, and one line
         # says so. The words are the closed answer the person gave (the caller hands over the door, not the raw text).
-        if getattr(self.flags, "no_trace", False) or launch.get("no_trace"):
+        if self.no_trace():     # one road: `external_writes.trace_state` through `Driver.no_trace` (PK2-19)
             not_kept(f"your answer about {name} was kept for this story only (an experiment leaves no trace)")
             return said
         try:
             import project_knowledge as PK
             row, problem, _ = PK.record(self.project, key=PK.SIDES_KEY, environment="", element=name, state=PK.KNOWN, scope="project",
                                         value={"deliverable": door == "ours", "settles_by": ""}, words=words or door, source="person",
-                                        story=self.task, by="driver",
+                                        story=self.task, by="driver", task_root=self.task_root,
                                         where=where or "the answer to sides.deliverable at the start of the story")
             if row is None:
                 not_kept(f"your answer about {name} was kept for this story only: the project's record of sides did not take it ({problem})")

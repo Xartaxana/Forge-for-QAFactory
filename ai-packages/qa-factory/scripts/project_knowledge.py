@@ -53,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config_contract as CC  # the one reader of the config file and of the catalogue (AR-13)
 import environment_record as ER  # the record family this registry is built on: no copy of its reader, writer or numbering
+import external_writes as _EW  # the one reader of the experiment flag and the home of its refusal text (PK2-11/19)
 
 RECORD_REL = "qa-factory/records/project-knowledge.json"
 LOCK_REL = "qa-factory/state/project-knowledge.lock"
@@ -162,7 +163,7 @@ STATES = (KNOWN, NOT_NEEDED, NOTICED)
 SOURCES = ("person", "role", "legacy_config", "measured")
 BY = ("conductor", "driver", "gate")
 SIGN_INS = ("account", "none")
-NO_TRACE_WORDS = "an experiment leaves no trace: the answer stays in this story's words (waiver); nothing was recorded"
+NO_TRACE_WORDS = _EW.NO_TRACE_WORDS
 PLACEHOLDER_STAND = "this stand"
 
 
@@ -726,18 +727,14 @@ def roster(root, cfg, stand) -> dict:
 # --- the one writer ----------------------------------------------------------------------------------------------------
 
 def _refuse_no_trace(task_root) -> str:
-    """The reason a story that leaves no trace may not record an answer, or "" (P8, FR-53). The one reader of `no_trace` is
-    `external_writes.closed_by_run`. A story that is not known (`task_root` None) is no experiment. Returns a reason; never raises."""
-    if task_root is None:
-        return ""
+    """The reason a story that leaves no trace (or whose flag cannot be read) may not record an answer, or "" (P8, FR-53, FR-59). The
+    one reader is `external_writes.trace_refusal` (PK2-11/19); a story not named (`task_root` None) is outside any story. Never raises."""
     try:
         import external_writes
-        if external_writes.closed_by_run(task_root):
-            return NO_TRACE_WORDS
+        return external_writes.trace_refusal(task_root)
     except Exception:
-        return ("whether this story is an experiment that leaves no trace could not be established; check `pipeline.json` of the story "
-                "and run the same command again; nothing was recorded")
-    return ""
+        return ("whether this story is an experiment that leaves no trace could not be established: the reader failed; "
+                "run the same command again; nothing was recorded")
 
 
 # part of the record_problems unit (C16, census row record_problems); not a unit of its own
