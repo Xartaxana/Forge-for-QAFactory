@@ -4,9 +4,17 @@
   "kind:halt/free words": {
    "node": "FV3-16",
    "raised_by": "product gap: Lead t-828 (N4:s0 report, t-824): the driver prints 'answer for halt' but records no answer row, does not resume the role and goes to the conductor; cause not located, FV3-16"
+  },
+  "halt/words": {
+   "node": "FV3-16",
+   "raised_by": "product gap: same cause as kind:halt/free words (same ask, same words): the driver prints 'answer for halt' but records no answer row; FV3-16"
+  },
+  "halt/free words": {
+   "node": "FV3-16",
+   "raised_by": "product gap: same cause as kind:halt/free words (same ask, same words): the driver prints 'answer for halt' but records no answer row; FV3-16"
   }
  },
  "pins": {
-  "known_red": 1
+  "known_red": 3
  }
 }
