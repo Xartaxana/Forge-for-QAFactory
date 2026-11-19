@@ -1743,6 +1743,85 @@ def group_unwalked(group: str, census, walk_rows: list, prices: dict, *, routes=
     return total, [f"{total} (census unwalked {len(names)}: {', '.join(names) or 'none'}; variants without a row {len(missing)}: {', '.join(missing) or 'none'})"]
 
 
+# ---------------------------------------------------------------------------------------------------- told before work (FV3-13, A2 N3a)
+TOLD = "main/told"
+IDS_NOT_RECORDED = "ids-not-recorded"
+
+
+def told_before_work(task_root, *, rows_data=None, run_record=None) -> tuple:
+    """`(results {name: bool}, details {name: str}, summary)` of the refusals the driver journal of `task_root` holds: was each check id TOLD to the role
+    before its work (A2 N3a)? Result `main/told/<role>@<stage>/<id>`; green only when the id's row (`stage_joints.row_for`) is among `rows_for(role,
+    [stage], None)` - what the page renders. An unknown id, a rework resume that recorded none, a missing role or stage, an unreadable source: red,
+    never a pass (AR-28). A resume that is no refusal is counted, not judged. `rows_data` / `run_record` (a path) let a test name its own copies."""
+    import driver_journal
+    import stage_joints
+    path = Path(task_root) / "state" / driver_journal.JOURNAL_NAME
+
+    def carrier(why):
+        name = f"{TOLD}/carrier"
+        return {name: False}, {name: f"{why}"}, f"carrier unreadable: {why}"
+
+    data, why = (rows_data, "") if rows_data is not None else stage_joints.read_rows()
+    if data is None:
+        return carrier(f"{stage_joints.DATA}: {why}")
+    rework, note = driver_journal.run_record_names("rework_kinds", run_record)
+    if not rework:
+        return carrier(f"{run_record or driver_journal.RUN_RECORD_PATH}: {note}")
+    if not path.is_file():
+        return carrier(f"{path}: absent; expected the driver's journal")
+    rows, bad = driver_journal.read_rows_counted(path)
+    if bad:
+        return carrier(f"{path}: {bad} line(s) are not JSON objects")
+    results, drawn, notes, refusals, not_refusals = {}, {}, {}, 0, 0
+    for row in rows:
+        if row.get("resumed") is not True:
+            continue
+        has_checks = "checks" in row
+        if not has_checks and row.get("resume_kind") not in rework:
+            not_refusals += 1
+            continue
+        refusals += 1
+        role, stage = row.get("role"), row.get("stage")
+        known = all(isinstance(v, str) and v.strip() for v in (role, stage))
+        who = f"{role}@{stage}" if known else "?@?"
+        checks = row.get("checks")
+        ids = ((IDS_NOT_RECORDED,) if not has_checks else driver_core_ids(checks))
+        for ident in ids:
+            fallback = ident != IDS_NOT_RECORDED and stage_joints.is_fallback(ident)
+            name, said = f"{TOLD}/{who}/{'unknown' if fallback else ident}", None        # every fallback id is one result: `unknown` (E-B3)
+            if not known:
+                said, text = False, f"role or stage unknown for {row.get('dispatch')}"
+            elif ident == IDS_NOT_RECORDED:
+                said, text = False, "a rework resume that recorded no check ids"
+            elif fallback:
+                said, text = False, f"id {ident} is a fallback id: no check was named"
+            else:
+                found, why = stage_joints.row_for(ident, data)
+                said = found is not None and found in stage_joints.rows_for(role, [stage], None, data=data)
+                text = (f"id {ident} is " + ("on the page of " if said else "not on the page of ") + f"{role} at {stage}"
+                        + (f" ({why})" if why else ""))
+            results[name] = results.get(name, True) and said
+            notes.setdefault(name, text)
+            drawn.setdefault(name, [])
+            if row.get("dispatch") and row["dispatch"] not in drawn[name]:
+                drawn[name].append(str(row["dispatch"]))
+    details = {n: f"{notes[n]}; drawn by {', '.join(drawn[n]) or 'no named dispatch'}" for n in results}
+    said_n = sum(1 for ok in results.values() if ok)
+    summary = (f"{refusals} refusals, {said_n} said, {len(results) - said_n} not said (known_red)"
+               + (f"; {not_refusals} resumes not refusals" if not_refusals else ""))
+    return results, details, summary
+
+
+def driver_core_ids(checks) -> tuple:
+    """The ids of one journal `checks` value in the runner's own normal form (`Refusal.id_set`); a bare string is wrapped first, anything else is `unknown`."""
+    from driver_core import Refusal
+    if isinstance(checks, list):
+        return Refusal.id_set(checks)
+    if isinstance(checks, str):
+        return Refusal.id_set([checks])
+    return ("unknown",)
+
+
 # ---------------------------------------------------------------------------------------------------- the selftest
 def _write(path: Path, data) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2572,6 +2651,53 @@ def _selftest_cases() -> list:
         except ExitsUnreadable as exc:
             return None if "g.json" in str(exc) and "h.json" in str(exc) else f"got {exc}"
         return "no refusal"
+
+    # ---- FV3-13: told before work (a tmp task root, a rows dict of its own; the run record is the real one)
+    def joint(check, role, stage):
+        return {"check": check, "requirement": "x", "producers": [{"roles": [role]}], "stages": [stage]}
+
+    rows = {"joints": [joint("K1:a", "builder", "S1"), joint("K2:*", "critic", "S1"), joint("K3:a", "builder", "S2")]}
+
+    def journal(*entries, text=None):
+        root = tmp()
+        _write(root / "state" / "driver-runs.jsonl", text if text is not None else "".join(json.dumps(e) + "\n" for e in entries))
+        return root
+
+    def resume(checks="-", kind="refusal_resume", role="builder", stage="S1", **kw):
+        return {"resumed": True, "role": role, "stage": stage, "dispatch": "d1", "resume_kind": kind,
+                **({} if checks == "-" else {"checks": checks}), **kw}
+
+    told_rows = [
+        ("told", [resume(["K1:a"])], {"main/told/builder@S1/K1:a": True}),
+        ("stem row", [resume(["K2:zz"], role="critic")], {"main/told/critic@S1/K2:zz": True}),
+        ("absent row", [resume(["K9:a"])], {"main/told/builder@S1/K9:a": False}),
+        ("other role", [resume(["K2:zz"])], {"main/told/builder@S1/K2:zz": False}),
+        ("other stage", [resume(["K3:a"])], {"main/told/builder@S1/K3:a": False}),
+        ("unknown ids", [resume(["unknown"]), resume(["K1:unlabelled"]), resume([]), resume(7)], {"main/told/builder@S1/unknown": False}),
+        ("rework, no checks", [resume()], {"main/told/builder@S1/ids-not-recorded": False}),
+        ("not a rework", [resume(kind="person_answer"), resume(["K1:a"], resumed=False)], {}),
+        ("two ids", [resume(["K1:a", "K9:a"])], {"main/told/builder@S1/K1:a": True, "main/told/builder@S1/K9:a": False}),
+        ("no role", [resume(["K1:a"], role="")], {"main/told/?@?/K1:a": False}),
+    ]
+
+    @case("told_before_work: told, absent, other role/stage, unknown, no ids, not a refusal, two ids, no role")
+    def _():
+        for label, entries, want in told_rows:
+            got, details, summary = told_before_work(journal(*entries), rows_data=rows)
+            if got != want or set(details) != set(want):
+                return f"{label}: got {got}"
+        if "1 resumes not refusals" not in told_before_work(journal(resume(kind="person_answer")), rows_data=rows)[2]:
+            return "a non-refusal resume is not counted in the summary"
+        if "0 refusals" not in told_before_work(journal(), rows_data=rows)[2]:
+            return "an empty journal has no `0 refusals` summary"
+
+    @case("told_before_work: an unreadable run record, a broken journal line, an absent journal -> one red carrier result naming the path")
+    def _():
+        bad_record = _write(tmp() / "run-record.json", "{bad")
+        for label, root, record in (("record", journal(resume(["K1:a"])), bad_record), ("line", journal(text="{bad\n"), None), ("absent", tmp(), None)):
+            got, details, _ = told_before_work(root, rows_data=rows, run_record=record)
+            if list(got.values()) != [False] or list(got) != ["main/told/carrier"] or (str(record or root)[-20:] not in details["main/told/carrier"]):
+                return f"{label}: got {got} {details}"
 
     _walker_cases(case, tmp)
     return cases

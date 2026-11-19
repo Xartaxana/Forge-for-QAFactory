@@ -1054,6 +1054,14 @@ def main_pass(story_id: str = DEFAULT_STORY, label: str = "default", ledger_path
         stop_stage = next((s for s in STAGES if state[s] != "done"), None)        # the first stage not closed: the pass is red or ledgered THERE
         results = {f"{prefix}/{s}": state[s] == "done" for s in STAGES[:STAGES.index(stop_stage) + 1 if stop_stage else len(STAGES)]}
         results.update(gates)
+        # FV3-13: was each refusal's check id told to its role before the work? The results ride the ledger road below (reconcile), and the task
+        # root is gone when this function returns, so the journal is read here; an existing result of the pass is never overwritten by a told name.
+        told, told_details, told_summary = dry_exits.told_before_work(world.task_root)
+        for rid, ok in told.items():
+            name = f"{prefix}/{rid.split('/', 1)[1]}"
+            results.setdefault(name, ok)
+            line(name, "note", told_details[rid])
+        line("main/told-before-work", "note", told_summary)
         ledger, red = _ledger_lines(prefix, results, line)
         reached = [s for s in STAGES if state[s] == "done"]
         if stop:
