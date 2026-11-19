@@ -1,0 +1,13 @@
+{
+ "id": "ts-playwright",
+ "lang": "typescript",
+ "profile_id": "dry-playwright",
+ "command": "one_test",
+ "runtime_probe": {"argv": ["{python}", "{plugin_root}/scripts/runtime_probe.py", "--profile", "dry-playwright", "--environment", "dry-world", "--checkout", "."], "cwd": ".", "timeout_s": 30},
+ "profile": {
+  "profile_id": "dry-playwright",
+  "commands": {
+   "one_test": {"argv": ["npx", "playwright", "test", "--reporter=line"], "cwd": "."}
+  }
+ }
+}

@@ -4,6 +4,7 @@
 #   list    the walk groups: one per file fixtures/stories/dry-1/exits/*.json; the list is printed, an empty list prints "no walk groups"
 #   parts   one job per group: test_scenario_dry_1.py --part exits:<group> (the matrix is the output of `list`, never a literal)
 #   tables  the table self-tests (dry_exits --check/--selftest, dry_stub --selftest) and the walker's own self-check part
+#   runners every row of the runner table (fixtures/stories/dry-1/runners/<row>) runs by the command of its own profile; Node, Playwright and Chromium are installed here (FV3-11)
 # A group with a file never drops out silently: the list job prints every name it found. A group without a file is not walked here;
 # the default mode of the `full` tier prints it as `unwalked`.
 name: dry-story
@@ -113,3 +114,50 @@ jobs:
         env:
           T: ai-packages/qa-factory/scripts/tests
         run: python -B $T/test_scenario_dry_1.py --part exits:selftest --exits-root $T/fixtures/stories/dry-1/selftest --ledger $T/fixtures/stories/dry-1/selftest/known_red.json
+
+  runners:
+    needs: list
+    runs-on: ubuntu-latest
+    timeout-minutes: 15         # until the Lead's cap (FV3-11 E7: an estimate of 2-3 minutes, measured in the report)
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: the Playwright project of the TypeScript row (npm ci)
+        working-directory: ai-packages/qa-factory/scripts/tests/fixtures/stories/dry-1/runners/ts-playwright/project
+        run: npm ci
+      - name: the browser of the TypeScript row
+        working-directory: ai-packages/qa-factory/scripts/tests/fixtures/stories/dry-1/runners/ts-playwright/project
+        run: npx playwright install --with-deps chromium
+      - id: setup           # FG7-90: the marker of the setup steps; the check below starts only when every install succeeded (no continue-on-error, no `|| true`)
+        run: |
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      # FV3-11: EVERY row of the runner table runs by the command its own profile names (one reader of the table, one reader of the command); no row id is written here
+      - name: every runner row runs its profile command
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: |
+          python -B - <<'PY'
+          import shutil, subprocess, sys, tempfile
+          sys.path[:0] = ["ai-packages/qa-factory/scripts/tests", "ai-packages/qa-factory/scripts"]
+          import dry_stub, profile_contract as pc
+          rows, bad = dry_stub.runner_rows(), 0
+          for row in rows:
+              spec, problem = pc.profile_command(row["profile"], row["command"])
+              words, problem = (pc.command_argv(spec) if not problem else ([], problem))
+              if problem or not words:
+                  print(f"runner {row['id']}: {problem or 'no command'}", flush=True); bad += 1; continue
+              work = tempfile.mkdtemp() + "/project"
+              shutil.copytree(row["dir"] + "/project", work, symlinks=True)
+              code = subprocess.run(words, cwd=work + "/" + spec.get("cwd", ".")).returncode
+              print(f"runner {row['id']}: exit {code}", flush=True); bad += code != 0
+          sys.exit(1 if bad or not rows else 0)
+          PY
