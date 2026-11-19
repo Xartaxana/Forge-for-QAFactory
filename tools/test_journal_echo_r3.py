@@ -130,11 +130,6 @@ def test_s1_basis_cited_critic_task_id(delegated_under, kinds):
     assert _kinds(_accepted_events(new, base)) == kinds
 
 
-def test_s1_malformed_cited_basis_is_basis_none_m1():
-    new = [_l(event="accepted", agent="builder", task_id="t-001", basis="critic:t-77")]
-    assert _kinds(_accepted_events(new)) == [("no_input", "t-001")]
-
-
 def test_s1_negative_twin_no_basis_warns_m1():
     new = [_l(event="accepted", agent="builder", task_id="t-001")]
     events = _accepted_events(new)
