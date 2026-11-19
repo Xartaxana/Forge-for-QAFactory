@@ -292,6 +292,69 @@ def test_e_b23_7_background_stop_after_post_writes_returned_once_and_the_index_i
     assert not (jl.lock_dir(repo) / "open/a1b2c3").exists() and not (jl.lock_dir(repo) / "pending-returns/a1b2c3").exists()
 
 
+# ------------------------------------------------------------------ FG7-88: a resumed worker's round (post_send, `resumed`)
+
+def send(cwd, to="a1b2c3", **extra):
+    obj = {"tool_name": "SendMessage", "cwd": str(cwd), "session_id": "sess1234-abcd",
+           "tool_input": {"to": to, "message": "go on"}, "tool_response": {}}
+    obj.update(extra)
+    return obj
+
+
+def _accept(root):
+    line = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "event": "accepted", "agent": "scout", "category": "scout",
+            "task_id": events(root, "delegated")[-1]["task_id"], "model": "sonnet", "by": "lead", "notes": "ok"}
+    with open(Path(root) / "logs/journal/dev1.jsonl", "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(line) + "\n")
+
+
+# id, steps (launch | stop | accept | send[:peer|:other|:worker]), the journal's events after the seed, `resumed` lines said
+RESUME_ROWS = [
+    ("resume-then-stop", ["launch", "stop", "send", "stop"], ["delegated", "returned", "resumed", "returned"], 1),   # E1
+    ("send-while-running", ["launch", "send"], ["delegated"], 0),                                                   # E5
+    ("peer-pipe", ["launch", "stop", "send:peer"], ["delegated", "returned"], 0),                                   # E3
+    ("other-session", ["launch", "stop", "send:other"], ["delegated", "returned"], 0),                              # E3, F3 (b)
+    ("send-inside-a-worker", ["launch", "stop", "send:worker"], ["delegated", "returned"], 0),                      # E3
+    ("accepted-task", ["launch", "stop", "accept", "send"], ["delegated", "returned", "accepted"], 0),              # E6
+    ("two-sends", ["launch", "stop", "send", "send"], ["delegated", "returned", "resumed"], 1),                     # E10
+    ("post-send-through-main", ["launch", "stop", "send:main"], ["delegated", "returned", "resumed"], 1),           # verdict t-1529 F1
+]
+
+
+@pytest.mark.parametrize("steps,kinds,said", [r[1:] for r in RESUME_ROWS], ids=[r[0] for r in RESUME_ROWS])
+def test_fg7_88_a_resumed_round_is_journaled_once_and_only_for_this_sessions_worker(repo, monkeypatch, capsys, steps, kinds, said):
+    out = []
+    for step in steps:
+        name, _, flavor = step.partition(":")
+        if name == "launch":
+            jh.post_agent(payload(repo))
+        elif name == "stop":
+            jh.record_returned(stop(repo))
+        elif name == "accept":
+            _accept(repo)
+        elif flavor == "main":                # the `main` branch for mode post-send: stdin bytes in, hook JSON out
+            _, printed = run_main("post-send", json.dumps(send(repo)).encode(), monkeypatch, capsys)
+            out += json.loads(printed)["hookSpecificOutput"]["additionalContext"].split(" | ") if printed else []
+        else:
+            extra = {"peer": {"tool_input": {"to": "peer-pipe-x"}}, "other": {"session_id": "zzzz9999-abcd"},
+                     "worker": {"agent_id": "w9"}}.get(flavor, {})
+            out += jh.post_send(send(repo, **extra))
+    assert [o["event"] for o in journal(repo)[1:]] == kinds
+    assert sum(x.startswith("JOURNAL: resumed t-") for x in out) == said and len(out) == said
+
+
+@pytest.mark.parametrize("bad", [{}, "str", [1], None, {"tool_input": 5}, {"tool_input": {}}, {"tool_input": {"to": ""}},
+                                 {"tool_input": {"to": 7}}, {"tool_input": {"to": "../x"}}, {"tool_input": {"to": "a*"}},
+                                 {"tool_input": {"to": "a" * 100000}}, {"tool_input": {"to": "агент"}}],
+                         ids=["empty", "str", "list", "null", "tool_input-int", "no-to", "to-empty", "to-int", "to-path",
+                              "to-glob", "to-huge", "to-non-ascii"])
+def test_fg7_88_a_send_payload_it_cannot_tie_gives_nothing_and_leaves_the_journal_bytes(repo, bad):
+    jh.post_agent(payload(repo))
+    jh.record_returned(stop(repo))
+    before = (repo / "logs/journal/dev1.jsonl").read_bytes()
+    assert jh.post_send(bad) == [] and (repo / "logs/journal/dev1.jsonl").read_bytes() == before
+
+
 @pytest.mark.parametrize("bad", [None, {}, {"agent_id": ""}, {"agent_id": "../x", "cwd": "."}, "str", [1]],
                          ids=["none", "empty", "empty_id", "unsafe_id", "string", "list"])
 def test_record_returned_ignores_a_payload_it_cannot_use(bad):

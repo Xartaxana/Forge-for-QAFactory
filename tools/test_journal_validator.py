@@ -671,7 +671,7 @@ def test_matrix_warns_on_a_passed_line(cfg, agent, by, basis, delegated, expect)
 
 # ---- FG7-22: a verdict written before the worker returned (WARN only; matrix_warnings -> returned_order_warnings) ----
 RET_NOW = jv.datetime.datetime(2026, 11, 18, 12, 0, 0)
-D, R, A, X = "delegated", "returned", "accepted", "rejected"
+D, R, A, X, RS = "delegated", "returned", "accepted", "rejected", "resumed"
 
 
 def _ret_line(n, ev, tid, agent="builder", ref="agent:a1", ts=None, **kw):
@@ -681,7 +681,7 @@ def _ret_line(n, ev, tid, agent="builder", ref="agent:a1", ts=None, **kw):
         kw.setdefault("witness", "pytest -q: 3 passed")
     if ev == X:
         kw.update(by="opus", attempt=1, failure_class="spec")
-    if ev == R:
+    if ev in (R, RS):
         kw.update(via="hook")
     return _line(event=ev, ts=ts, agent=agent, model="opus", task_id=tid, worker_ref=ref, notes="n", **kw)
 
@@ -709,6 +709,12 @@ RETURN_ROWS = [
     ("rejected-before-return", [(D, "t-002", "builder", "agent:a1", {}), (X, "t-002", "builder", "agent:a1", {})], 1,
      ["rejected before the worker returned"]),
     ("cli-ref-and-broken-head", [(D, "t-002", "builder", "cli:x", {}), (A, "t-002", "builder", "cli:x", {})], 0, []),
+    ("resumed-verdict-before-second-stop", [(D, "t-002", "builder", "agent:a1", {}), (R, "t-002", "builder", "agent:a1", {}),
+                                            (RS, "t-002", "builder", "agent:a1", {}), (A, "t-002", "builder", "agent:a1", {})],
+     1, ["agent:a1 (builder)", "accepted before the worker returned"]),                                  # FG7-88 E2
+    ("resumed-second-returned-then-verdict", [(D, "t-002", "builder", "agent:a1", {}), (R, "t-002", "builder", "agent:a1", {}),
+                                              (RS, "t-002", "builder", "agent:a1", {}), (R, "t-002", "builder", "agent:a1", {}),
+                                              (A, "t-002", "builder", "agent:a1", {})], 0, []),            # FG7-88 E1
 ]
 
 
@@ -1636,6 +1642,11 @@ _CLOSED_HEAD = HEAD_TEXT + _line(event="accepted", ts="2026-07-10T08:20:00", age
                                  task_id="t-001", by="opus", witness="w", notes="closed") + "\n"
 _RETURNED_DOOR = "journal_write.py returned --task <id> --worker <worker_ref>"
 
+
+def _res(ts="2026-07-10T08:31:00", tid="t-001", wref=_WREF):
+    return _line(event="resumed", ts=ts, agent="builder", model="sonnet", task_id=tid, worker_ref=wref, notes="resumed")
+
+
 # (row, staged new lines, head text, code, [needles in the violations])
 RETURNED_ROWS = [
     ("matching-open-delegated", [_ret()], HEAD_TEXT, 0, []),
@@ -1646,6 +1657,13 @@ RETURNED_ROWS = [
     ("no-task-at-all", [_ret(tid="t-077")], HEAD_TEXT, 1, ["t-077 has no delegated earlier in this journal", _RETURNED_DOOR]),
     ("twice-for-one-pair", [_ret(), _ret(ts="2026-07-10T08:31:00")], HEAD_TEXT, 1,
      ["t-001 already has a returned for worker_ref"]),
+    ("resumed-then-second-returned", [_ret(), _res(), _ret(ts="2026-07-10T08:32:00")], HEAD_TEXT, 0, []),
+    ("returned-twice-after-one-resume", [_ret(), _res(), _ret(ts="2026-07-10T08:32:00"), _ret(ts="2026-07-10T08:33:00")],
+     HEAD_TEXT, 1, ["already has a returned for worker_ref", "no resumed since"]),
+    ("resumed-while-round-open", [_res()], HEAD_TEXT, 1, ["has not returned since its last start", "(rule 9h)"]),
+    ("resumed-on-closed-task", [_res()], _CLOSED_HEAD, 1, ["t-001 is already closed", "(rule 9h)"]),
+    ("resumed-unknown-ref", [_ret(), _res(wref="agent:other")], HEAD_TEXT, 1,
+     ["no earlier open delegated of t-001 carries worker_ref 'agent:other'", "(rule 9h)"]),
     ("two-workers-two-returned", [_line(event="delegated", ts="2026-07-10T08:10:00", agent="critic", model="opus",
                                         task_id="t-001", worker_ref="agent:crit", notes="critic entry"),
                                   _ret(), _ret(ts="2026-07-10T08:31:00", wref="agent:crit")], HEAD_TEXT, 0, []),

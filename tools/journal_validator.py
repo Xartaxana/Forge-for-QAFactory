@@ -247,8 +247,12 @@ log" section):
     with no `returned` line of that (task_id, worker_ref) earlier in the logical file draws one WARN listing every owed ref.
     Owed = the latest worker of EVERY agent kind on the task; a later delegated of the same (task, agent) or
     `replaces_worker:<h>` supersedes. Producers of `returned` (AR-22): journal_hooks._write_returned (SubagentStop, exit 0)
-    and `journal_write.py returned`. KNOWN MISS (E3): a RESUMED worker has one `returned` from its first stop (the hook
-    is idempotent), so a verdict after a resume is silent. A lost end WARNs the same as a running worker.
+    and `journal_write.py returned`. A RESUMED worker is owed again from its `resumed` line (FG7-88; producer
+    journal_hooks.post_send, PostToolUse SendMessage; hand door `python -B tools/journal_write.py event --json`); a resume
+    the hook could not tie (race, a copy beyond the scan) stays silent. A lost end WARNs the same as a running worker.
+9f. `returned`: one per ROUND (FG7-88): a round starts at a never-seen `delegated` of (task, worker_ref) or at a `resumed`.
+9h. `resumed` (FG7-88): refused on a task closed by an accepted, with a worker_ref no earlier delegated of the task carries,
+    or while that pair's round is open (the worker has not returned since its last start). Door: journal_write.py event --json.
 """
 from __future__ import annotations
 
@@ -295,16 +299,17 @@ NODE_WARN_EVENTS = {"delegated"}
 EVENTS = {
     "delegated", "accepted", "rejected", "escalated", "decomposable",
     "dispatch_skipped", "defect_found", "lead_degraded", "lead_restored",
-    "journal_created", "calibrated", "returned",
+    "journal_created", "calibrated", "returned", "resumed",
 }
 MODEL_REQUIRED_EVENTS = {"delegated", "escalated", "accepted", "rejected", "returned"}
-TASK_ID_REQUIRED_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found", "returned"}
+TASK_ID_REQUIRED_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found", "returned", "resumed"}
 # the optional fields of the offload spec (B0 item 4), judged by VALUE when present: `via` (who wrote the line),
 # `session` (a short session id), `witness_by` (how an `accepted` witness was produced)
 VIA_VALUES = ("hook", "cli")
 WITNESS_BY_VALUES = ("run", "file", "text")
 SESSION_RE = re.compile(r"^[A-Za-z0-9-]{1,16}\Z")
 RETURNED_DOOR = "python -B tools/journal_write.py returned --task <id> --worker <worker_ref>"
+RESUMED_DOOR = "python -B tools/journal_write.py event --json '<the resumed line>'"
 FAILURE_CLASSES = {"spec", "capability", "recon", "tooling"}
 # The ladder (family order, function ranks, bindings) lives in tools/tier_ladder.py -- no table of its own here.
 # The acceptor's rank = rank_of_model(by); the executor's rank = rank_of_function(agent).
@@ -792,6 +797,25 @@ RETURNED_WARN_FROM = "2026-11-17"
 RETURN_ORDER_EVENTS = {"accepted", "rejected"}
 
 
+def _round_step(open_pairs: dict, obj) -> None:
+    """FG7-88, the ONE rule of a worker's rounds: `open_pairs[(task_id, worker_ref)]` is True while the round is open. A
+    `delegated` opens a pair only when it was never seen; a `returned` closes it; a `resumed` opens it. Refs stripped; a line
+    without a str task_id or a non-blank ref changes nothing. A journal with no `resumed` gives one round per pair."""
+    if not isinstance(obj, dict) or not isinstance(obj.get("task_id"), str):
+        return
+    ref = obj.get("worker_ref")
+    ref = ref.strip() if isinstance(ref, str) else ""
+    if not ref:
+        return
+    key, event = (obj["task_id"], ref), obj.get("event")
+    if event == "delegated":
+        open_pairs.setdefault(key, True)
+    elif event == "returned":
+        open_pairs[key] = False
+    elif event == "resumed":
+        open_pairs[key] = True
+
+
 def returned_order_warnings(new_lines: list[str], head_lines: list[str], *, seed_lines=()) -> list[str]:
     """Rule 21 (docstring): WARN texts for NEW accepted/rejected lines whose task still has a hook-era `agent:` worker with no
     `returned` line before the verdict. Pure, never raises. Owed = the LATEST such worker per (task, agent kind); a later
@@ -799,7 +823,7 @@ def returned_order_warnings(new_lines: list[str], head_lines: list[str], *, seed
     warns: list[str] = []
     try:
         owed: dict = {}           # task_id -> {agent: ref}
-        returned_refs: set = set()
+        open_pairs: dict = {}     # (task_id, ref) -> round open?  (the one rule: _round_step)
         new_from = len(list(seed_lines)) + len(head_lines)
         for pos, line in enumerate(list(seed_lines) + list(head_lines) + list(new_lines)):
             obj = _try_parse_obj(line)
@@ -810,7 +834,7 @@ def returned_order_warnings(new_lines: list[str], head_lines: list[str], *, seed
                 continue
             ref = ref.strip() if isinstance(ref, str) else None
             if pos >= new_from and ev in RETURN_ORDER_EVENTS and TASK_ID_RE.match(tid):
-                due = [(r, a) for a, r in owed.get(tid, {}).items() if (tid, r) not in returned_refs]
+                due = [(r, a) for a, r in owed.get(tid, {}).items() if open_pairs.get((tid, r)) is not False]
                 if due:
                     who = ", ".join(f"{r} ({a})" for r, a in due)
                     tag = f"line {pos - len(list(seed_lines)) + 1} event={ev!r} task_id={tid!r}"
@@ -819,8 +843,11 @@ def returned_order_warnings(new_lines: list[str], head_lines: list[str], *, seed
                              "written before the worker's end was journaled (after an accepted, rule 9f refuses that worker's "
                              "`returned`) -- wait for the worker's stop line; a worker whose stop was lost gets "
                              f"`python -B tools/journal_write.py returned --task {tid} --worker <ref>` before the verdict"))
-            if ev == "returned" and ref:
-                returned_refs.add((tid, ref))
+            _round_step(open_pairs, obj)
+            if ev == "resumed":
+                agent, ts = obj.get("agent"), obj.get("ts")
+                if (isinstance(agent, str) and ref and parse_ts(ts) is not None and ts[:10] >= RETURNED_WARN_FROM):
+                    owed.setdefault(tid, {})[agent] = ref      # FG7-88: a resume is a start: owed again
             elif ev == "delegated":
                 agent, ts = obj.get("agent"), obj.get("ts")
                 gone = extract_replaces_worker(obj.get("notes"))
@@ -982,7 +1009,7 @@ def _line_form_violations(obj: dict, tag: str, config_text=None) -> list[tuple[s
                 "proof -- set witness (rule 7)"
             ))
 
-    if event in ("delegated", "returned"):
+    if event in ("delegated", "returned", "resumed"):
         worker_ref = obj.get("worker_ref")
         if not isinstance(worker_ref, str) or not worker_ref.strip():
             out.append(("worker_ref",
@@ -1148,18 +1175,17 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
     state_lines = list(seed_lines) + list(head_lines)
     seen_task_ids = extract_task_ids(state_lines)
     # the id state (rule 9a''): HEAD and seed lines contribute their ids (the max number PER LETTER) and, read-only,
-    # their old bands (BandState.top, letter ""); none of them is judged. `returned_pairs`: (task, worker_ref) that
-    # already have a `returned` (rule 9f: one per pair).
+    # their old bands (BandState.top, letter ""); none of them is judged. `open_pairs`: (task, worker_ref) -> round open
+    # (rule 9f: one `returned` per round; 9h: a `resumed` opens one).
     band_state = _jk.BandState()
     state_objs = []
-    returned_pairs: set = set()
+    open_pairs: dict = {}
     for state_line in state_lines:
         state_obj = _try_parse_obj(state_line)
         if state_obj is not None:
             band_state.add(state_obj)
             state_objs.append(state_obj)
-            if state_obj.get("event") == "returned":
-                returned_pairs.add(_returned_pair(state_obj))
+            _round_step(open_pairs, state_obj)
     letter_max = _jk.max_by_letter(state_objs)
     letter_max[""] = max(letter_max.get("", 0), band_state.top)
     if ts_anchor is _ANCHOR_FROM_HEAD:
@@ -1225,8 +1251,8 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
             elif wref and wref not in task_worker_refs.get(task_id, set()):
                 why = (f"no earlier open delegated of {task_id} carries worker_ref {wref!r}" if task_id in seen_task_ids
                        else f"{task_id} has no delegated earlier in this journal")
-            elif wref and (task_id, wref) in returned_pairs:
-                why = f"{task_id} already has a returned for worker_ref {wref!r}"
+            elif wref and open_pairs.get((task_id, wref)) is False:
+                why = f"{task_id} already has a returned for worker_ref {wref!r} and no resumed since"
             else:
                 why = None
             if why is not None:
@@ -1234,7 +1260,25 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
                     f"{tag}: a returned needs an open delegated with the same worker_ref -- {why}; a returned "
                     "only marks the end of a dispatch and never opens, reopens or closes a task -- write it with "
                     f"`{RETURNED_DOOR}` (rule 9f)")
-            returned_pairs.add((task_id, wref))
+        elif event == "resumed" and valid_tid:
+            # rule 9h (FG7-88): a resume never opens a task, never reopens a closed one, never opens a second round
+            wref = obj.get("worker_ref")
+            wref = wref.strip() if isinstance(wref, str) else ""
+            if task_id in closed_tasks:
+                why = f"{task_id} is already closed (an accepted exists above)"
+            elif wref and wref not in task_worker_refs.get(task_id, set()):
+                why = (f"no earlier open delegated of {task_id} carries worker_ref {wref!r}" if task_id in seen_task_ids
+                       else f"{task_id} has no delegated earlier in this journal")
+            elif wref and open_pairs.get((task_id, wref)):
+                why = (f"the worker {wref!r} has not returned since its last start, so this send is not a new round "
+                       "-- drop the line")
+            else:
+                why = None
+            if why is not None:
+                violations.append(
+                    f"{tag}: a resumed needs a worker that returned and an open task -- {why}; a resumed only marks a new "
+                    "round of a worker and never opens, reopens or closes a task -- the hook writes it; by hand: "
+                    f"`{RESUMED_DOOR}` (rule 9h)")
         elif event == "delegated" and valid_tid:
             if task_id not in seen_task_ids:
                 # (a) a brand-new task -- rule 9a'': the full id (letter included) was never seen, it is canonical,
@@ -1353,6 +1397,7 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
                     "first"
                 )
 
+        _round_step(open_pairs, obj)
         _harvest_line_into(len(state_lines) + idx, event, task_id, agent, obj.get("worker_ref"),
                            delegated_agents, closed_tasks, rejected_tasks, task_worker_refs,
                            rejected_by_agent, last_delegated_idx, signal_log)
@@ -1393,12 +1438,6 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
                 letter_max[letter_id] = n_id
 
     return _resolve_order_known(violations, order_marks, file_ts, tokens, len(head_lines), order_report)
-
-
-def _returned_pair(obj: dict) -> tuple:
-    """(task_id, worker_ref) of a `returned` line object -- the key of "at most one returned per pair" (rule 9f)."""
-    wref = obj.get("worker_ref")
-    return (obj.get("task_id"), wref.strip() if isinstance(wref, str) else "")
 
 
 def _novelty_reason(task_id: str, letter_max: dict):

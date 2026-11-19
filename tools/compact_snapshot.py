@@ -603,8 +603,13 @@ def build_snapshot(root: Path, source: str, now: datetime.datetime, session=None
         if not opens:
             out.append("none")
         # a `returned` never closes a task (rule 9f): the dispatch stays listed, marked as RESULT PENDING
-        returned = {(e.get("task_id"), e.get("worker_ref")): e.get("ts")
-                    for e in events if e.get("event") == "returned"}
+        # FG7-88: a `resumed` after it clears the mark (the worker runs again); a later `returned` sets it (file order)
+        returned = {}
+        for e in events:
+            if e.get("event") == "returned":
+                returned[(e.get("task_id"), e.get("worker_ref"))] = e.get("ts")
+            elif e.get("event") == "resumed":
+                returned.pop((e.get("task_id"), e.get("worker_ref")), None)
         for e in opens:
             shown_id = e.get("task_id")
             back = returned.get((shown_id, e.get("worker_ref")))

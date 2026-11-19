@@ -638,18 +638,21 @@ def open_dispatch_lines(events: list, segments=None, *, journal=None, own_label=
     now = now or datetime.datetime.now()
     pos = {id(e): i for i, e in enumerate(events)}
     returned_last = {}  # key -> (ts_str, file_idx) of the latest `returned`
+    resumed_last = {}   # key -> the same for `resumed` (FG7-88: a resumed worker runs again, so it is not "returned")
     for i, e in enumerate(events):
-        if e.get("event") == "returned":
+        which = returned_last if e.get("event") == "returned" else resumed_last if e.get("event") == "resumed" else None
+        if which is not None:
             rkey = _task_key(e, segments)
             if rkey is not None:
                 rk = (str(e.get("ts") or ""), i)
-                if rkey not in returned_last or rk > returned_last[rkey]:
-                    returned_last[rkey] = rk
+                if rkey not in which or rk > which[rkey]:
+                    which[rkey] = rk
     pending = []  # (ts_str, key, event)
     for e in opens:
         key = _task_key(e, segments)
         back = returned_last.get(key) if key is not None else None
-        if back is not None and back > (str(e.get("ts") or ""), pos.get(id(e), -1)):
+        floor = max([(str(e.get("ts") or ""), pos.get(id(e), -1))] + ([resumed_last[key]] if key in resumed_last else []))
+        if back is not None and back > floor:
             pending.append((back[0], key, e))
     lines = [f"OPEN DISPATCHES: {len(opens)} (returned, not accepted: {len(pending)})"]
     recent = []

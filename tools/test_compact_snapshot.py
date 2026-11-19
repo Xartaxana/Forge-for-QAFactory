@@ -854,10 +854,14 @@ def test_the_open_list_marks_a_dispatch_whose_worker_returned_and_a_returned_nev
         _ev("delegated", "t-002", worker_ref="agent:bbb", ts="2026-10-02T10:01:00"),
         _ev("returned", "t-001", worker_ref="agent:aaa", ts="2026-10-02T10:30:00"),
         _ev("returned", "t-002", worker_ref="agent:other", ts="2026-10-02T10:31:00"),      # another worker's handle: not a match
+        _ev("delegated", "t-003", worker_ref="agent:ccc", ts="2026-10-02T10:02:00"),
+        _ev("returned", "t-003", worker_ref="agent:ccc", ts="2026-10-02T10:32:00"),
+        _ev("resumed", "t-003", worker_ref="agent:ccc", ts="2026-10-02T10:33:00"),         # FG7-88: running again, no mark
     ])
     text, facts = cs.build_snapshot(tmp_path, "manual", NOW)
     block = text.split("## 3. OPEN DISPATCHES")[1].split("## 4.")[0]
     rows = [l for l in block.splitlines() if l.startswith("- t-")]
-    assert facts["open"] == 2 and len(rows) == 2                               # the returned closed nothing
+    assert facts["open"] == 3 and len(rows) == 3                               # the returned closed nothing
     assert "RESULT PENDING (returned 2026-10-02T10:30:00)" in rows[0] and rows[0].startswith("- t-001 ")
     assert "RESULT PENDING" not in rows[1] and rows[1].startswith("- t-002 ")
+    assert "RESULT PENDING" not in rows[2] and rows[2].startswith("- t-003 ")
