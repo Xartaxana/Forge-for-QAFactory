@@ -102,6 +102,15 @@
             "command": "python tools/journal_hooks.py post-agent"
           }
         ]
+      },
+      {
+        "matcher": "SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/journal_hooks.py post-send"
+          }
+        ]
       }
     ],
     "SubagentStop": [
