@@ -707,3 +707,15 @@ write into this file is Lead-tier judgment (each axis taxes every
 future mechanism commit with an enumeration line). Below-lead
 sessions put drafted axes into `docs/tasks/lead-queue.md`; recognizing "this is Lead-tier" and writing anyway is the
 recorded failure mode, not initiative.
+
+## Axis 41 — The memory of a person's answer: one survivor `project_knowledge` (`fact` / `record` / `remember`, the `asked` marker) <-> its twins that still keep an answer elsewhere, each with its phase (OF3-2 K7, spec `docs/tasks/specs/of3-2-knowledge-phase2-spec.md` §7 C3, Lead 19.11.2026)
+
+| Component | Path |
+|---|---|
+| The survivor | `scripts/project_knowledge.py`: a person's answer about the project is one registry row (`record`), read as a fact (`fact` / `state` / `value`), asked once and marked `asked`; `remember` (K2) is its conductor door |
+| Twins moving in (phase) | `scripts/environment_record.py` `accept always` (phase 3.2); `scripts/stand_identity.py` (phase 3.2); onboarding's remembered answers and `asked_until_answered` (`references/config-keys.json`, `scripts/config_contract.py`; phase 4) |
+| Already in the registry | stand lessons, the way in, the page load, the another-instance answer (`environments.stand_lessons` / `sign_in` / `page_load` / `extra_instance`) |
+| Twins that stay (why) | TR3-10's open deferred-decision row reused across stories (`driver_stage_s6.py` `walk_ask_once`: the config write's receipt and the dashboard's "asked, no answer" row, K8); `walk_account` (Q-1); report adaptations RA-n (`scripts/report_adapt.py`); `waiver.py --carry-from`; `references/templates/obligations.md`; the confirmed default stand; the driver's in-story hash memory (`driver_dialog.py` `already_answered`, by design, C7) |
+| The symmetry | a new place that keeps a person's answer across stories either writes a registry row or is named here with its phase or its reason to stay; a second keeper with no row here is a discrepancy |
+| Detectors | none in code: the critic's question on a diff that adds a cross-story answer store, and the weekly calibration read of this axis |
+| The cost (rule 10 (a)) | each twin that moves in removes one row here; every mechanism commit enumerates one more axis |
