@@ -751,15 +751,10 @@ class DriverSources:
             lines.append("(work/source-inventory.json is not on disk yet; the digest above is the table)")
         # C2-9: the `unavailable` answer is offered only while something is still ASKED; what the factory itself established as out of
         # reach (or a kind the person answered) is not a question, and one line says so.
-        asked_open, defaulted = True, 0
-        if inventory.is_file():
-            try:
-                import source_inventory as SI
-                summary = SI.completeness(SI.load_inventory(inventory), **SI.class_kwargs(self.task_root))
-                asked_open = bool(summary.get("unavailable") or summary.get("unavailable_materials"))
-                defaulted = sum(len(points) for points in (summary.get("defaulted_points") or {}).values())
-            except Exception:
-                asked_open, defaulted = True, 0         # an inventory that cannot be read: the answer stays offered (the unknown is asked)
+        import source_inventory as SI
+        summary = SI.inventory_summary(self.task_root)      # FV3-27: one read, one predicate (`asked_in`); None (unreadable) reads asked, defaulted 0
+        asked_open = SI.asked_in(summary)
+        defaulted = 0 if summary is None else sum(len(points) for points in (summary.get("defaulted_points") or {}).values())
         if defaulted and not asked_open:
             lines.append(f"{defaulted} materials the factory cannot reach by itself are recorded as gaps; the report names them.")
         role = {"role": f"the {self.role_words('qa-scout')}"}

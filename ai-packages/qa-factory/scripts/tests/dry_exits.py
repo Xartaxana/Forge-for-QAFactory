@@ -1587,6 +1587,8 @@ def _offered_if_outcome(row: dict, facts: dict, ctx: _Ctx):
     if key is None or not ctx.ask:
         return None
     value = cond.get("value") if isinstance(cond, dict) else None
+    if isinstance(cond, dict) and cond.get("error"):
+        return Outcome("fail", f"{row['id']}: offered_if {key}: the reader raised {cond['error']}")      # FV3-27 F4: row-local, before the "no world" branch
     if value is None:
         return Outcome("fail", f"{row['id']}: offered_if {key!r}: condition named, no world for it (the seeded world cannot answer it); "
                                "add a reader to dry_world.WORLD_FACTS or drop the field")
@@ -3014,10 +3016,9 @@ def _walker_cases(case, tmp) -> None:
             got = judged(row, **facts)
             return None if got.kind == kind and all(n in got.detail for n in needles) else f"got {got}"
 
-    for label, exc, expect_none in (("an OSError reads as no world (None)", OSError("x"), True), ("a ValueError reads as no world (None)", ValueError("x"), True),
-                                    ("any other exception is a broken reader and propagates", RuntimeError("x"), False)):
-        @case(f"inventory_unavailable (F4): {label}")
-        def _(exc=exc, expect_none=expect_none):
+    for label, exc in (("an OSError", OSError("x")), ("a ValueError", ValueError("x")), ("any other exception", RuntimeError("x"))):
+        @case(f"inventory_unavailable (FV3-27 F1): {label} out of the read reads True (asked), never raises")
+        def _(exc=exc):
             import source_inventory as SI
             W, world = fake_world()
             _write(world.task_root / "work" / "source-inventory.json", "{}")
@@ -3028,11 +3029,33 @@ def _walker_cases(case, tmp) -> None:
             SI.class_kwargs = boom
             try:
                 got = W.inventory_unavailable(world)
-            except Exception as raised:      # noqa: BLE001 - the case judges which exception comes out
-                return None if not expect_none and raised is exc else f"raised {raised!r}"
+            except Exception as raised:      # noqa: BLE001 - the case judges that nothing comes out
+                return f"raised {raised!r}"
             finally:
                 SI.class_kwargs = saved
-            return None if expect_none and got is None else f"got {got!r}"
+            return None if got is True else f"got {got!r}"
+
+    @case("FV3-27 (d): a copy with no inventory -> the fact reads True (asked), through offered_if_fact (before: None = no world)")
+    def _():
+        W, world = fake_world()
+        got = W.offered_if_fact(world, {"offered_if": "inventory_unavailable"})
+        return None if got == {"key": "inventory_unavailable", "value": True} else f"got {got!r}"
+
+    @case("FV3-27 F4 (b): a reader that raises -> value None + the error; the judge FAILs that row naming the raise, not `no world`")
+    def _():
+        W, world = fake_world()
+
+        def boom(_copy):
+            raise RuntimeError("reader broke")
+        W.WORLD_FACTS["inventory_unavailable"] = boom
+        try:
+            cond = W.offered_if_fact(world, {"offered_if": "inventory_unavailable"})
+        finally:
+            W.WORLD_FACTS["inventory_unavailable"] = W.inventory_unavailable
+        got = judged(wrow("p.key/c", answer={"token": "c"}, offered_if="inventory_unavailable", expect={"checks": ["C2"]}), offered_if=cond)
+        ok = (cond["value"] is None and cond["error"].startswith("RuntimeError: reader broke") and got.kind == "fail"
+              and "the reader raised RuntimeError: reader broke" in got.detail and "no world" not in got.detail)
+        return None if ok else f"got {cond!r} / {got}"
 
     @case("row_facts: every conductor call of the cut is counted and the `chosen` ones apart (6); a call beyond the first post-answer turn that wrote a question row is not counted (7)")
     def _():

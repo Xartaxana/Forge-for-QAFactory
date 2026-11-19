@@ -1285,18 +1285,11 @@ def _rework_facts(ask: dict) -> dict:
 
 
 def inventory_unavailable(copy: World):
-    """The world fact behind `offered_if: inventory_unavailable` (FV3-17): True when something is still ASKED at S1 - the inventory's `completeness` has
-    `unavailable` or `unavailable_materials` - the product's own call (`driver_sources.py` offers `unavailable` on exactly this, AR-13: one reader, nothing
-    re-implemented). None = "no world": the copy holds no readable source inventory, so the fact cannot be established (never False, FR-59)."""
-    path = copy.task_root / "work" / "source-inventory.json"
-    if not path.is_file():
-        return None
+    """The world fact behind `offered_if: inventory_unavailable` (FV3-17, FV3-27): True when something is still ASKED at S1 - the product's own predicate
+    `source_inventory.asked_open` (`driver_sources.py` offers `unavailable` on exactly this, AR-13: one reader, nothing re-implemented). A missing or
+    unreadable inventory reads True (AR-28: the unknown is asked); False only for a readable inventory with nothing asked."""
     import source_inventory as SI
-    try:
-        summary = SI.completeness(SI.load_inventory(path), **SI.class_kwargs(copy.task_root))
-    except (OSError, ValueError):      # an unreadable or malformed inventory is "no world"; any other exception is a broken reader and propagates (F4)
-        return None
-    return bool(summary.get("unavailable") or summary.get("unavailable_materials"))
+    return SI.asked_open(copy.task_root)
 
 
 # The facts a walk row's `offered_if` may name: key -> reader `(World) -> True | False | None` (None: no world for it). The condition is DATA in the row (AR-1);
@@ -1306,12 +1299,18 @@ WORLD_FACTS = {"inventory_unavailable": inventory_unavailable}
 
 def offered_if_fact(copy: World, row: dict):
     """`facts["offered_if"]` of a row that names a condition: `{"key", "value"}` read at the ask (True / False / None = no world; an unknown key is None too,
-    the grammar refuses it before a world runs); None when the row names none."""
+    the grammar refuses it before a world runs); a reader that raises gives value None and `error` `<type>: <text cut at 200>` (FV3-27 F4: the judge
+    FAILs that row alone); None when the row names none."""
     key = row.get("offered_if")
     if key is None:
         return None
     reader = WORLD_FACTS.get(key) if isinstance(key, str) else None
-    return {"key": key, "value": reader(copy) if reader else None}
+    if not reader:
+        return {"key": key, "value": None}
+    try:
+        return {"key": key, "value": reader(copy)}
+    except Exception as exc:        # noqa: BLE001 - a broken reader fails ITS row; the group run goes on (AR-28)
+        return {"key": key, "value": None, "error": f"{type(exc).__name__}: {exc}"[:200]}
 
 
 def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_dir, *, cap=ROW_CAP_EXITS, drive_fn=None, line=None) -> dict:
