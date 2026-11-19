@@ -58,6 +58,7 @@ OWNER_KEYS = [
     # scope:mutation retired by the owner's word 28.10 and 10.11.2026 (docs/TESTING.md): the mutation list is no longer written
     ("scope:tests", TESTING, "Покраснел пин из таблицы выше — удаляется, не чинится"),
     ("review:critic", CRITIC, "functions over roughly 60 lines or with more than three nesting levels in the NEW code"),
+    ("review:probe", CRITIC, "The ONE road is the runner, by Bash, never Write or Edit"),
     ("review:one-road", CRITIC, "a line for the coordinator to tell someone is itself a finding"),
     ("routing:rule-11", "CLAUDE.md", "a spec silent on an edge that its own requirements create is a dispatcher defect"),
     ("routing:hygiene-6", "CLAUDE.md", "from an INCORRECTLY invoked tool is a miscall, not proof the object is absent"),
@@ -83,6 +84,7 @@ POINTERS = [
     (".claude/agents/designer.md", "the text is CLAUDE.md rule 11", "CLAUDE.md", "11. DoD in every dispatch (DoD-in-every-dispatch rule)"),
     (CRITIC, "docs/TESTING.md «Бюджет»", TESTING, "### Бюджет"),
     (COORD, "`docs/TESTING.md` «Что запускать по своей правке»", TESTING, TESTING_RUN),
+    (COORD, "the bounded probe of `.claude/agents/critic.md` rule 21", CRITIC, CRIT_21),
     (".claude/agents/designer.md", "`docs/TESTING.md` («Что запускать по своей правке», «Строка теста в DoD»", TESTING, "### Строка теста в DoD"),
     (".claude/agents/designer.md", "`.claude/agents/critic.md` rule 24, Q13 (d)", CRITIC, "Q13. **FACTS AND EDGES**"),
     (COORD, "`.claude/agents/critic.md` rule 22, Q6-Q7", CRITIC, "Q7. **CODE QUALITY**"),

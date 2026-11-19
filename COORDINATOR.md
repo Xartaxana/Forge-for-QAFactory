@@ -122,7 +122,7 @@ a rule.
    delegation rule). Small diffs: a "critic: skipped, <reason>" note inside the `accepted` event is a waiver available
    ONLY to an acceptor whose tier is above the executor's. TWO-LAYER CRITIC ENTRY (two-layer review rule): a
    MECHANICAL layer — test re-runs, control values, smoke matrices — is executed by the submitting builder or a script
-   and attached to critic as VERBATIM output BEFORE the verdict; the critic's VERDICT layer and its control re-run: `.claude/agents/critic.md` rule 21.
+   and attached to critic as VERBATIM output BEFORE the verdict; the critic's VERDICT layer and its control re-run: `.claude/agents/critic.md` rule 21. The critic's own run beyond that is the bounded probe of `.claude/agents/critic.md` rule 21 (its runner, its cap, Bash only).
    Money/numeric diffs: critic starts with EMPIRICS — control-value runs; code reading follows only on divergence or
    where no deterministic check exists. Critic-on-plan: a plan or recon deliverable that will itself serve as the SPEC
    for more than roughly 30 minutes of work gets a critic review of the PLAN before any code starts when it carries
