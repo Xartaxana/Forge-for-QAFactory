@@ -1,0 +1,1 @@
+- A story with no chosen stand now gets a stand-login question that says no stand is chosen, instead of claiming the settings file lacks the account's name or password (new refusal kind `no_stand`).
