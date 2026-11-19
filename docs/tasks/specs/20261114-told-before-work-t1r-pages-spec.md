@@ -224,7 +224,7 @@ the guard order per P-6 unit; FR walk; verbatim witness
 edges: §3.3 (each with its invariant)
 siblings: `role_cli.epilog` / `refuse` (the card's printers); `hooklib.block` / `stage_guard.deny` (the call transports, T2); T4/T5/T5b
 (siting the call-told rows: their refusals then print the row); `brief_pack` `## Commands` (T3b twin, untouched); `contract_slices.catalogue`
-(T3a sibling); `selftest.cmd_limits` (the second size limit, F-10); T1r-cards (§4); SIBLING_MAP axis 34 (one road); axis 37 if added by T10
+(T3a sibling); `selftest.cmd_limits` (the second size limit, F-10); T1r-cards (§4); SIBLING_MAP axis 34 (one road); axis 39 (added by T10, 19.11.2026; was "37" here)
 DoD: §3.4 (inline, exact commands)
 designer: C:\QAFactory\forge-repo\docs\tasks\specs\20261114-told-before-work-t1r-pages-spec.md
 architecture: AR-1, AR-10, AR-11, AR-12, AR-13, AR-15, AR-20, AR-22, AR-23, AR-28, AR-29 -- output checks on injected pages, pre-action checks told at the call by a closed family list with an index line; one size constant; ratchets only lowered; K5 counts real legs

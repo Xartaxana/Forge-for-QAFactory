@@ -393,6 +393,8 @@ Closing rule: a new JSON read of a package file calls `hooklib.read_json`; a rea
 
 Closing rule: a new detector prints the contract shape and is read only through `detector_verdict`; a second parser of a detector's output, or a line-count cut on a finding list, is refused by the critic's DUPLICATION question; a change of the contract changes the reader, every producer and the contract test in one commit.
 
+Told-before-work (axis 39, 19.11.2026): `Record` also carries the row's expected/door through `detector_verdict.spoken` (text) and `told_fields` (a `told` key LAST in a JSON line); the problem text and every key a parser reads keep their place.
+
 ## Axis 18 — in-tree shrink-only ratchets: a raise in the diff that adds the site (conductor/1 C1-8, critic t-836, 16.10)
 
 | Component | Path |
@@ -404,6 +406,8 @@ Closing rule: a new detector prints the contract shape and is read only through 
 
 A new shrink-only ratchet joins this table in the commit that creates it,
 and critic.md rule 22 Q9 names it.
+
+Told-before-work (axis 39, 19.11.2026): `references/stage-joints.json` `told_ratchet` (`hand_cards`, `legacy_legs`, `unsited`; printed by `stage_joints.py --check`) and `references/role-load.json` `native_headroom` are members; a raise is named row by row like any ratchet raise.
 
 ## Axis 19 — one reader of a role file's `tools:` line: `hooklib.parse_frontmatter` <-> `host_adapter.tools_line`/`role_tools`/`role_has_bash` <-> the consumers (codex/1 CX1-6, t-1002, critic t-1019, 19.10)
 
@@ -462,6 +466,8 @@ The profile a `tests[]` row names is read by `ai-packages/qa-factory/scripts/exe
 ## Axis 28 — the render site of the row form: where a role is told the fields of its row (hotfix-12586/2 HF2-12, t-112/t-121, integration t-130, 26.10)
 
 The text that tells the automator which fields its `tests[]` row owes is rendered in three places, all from Axis 23's carrier: `ai-packages/qa-factory/scripts/manifest_from_tests.py` `_row_form` / `_legend_line` (printed after the write; `--json` key `row_form`), `s5_precheck.py:2021-:2023` (one finding naming every missing field, with its legend), `window_record.py:787` (the words of the window's refusal), and the stage text `skills/qa-story/phases/s5.md` (the sentence about the row form). A fourth place that spells the field list is a defect; the sentence in `s5.md` names the carrier, not the list.
+
+Told-before-work (axis 39, 19.11.2026): the key page and the conductor section are told render sites too - `contract_slices.py` renders each check row with `stage_joints.told_line`; the brief holds no second copy of a row (T3b).
 
 ## Axis 29 — append-only jsonl writers: one appender `hooklib.append_jsonl_line` <-> every module that appends a line to a `.jsonl` carrier (speed-cost/4 fix round t-112 after critic t-109 m5, 29.10)
 
@@ -579,6 +585,8 @@ via `tools/install_parity.py --check` (presence), calibration check 28 (a)/(d) (
 
 Numbering: axis 31 (t-1702 D3, role carriers) landed on `main` with the `local/p1-closeout` merge of 04.11.2026; until then the gap was reserved (spec t-1765 E-A3).
 
+Told-before-work (axis 39, 19.11.2026): the census relabels of T4b / T7f / T9c / T9a (sites moved onto rows through `refusal()`) are census rows of this axis; a relabel never turns a judged row into a coded one without its `judgment:` line.
+
 ## Axis 33 — "which dispatch am I": one reader `dispatch_identity` <-> every site that picks a dispatch for a session or an exit (spec t-1937 B1, TR3-13, 06.11; row placed by the Lead 10.11)
 
 | Component | Path |
@@ -651,6 +659,20 @@ Numbering: axis 31 (t-1702 D3, role carriers) landed on `main` with the `local/p
 | The detector | `python -B scripts/tests/dry_exits.py --check` -> `0 discrepancies`: the line `dry-1/census` of the `full` CI job and the step of the `dry-story` job (node N5); weekly calibration reads the count |
 | The evidence | 227 joints accumulated with no row between 14.11 and 17.11.2026 while the walker lived on a branch (report `docs/tasks/specs/reports/20261117-p1b-l1-report.md`); closed mechanically by L1c |
 | The cost (rule 10 (a)) | every package commit that touches a joint, a route or a price key writes one census row; every mechanism commit of every session enumerates one more axis |
+
+## Axis 39 — A check's requirement: one row of `references/stage-joints.json` <-> the constructor `detector_verdict.refusal()` <-> the role's key page / the conductor section <-> the in-process transports (`told_fields`, `spoken`, `block`, `deny`, `refuse`) (told-before-work T10, finish spec t-1056 §5, Lead 19.11.2026)
+
+| Component | Path |
+|---|---|
+| The row (the one statement of a requirement) | `references/stage-joints.json`: one row per check id (`check`, `requirement`, `producers[].roles`, `stages`, `when`), read only through `stage_joints.row_for` / `rows_for` / `told_text` / `told_line` (`scripts/stage_joints.py`); a `<stem>:*` row covers every sub-id of its producer |
+| The constructor (the one road a refusal takes to its row) | `scripts/detector_verdict.py` `refusal(check, problem, *, fill=None)` -> `Record` (the problem text byte for byte, plus the row's expected/door); a site with a literal id is SITED (`stage_joints.sited_ids` and the sub-id rule); a helper with more than one caller carries no literal id (the caller that knows the requirement does) |
+| Told before the work | the role's key page `references/slices/<role>/*.md` and the conductor section, rendered from the rows by `scripts/contract_slices.py` (`--write`, `--check`); the brief carries no second copy of a row (T3b); a resumed prompt keeps the appended page (M9, `docs/tasks/specs/reports/20261117-tbw-m9.md`) |
+| Told at the refusal (the transports) | `detector_verdict.spoken` (text: `expected:` / `door:` after the problem, `check:` last) and `told_fields` (JSON: a `told` key LAST); the hook transports `block` / `deny` / `refuse` carry the same Record; a reader that parses the old text (driver `KNOWN_REFUSALS`, `exit_gate.detector_errors`) sees it unchanged |
+| The counters (shrink-only, axis 18) | `stage-joints.json` `told_ratchet` (`hand_cards`, `legacy_legs`, `unsited`), printed by `stage_joints.py --check` (`told counters: ...`); `references/role-load.json` `native_headroom` (`contract_slices.py --check` via `role_load.native_headroom_problems`) |
+| The symmetry | a new check id arrives in ONE commit with its row, its site through `refusal()` and its page line (`contract_slices.py --write`); a removed check loses its row; a reworded row sentence states no more than the body checks (critic t-703 B2 class); a refusal text change keeps every parser of the old text green |
+| Detectors | `python -B scripts/stage_joints.py --check` (rows, sites, counters) and `python -B scripts/contract_slices.py --check` (pages against rows); `scripts/tests/test_stage_joints_told_variants.py` and `scripts/tests/test_stage_joints_k9_k14.py` (the counter pins); `scripts/tests/test_detector_verdict.py` (sited ids per producer); the dry story's told walk `main/told/<role>@<stage>/<id>` (`scripts/tests/dry_exits.py::told_before_work`, FV3-13) |
+| Gap (declared) | a sentence that over-claims its body is caught by reading, not by code: the critic's question on every diff that touches a row sentence and the weekly calibration check (`PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md`) |
+| The cost (rule 10 (a)) | every package commit that adds or renames a check id writes its row and its site in the same commit; every mechanism commit enumerates one more axis |
 
 ## Keeping the map up to date
 

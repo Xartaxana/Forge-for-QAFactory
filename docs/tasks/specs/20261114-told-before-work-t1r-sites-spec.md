@@ -555,7 +555,7 @@ These override §4-§6a where they differ. Line numbers in the verdict are ancho
   changes; `judgment: none moved`. axis 33 (which dispatch am I): covered — `find_active_dispatch` logic unchanged, only its raise wrapped.
 - axis 34 (one road): covered — one rule for every role from data (§1, P31); the bare E6 sites are a migration state counted by T2's
   `untold`, not a second road. axis 35 (sides), 36 (substitute rows): n/a — `stand.reference` only wraps its existing refusal.
-- axis 37 ("a check's requirement: one row <-> constructor <-> key page <-> transports"): not in the map yet (mechanism T10); when T10 adds
+- axis 39 (was 37 here; renumbered at T10, 19.11.2026) ("a check's requirement: one row <-> constructor <-> key page <-> transports"): not in the map yet (mechanism T10); when T10 adds
   it, `run_suite.py`'s JSON printers with `told_fields` are members of its "transports" row — note for T10.
 
 Four questions for the mechanism this node adds (the JSON `told` transport): (a) cost: one dict merge per refusal; the role reads ≈ 300 bytes
