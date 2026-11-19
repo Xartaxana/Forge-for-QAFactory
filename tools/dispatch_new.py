@@ -3,6 +3,7 @@
     python -B tools/dispatch_new.py --kind builder --task t-862 --feature F19 [--node slug/N/id]
         --given <p>... --owns <abs>... --non-goals "<t>" --handoff <abs .md> --edges "<t>" --dod "<cmd>"
         --siblings "<t>" [--names <n>...] [--designer <abs> | "skip -- <why>" | "resubmission t-NNN"]
+        [--test "<where> | expected from: <source>"...]  (one `test:` line each, right after DoD:; the gate over the designer threshold)
         [--facts "<claim> | <command> | <result>"... | "none -- <why>"]
 
 The generator has NO grammar of its own: it lays the values out one header per line (list values one path per line
@@ -58,6 +59,7 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--names", nargs="*", default=[])
     ap.add_argument("--designer")
     ap.add_argument("--facts", nargs="*", default=[])
+    ap.add_argument("--test", action="append", default=[])  # test rules S-C: repeatable, printed as `test: <value>`
     return ap
 
 
@@ -74,7 +76,7 @@ def _forbidden(args) -> str:
 
 def _empty_item(args) -> str:
     """The name of the first list argument holding an empty or whitespace-only item (it would end the section), or ''."""
-    for name in ("given", "owns", "facts"):
+    for name in ("given", "owns", "facts", "test"):
         if any(not p.strip() for p in getattr(args, name)):
             return name
     return ""
@@ -145,6 +147,7 @@ def build_text(args, augment: bool = True, dod: str = None) -> str:
     if dod is None:
         dod = _dod(args) if augment else args.dod
     lines.append("DoD: `%s`" % dod if dod else "DoD:")
+    lines.extend("test: %s" % t for t in args.test)
     lines.append("siblings: %s" % args.siblings)
     if args.designer is not None:
         # the checker's own two forms stay as typed; anything else is a path
