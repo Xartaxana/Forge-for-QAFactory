@@ -1016,7 +1016,7 @@ class DriverStageS6:
         login.ui: null`); else (kind, details): `no_file` (the settings name no file), `missing_file` (the file they
         name is not there - or the settings file itself cannot be loaded: its own text is the details), `unreadable`
         (the file is there but cannot be read: a folder in its place, no permission), `missing_key` (it lacks the
-        account's name or password). The capture's own
+        account's name or password), `no_stand` (a role is named but the story has no chosen stand). The capture's own
         loader and reader (`manual_capture.load_config`, `read_login`), so the gate and the capture read the same file
         and resolve `env_file` against the same root. ERROR DIRECTION: toward "missing" - a question too many, never
         "present" when the capture would fail on the file. Wrong but present values pass: the landing proof of the
@@ -1094,7 +1094,8 @@ class DriverStageS6:
                 as_actor = str(value) if kind == "stand_account" else f"env:{value}/{value}"
                 stand = chosen_stand
                 if kind == "stand_account" and not config_contract.reserved_role(value) and stand is None:
-                    return "missing_key", (f"{case}: the story has no chosen stand, so the account {actor.get('id')} ({value}) cannot "
+                    # PK2-16: its own kind - the person hears "no stand is chosen", not "the file lacks the name or password"
+                    return "no_stand", (f"{case}: the story has no chosen stand, so the account {actor.get('id')} ({value}) cannot "
                                            f"be read on it\n\n{self.STAND_LOGIN_KEYS}")
                 if value == "default":
                     stand = None
@@ -1108,7 +1109,8 @@ class DriverStageS6:
     STAND_LOGIN_REASONS = {"no_file": "the project's settings name no file for it",
                            "missing_file": "the file the settings name for it is not there",
                            "unreadable": "the file the settings name for it could not be read",
-                           "missing_key": "the file the settings name does not hold the account's name or its password"}
+                           "missing_key": "the file the settings name does not hold the account's name or its password",
+                           "no_stand": "no stand is chosen for this story, so I do not know which stand's account to read"}
 
     def case_lines(self, cases: list) -> list:
         """One line per case for a question: its title and id; a case with no title by a link to its case file on the same line (the

@@ -328,7 +328,8 @@ def t292_the_real_policy_reader_and_the_question_titles() -> None:
         check_in("question: a case the story does not hold is its bare id (never a raise)", "- QA-9_TC_009\n", text)
         eq("question: and it obeys human-questions.md", human_broken(text), [])
         for kind, reason in (("no_file", "the project's settings name no file for it"), ("missing_file", "the file the settings name for it is not there"),
-                             ("missing_key", "the file the settings name does not hold the account's name or its password")):
+                             ("missing_key", "the file the settings name does not hold the account's name or its password"),
+                             ("no_stand", "no stand is chosen for this story")):
             check_in(f"question: the reason of `{kind}`", reason, driver.stand_login_question_text(["QA-9_TC_001"], kind))
     finally:
         harness.cleanup(root)
@@ -375,7 +376,7 @@ def t308_f6_the_reason_the_person_reads_is_the_true_one() -> None:
         eq("F6 the settings cannot be loaded: `missing_file`, not `no_file`", kind, "missing_file")
         check_in("F6: with the loader's own text", "config.json is not valid JSON (boom)", details)
         # every reason's question obeys human-questions.md
-        for reason in ("no_file", "missing_file", "unreadable", "missing_key"):
+        for reason in ("no_file", "missing_file", "unreadable", "missing_key", "no_stand"):
             text = driver.stand_login_question_text(["QA-9_TC_001"], reason)
             eq(f"F6 the question for `{reason}` obeys human-questions.md", human_broken(text), [])
         check_in("F6: the `unreadable` question says the file could not be read", "the file the settings name for it could not be read",
@@ -422,6 +423,13 @@ def ep1_41f_cases_all_on_a_device_skip_only_the_default_account() -> None:
         with mock.patch.object(ME, "request_actors", return_value=(actors, "")):
             kind, details = problem(["QA-9_TC_001"])
         eq("41f a named account without a pair on a device case: asked (`missing_key`), not skipped", kind, "missing_key")
+        import stand_gaps
+        with mock.patch.object(ME, "request_actors", return_value=(actors, "")), mock.patch.object(stand_gaps, "stand_name", return_value=None):
+            eq("PK2-16 a role and no chosen stand: `no_stand`", problem(["QA-9_TC_001"])[0], "no_stand")
+        # PK2-16: no chosen stand is its own kind, and its question says so (not "no name or password")
+        text = driver.stand_login_question_text(["QA-9_TC_001"], "no_stand")
+        check_not_in("PK2-16 no_stand question does not blame the keys", "name or its password", text)
+        eq("PK2-16 no_stand question obeys human-questions.md", human_broken(text), [])
         check_in("41f ... and the details name the case and the account", "QA-9_TC_001: the account A1", details)
         # a login declared null stays first
         t292_config(root, manual_capture={"login": {"ui": None}})

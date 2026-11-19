@@ -296,7 +296,7 @@ def test_s6_no_chosen_stand_refuses_role_read(tmp_path, monkeypatch):
     request(task, "TC-001", {"stand_account": "admin"})
     driver, capture = driver_over(tmp_path, monkeypatch, task, cfg)
     kind, details = driver.stand_login_problem(["TC-001"])
-    assert kind == "missing_key" and "no chosen stand" in details and "admin" in details and "PC-1" in details
+    assert kind == "no_stand" and "no chosen stand" in details and "admin" in details and "PC-1" in details
     assert capture.reads == [(None, None)] and needed(task, cfg) is True
 
 
