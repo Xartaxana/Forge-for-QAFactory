@@ -155,7 +155,8 @@ CONDITIONS = {
     "triage_has_no_repair": Condition(
         {"repair_verdicts": "words", "listed_in": "list_section"}, "work/triage.json",
         ("work/triage.json", "work/run-report.json"), "N0", "live", "handoff_check.py::_null_outcome_view", True),
-    "sibling_in": Condition({"field": "field_path", "in": "words"}, "form", (), "N1", "reserved", None, False),
+    "sibling_in": Condition({"field": "field_path", "in": "words"}, "form", (), "N1", "live",
+                            "handoff_check.py::_sibling_in_view", False),
     "sibling_equals": Condition({"field": "field_path", "value": "word"}, "form", (), "N4/N6", "reserved", None,
                                 False),
     "sibling_all": Condition({"list": "list_section", "field": "field_path", "value": "word"}, "form", (), "N4",

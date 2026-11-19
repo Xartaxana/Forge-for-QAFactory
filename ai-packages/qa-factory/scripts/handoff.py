@@ -468,7 +468,8 @@ CONTRACT_OWNED = ("schema_version", "contract", "stage", "gate", "kind", "from_r
 # list row, may legitimately be empty (`unresolved` above all), and an untouched template row is the empty list.
 # One contract may name its own exception: a `null_outcome` block (see `null_outcomes` below).
 ITEM_LIST = "scope"
-REQUIRED_LISTS = (ITEM_LIST, "inputs_read")
+# `rounds` (FV3-30): the S7 automator's repair rounds; its empty is judged by the sibling `scope[].fix_result` (`sibling_in`).
+REQUIRED_LISTS = (ITEM_LIST, "inputs_read", "rounds")
 
 # What a declaration is made of. An entry holding any other key is not read at all (fail closed): `joint` and
 # `only_when` are the next node's, and a key with no reader behind it must never look like a declaration.

@@ -460,10 +460,10 @@ def the_refusal_lists_are_cut_AT_and_BEYOND_the_cap() -> None:
 
 # ---------------------------------------------------------------------------------------------- K3, S3
 def every_other_contract_behaves_as_it_did() -> None:
-    check_eq("REQUIRED_LISTS: `scope` and `inputs_read`", handoff.REQUIRED_LISTS, ("scope", "inputs_read"))
+    check_eq("REQUIRED_LISTS: `scope`, `inputs_read` and `rounds`", handoff.REQUIRED_LISTS, ("scope", "inputs_read", "rounds"))
     named = [p.stem for p in sorted(handoff.CONTRACTS.glob("*.yaml"))
              if p.stem not in ("index", "vocabulary") and handoff.null_outcomes(p.stem)]
-    check_eq("S3: exactly one contract names a null outcome - the S7 hand to the automator", named, [CONTRACT])
+    check_eq("S3: two contracts name a null outcome - the S7 hand to the automator and its answer (rounds, FV3-30)", named, [CONTRACT, "s7-automator-to-analyst"])
     entries = handoff.null_outcomes(CONTRACT)
     entry = entries.get("scope") or {}
     check_eq("its declaration is keyed by the section and names the condition, the repair verdicts, the list that "

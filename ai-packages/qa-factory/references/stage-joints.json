@@ -5539,7 +5539,7 @@
       "stages": [
         "*"
       ],
-      "requirement": "A required list (`scope`, `inputs_read`) is never empty: one row per entry, in its contract's fields.",
+      "requirement": "A required list (`scope`, `inputs_read`, `rounds` beside `fixed`) is never empty: one row per entry.",
       "door": "write the rows as index lines in the values file, then run this check again",
       "when": [
         "always"
