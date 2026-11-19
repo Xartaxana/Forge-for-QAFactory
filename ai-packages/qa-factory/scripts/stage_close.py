@@ -10,13 +10,16 @@ the road member of the same name the old body called as `self.<member>`, never t
 attribute keeps its effect (E-M6). Road members: `task`, `task_root`, `project`, `dry`, `controller_state()`, `pipeline()`,
 `py(script, *args, check, expect)`, `owe_row(...)`, `accepted_at(author)`, `consumer_pending(stage)`, `person_pass(...)`,
 `consumer_person_pass(...)`, `consumer_need_record(stage, site)`, `consumer_await(...)`, `close_by_code(...)`, `close_receipt(...)`,
-`file_passed_over(...)`, `record_close(...)`, `manual_request_paths(cases)`.
+`file_passed_over(...)`, `record_close(...)`, `manual_request_paths(cases)`. The skill road's road is `SkillRoad` (FV3-22-2).
 
 This module imports no `story_step` and no `driver_*` (so no cycle and no `allowed_importers` row, L11); the package modules it needs
 are imported inside the functions, as `waiver` is by the driver parts.
 """
 
 import hashlib
+import subprocess
+import sys
+from pathlib import Path
 
 BY_PERSON = "by: person"     # the quote prefix of a driver accept that a person's word made (`person_pass` writes it, `Driver.consumer_close_words` reads it): one definition (AR-13)
 
@@ -97,13 +100,13 @@ def person_pass(road, stage: str, author: str, line: str, answer: str = "", sinc
 
     def stamp(value) -> str:
         """One normal form for an `at` / `since`: `controller.stamp_utc` of the epoch second; `""` when it is no time (or has no zone)."""
-        from datetime import datetime
+        import stage_done
         from controller import stamp_utc
         if isinstance(value, str):
+            moment = stage_done.iso_with_zone(value)
             try:
-                moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-                return stamp_utc(moment.timestamp()) if moment.tzinfo is not None else ""
-            except (ValueError, OverflowError, OSError):
+                return stamp_utc(moment.timestamp()) if moment is not None else ""
+            except (OverflowError, OSError):
                 return ""
         return "" if isinstance(value, bool) or value is None else stamp_utc(value)
     words = " ".join(str(answer or "").split())
@@ -293,3 +296,117 @@ def file_passed_over(road, stage: str, receipt) -> None:
                      "--scope", "local-calibration", "--witness", f"close receipt {receipt}",
                      "--idempotency-key", f"close-passed-over:{road.task}:{stage}:{ident}",
                      what="the finding about work a code close passed over", stage=stage)
+
+
+def record_door(task: str, stage: str, args) -> str:
+    """The `door:` line that completes a stage record a refusal left unwritten (E9): the ONE builder, read by `SkillRoad.record_close` and
+    `story_step._s6_reentry`, so the same world prints the same command on both (t-1558 F1)."""
+    command = " ".join(f'"{a}"' if any(ch.isspace() for ch in str(a)) else str(a) for a in args)
+    return f'door: python "${{CLAUDE_PLUGIN_ROOT}}/scripts/stage_done.py" --task {task} --stage {stage} {command}'
+
+
+def stage_record_written(task_root, controller, stage: str) -> bool:
+    """True when the stage record of `stage` is written after the controller completed it by a `code_only` receipt: `stage_done.stage_finished_at`
+    (the one reader of `finished`) is present and NOT EARLIER than the time of the stage's last `code_only` event (equal reads as written). The
+    pipeline's `status` is no witness: the projection writes `done` from the controller on every apply (t-1209 F4-1). ERROR DIRECTION: any
+    time that cannot be read, a missing event or an unreadable store reads as False (not written), never as written (FR-59, AR-28)."""
+    import stage_done
+    from datetime import datetime
+    from controller import stamp_utc
+    try:
+        events = [e for e in controller.store.read() if e.get("type") == "code_only" and (e.get("payload") or {}).get("stage") == stage]
+        completed = datetime.fromisoformat(stamp_utc(events[-1].get("created_at")))
+        finished = stage_done.stage_finished_at(stage_done.read_pipeline(Path(task_root) / "pipeline.json"), stage)
+        return finished is not None and finished >= completed
+    except Exception:  # noqa: BLE001 - a time that cannot be read is the safe side: the record counts as not written
+        return False
+
+
+class SkillRoad:
+    """The road of the skill's own `story_step.py start` (FV3-22-2, P31): the members the free functions above reach their steps through
+    (module docstring), over the story's controller and the scripts run as `story_step._run` runs them (the story_step process's cwd and
+    environment). `dry` is always False: the skill road has no dry run. The Driver is the other road; no member is copied from it - each
+    free body is the one survivor (AR-15)."""
+    dry = False
+
+    def __init__(self, task: str, task_root, controller):
+        import hooklib
+        self.task = task
+        self.task_root = Path(task_root)
+        self._ctl = controller
+        self.project = hooklib.project_root()
+
+    def controller_state(self) -> dict:
+        return self._ctl.state()
+
+    def pipeline(self) -> dict:
+        import hooklib
+        return hooklib.read_json(self.task_root / "pipeline.json", {}, kind=dict, errors=Exception)
+
+    def controller(self, op: str, *args, input_data=None):
+        """The controller's own `apply` (it enriches a `code_only` receipt with the passed-over work, so both roads write the same receipt)."""
+        return self._ctl.apply(op, input_data)
+
+    def py(self, script: str, *args, check: bool = False, expect: str = "") -> tuple:
+        """Run one factory script; `(exit code, stdout+stderr)`. A script that is not in this build is exit 127, never a skipped success
+        (AR-28: a close is not reported over a step that did not run - the opposite error direction from `story_step._run`). `check=True`:
+        a non-zero exit raises `Refused`."""
+        path = Path(__file__).resolve().parent / script
+        if not path.is_file():
+            code, out = 127, f"{script} is not in this build"
+        else:
+            done = subprocess.run([sys.executable, "-B", str(path), *[str(a) for a in args]], capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace")
+            code, out = done.returncode, (done.stdout + ("\n" + done.stderr if done.stderr.strip() else "")).strip()
+        if check and code:
+            raise Refused(f"{script} exit {code}: " + (out.splitlines()[-1] if out else "") + (f" ({expect})" if expect else ""))
+        return code, out
+
+    def owe_row(self, script: str, *args, what: str, stage: str = "") -> None:
+        """A journal row the close owes: a failure is one `note:` line and never a raise (the close is recorded already)."""
+        code, out = self.py(script, *args)
+        if code:
+            print(f"note: {what} was not filed: " + (out.splitlines()[-1] if out else f"{script} exit {code}"))
+
+    def accepted_at(self, author: str) -> str:
+        return accepted_at(self.task_root, author)
+
+    def consumer_pending(self, stage: str) -> bool:
+        return consumer_pending(self, stage)
+
+    def person_pass(self, stage: str, author: str, line: str, answer: str = "", since: str = "") -> dict:
+        return person_pass(self, stage, author, line, answer, since)
+
+    def consumer_person_pass(self, stage: str, author: str, answer: str = "") -> bool:
+        return consumer_person_pass(self, stage, author, answer)
+
+    def consumer_need_record(self, stage: str, site: str) -> bool:
+        return need_record(self, stage, site)
+
+    def consumer_await(self, stage: str, author: str, state: dict, route: dict) -> bool:
+        return mark_awaiting(self, stage, author, state, route)
+
+    def close_by_code(self, stage: str, reason: str, evidence: list, **more) -> bool:
+        return close_by_code(self, stage, reason, evidence, **more)
+
+    def close_receipt(self, site: str, stage: str, reason: str, evidence: list) -> str:
+        request = code_only_request(self, stage, reason, evidence)
+        self.controller("code_only", input_data=request)
+        return request["id"]
+
+    def file_passed_over(self, stage: str, receipt) -> None:
+        file_passed_over(self, stage, receipt)
+
+    def record_close(self, site: str, stage: str, *args, tail=(), receipt: str = "") -> None:
+        """The stage record: `stage_done --stage <stage> <args>`, then each `tail` row through `log_append`. A refused record raises `Refused`
+        whose text ENDS with the command that completes it (E9: the receipt is never lost silently)."""
+        try:
+            self.py("stage_done.py", "--task", self.task, "--stage", stage, *args, check=True)
+        except Refused as exc:
+            raise Refused(f"{exc}\n{record_door(self.task, stage, args)}", title=exc.title) from None
+        for row in tail:
+            self.py("log_append.py", *row)
+
+    def manual_request_paths(self, cases) -> list:
+        import manual_evidence
+        return [manual_evidence.request_path(self.task_root, c).relative_to(self.task_root).as_posix() for c in cases]

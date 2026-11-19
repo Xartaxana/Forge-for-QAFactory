@@ -913,7 +913,7 @@ def start(args) -> int:
     controller = Controller(task_root, wait_seconds=_wait(args))
     state = controller.state()
     block, refusal, code = _manual_block_check(args, controller, state)
-    if code:
+    if code or (refusal and block is None):      # FV3-22 K5.h: a close prints its lines and exits 0 with no block; every refusal today has code 2
         print("\n".join(refusal))
         return code
     stamp_run_mode(task_root / "pipeline.json", pipeline, current_run_mode())
@@ -1044,9 +1044,22 @@ def _manual_block_check(args, controller, state) -> tuple:
     def door(given, spent=()):
         return _manual_block_door(args.task, given, state, controller, spent) if args.stage == "S6" else []
 
+    def settle(spent, today):
+        """FV3-22 K5.f: at an exit that finds nothing this call can dispatch, the close of S6's manual half runs (`_s6_manual_close`);
+        `today(refused)` builds the lines of today's refusal, with the door minus every case the close found refused."""
+        got = _s6_manual_close(args, controller, state, dict(spent))
+        if got is None:
+            return None, today(dict(spent)), 2
+        kind, lines, done_code, refused = got
+        if kind == "done":
+            return None, lines, done_code
+        if kind == "left":
+            return None, today(refused), 2
+        return None, [*today(dict(spent)), *lines], 2          # "automation": today's lines + the door of the automated half
+
     if not block:
-        return None, [f"story_step: refused - a manual runner block names its cases (1..{MANUAL_BLOCK_CASES} of them) with --scope",
-                      *door([])], 2
+        return settle({}, lambda spent: [f"story_step: refused - a manual runner block names its cases (1..{MANUAL_BLOCK_CASES} of them) with --scope",
+                                         *door([], spent)])
     if new_mode:
         # F-1 (AR-19): the block is read in the keys the approved scope holds BEFORE it is counted, judged against the half or
         # prepared - the one map `apply` and `prepare` record it by (`Controller._manual_keys`); the keys are what the returned
@@ -1059,9 +1072,11 @@ def _manual_block_check(args, controller, state) -> tuple:
     except StateConflict as exc:        # the controller's own text, rendered by its own function (one renderer, K-S5)
         return None, ["story_step: refused - " + str(exc), *door(block)], 2
     import manual_evidence
-    no_stand = _no_stand_refusal(args.task, state, block)
-    if no_stand:
-        return None, no_stand, 2
+    # POSITION (FV3-22 K5.f): after `validate_manual_runner_block` - a malformed block is refused as before and never closes
+    no_stand = _no_stand_cases_of(args.task, state, block)
+    if no_stand is not None:
+        lines = _no_stand_lines(args.task, block, state, no_stand)
+        return settle(no_stand, lambda _spent: lines)
     refused = {}
     for case in block:
         # (ids, why, unprepared): a case the FACTORY failed to prepare has `why` empty and stays IN the block (F5(c), the
@@ -1073,42 +1088,157 @@ def _manual_block_check(args, controller, state) -> tuple:
         every = len(refused) == len(block)
         head = ("no case of this block can be checked by hand" if every else
                 "some cases of this block cannot be checked by hand, and a block is never silently shrunk")
-        return None, ["story_step: refused - " + head,
-                      *[f"{case}: not checked by hand - {why}" for case, why in refused.items()],
-                      *door([] if every else block, refused)], 2
+
+        def lines_of(spent):
+            return ["story_step: refused - " + head, *[f"{case}: not checked by hand - {why}" for case, why in spent.items()],
+                    *door([] if every else block, spent)]
+        if every:        # POSITION: only a block with no ready case closes; a partial refusal never runs the plan or the close
+            return settle(refused, lines_of)
+        return None, lines_of(refused), 2
     return block, [], 0
 
 
-def _no_stand_refusal(task: str, state: dict, block: list) -> list:
-    """FV3-21b (AR-13/15): the lines of the refusal of a manual block when the person's live word passed the stand block, with a refused
-    record written for every case of it; [] = today's road (no such word, or an S6 dispatch is live - the driver's own filter, E15, one
-    shared predicate `controller.live_s6_scopes`). A case an accepted manual block carried (`manual_done_cases`) is skipped: its
-    request is never overwritten (E6, P31). Prepare's own refusal keeps its record (AR-27)."""
+def _no_stand_cases(task_root, state: dict, cases: list, words: str) -> dict:
+    """FV3-22 (AR-15): for each of `cases` that `manual_done_cases` does not list, why it is not checked by hand under the person's no-stand
+    `words`: prepare's own refusal (its record is kept, AR-27), else the word's reason after `write_case_refusal`. The ONE per-case body of
+    the word, used by `_no_stand_cases_of` (the lines) and `_s6_manual_close` (the close). A done case is skipped: its request is never
+    overwritten (E6, P31)."""
     import manual_evidence
-    passing = waiver.stand_passing_override(_read_pipeline(_task_root(task)))
-    words = passing.get("decision", "")
-    if not words or live_s6_scopes(state):
-        return []
     reason, no_stand_door = manual_evidence.no_stand_refusal(words)
     done = manual_done_cases(state)
-    if block and all(case in done for case in block):
-        return []                   # nothing is owed: every case is checked already (today's road)
-    lines = []
-    for case in block:
+    out = {}
+    for case in cases:
         if case in done:
-            lines.append(f"{case}: checked already by an accepted block")
             continue
-        why = manual_evidence.prepare_for_block(_task_root(task), case)[1]
+        why = manual_evidence.prepare_for_block(task_root, case)[1]
         if why:
-            lines.append(f"{case}: not checked by hand - {why}")
+            out[case] = why
         else:
-            manual_evidence.write_case_refusal(_task_root(task), case, reason, no_stand_door, "left_unchecked")
-            lines.append(f"{case}: not checked by hand - {reason}")
+            manual_evidence.write_case_refusal(task_root, case, reason, no_stand_door, "left_unchecked")
+            out[case] = reason
+    return out
+
+
+def _no_stand_cases_of(task: str, state: dict, block: list):
+    """`{case: why}` of the block under the person's live no-stand word (records written); None = today's road (no such word, an S6 dispatch
+    is live - the driver's own filter, E15, one shared predicate `controller.live_s6_scopes` - or every case is checked already)."""
+    words = waiver.stand_passing_word(_read_pipeline(_task_root(task)))
+    if not words or live_s6_scopes(state):
+        return None
+    done = manual_done_cases(state)
+    if block and all(case in done for case in block):
+        return None                 # nothing is owed: every case is checked already (today's road)
+    return _no_stand_cases(_task_root(task), state, block, words)
+
+
+def _no_stand_lines(task: str, block: list, state: dict, cases: dict) -> list:
+    """FV3-21b (AR-13/15): the lines of the refusal of a manual block under the person's live no-stand word; `cases` = `_no_stand_cases_of`'s
+    dict. A case an accepted manual block carried is named `checked already` and is not in `cases` (E17)."""
+    import manual_evidence
+    passing = waiver.stand_passing_override(_read_pipeline(_task_root(task)))
+    _reason, no_stand_door = manual_evidence.no_stand_refusal(passing.get("decision", ""))
+    lines = [f"{case}: not checked by hand - {cases[case]}" if case in cases else f"{case}: checked already by an accepted block"
+             for case in block]
     return ["story_step: refused - no case is checked by an agent by hand: no stand is confirmed for this story and the "
             "person said to go on", *lines,
             f"door: {no_stand_door}; or the person's word is taken back: "
             # the door appends `--words-file <file>` itself: a `--decision` here too made waiver refuse both (canon 44136543304)
             + person_words.door(f"waiver.py --task {task} --revoke --stage {passing['stage']} --block \"{passing['match']}\"")]
+
+
+def _no_stand_refusal(task: str, state: dict, block: list) -> list:
+    """FV3-21b (AR-13/15): the lines of the refusal of a manual block when the person's live word passed the stand block, with a refused
+    record written for every case of it; [] = today's road (see `_no_stand_cases_of`). A case an accepted manual block carried
+    (`manual_done_cases`) is skipped: its request is never overwritten (E6, P31). Prepare's own refusal keeps its record (AR-27)."""
+    cases = _no_stand_cases_of(task, state, block)
+    return [] if cases is None else _no_stand_lines(task, block, state, cases)
+
+
+def _manual_cases_left(state: dict, scope: list, spent) -> list:
+    """FV3-22 (AR-15): the cases of the plan's manual half still to dispatch - in the derived order, not done (`manual_done_cases`, the one
+    reader), not in `spent` (refused in this call). Used by `_manual_block_door` and `_s6_manual_close`."""
+    done = manual_done_cases(state)
+    return [case for case in scope if case not in done and case not in spent]
+
+
+def _s6_reentry(task: str, task_root, controller, held: dict, where: str):
+    """Step 1b of `_s6_manual_close`: a completed S6 is never reduced again (a report the receipt hashed is never rewritten, AR-21). A stage
+    the controller completed otherwise (a role's accept, no `code_only`) is not this close's world: None, today's lines. A `code_only` S6 with
+    its record written: nothing to close; without a readable record: the E9 door (`stage_close.record_door`), exit 2."""
+    import stage_close
+    if not held.get("code_only"):
+        return None
+    if stage_close.stage_record_written(task_root, controller, "S6"):
+        return "done", ["S6 is completed already: nothing is closed again", "next: " + where], 0, {}
+    reason = held.get("reason") if isinstance(held.get("reason"), str) and held.get("reason") else "<the close reason>"
+    return "done", ["story_step: refused - S6 is completed in the controller but its stage record is not written",
+                    stage_close.record_door(task, "S6", ["--status", "done", "--digest", reason, "--no-journal"])], 2, {}
+
+
+def _s6_manual_close(args, controller, state: dict, spent: dict):
+    """FV3-22 (P31): `start --stage S6 --execution-kind manual` finds nothing left to dispatch -> S6's manual half is closed by the SAME code as
+    the driver's `manual_close` (`stage_close.manual_half_close` over `SkillRoad`): the reducer, then the failure analyst's record or a
+    person's word closes S6 by code, otherwise S6 awaits the analyst. Returns None (not applicable: today's lines) or the 4-tuple
+    `(kind, lines, code, refused)`, `kind` one of "done" (a close, a wait, a refusal of the close, a completed S6), "left" (a case is ready:
+    no close), "automation" (the automated half is not accepted yet: no close); `refused` maps case -> why. ERROR DIRECTION (a GATE that
+    closes S6): it may err only toward "left"/None - an underived or non-list scope, an empty manual half (FV3-24), a live S6 dispatch
+    (running, blocked or paused) and a case that prepares each end it. Runs before the stamp and registers no dispatch, brief or event
+    of its own (FB-9); it writes only prepare's request files, the word records, the marker, the receipt and the stage record."""
+    import contextlib
+    import io
+    import manual_evidence
+    import stage_close
+    from event_store import StateConflict
+    if args.stage != "S6":
+        return None
+    task_root = _task_root(args.task)
+    where = f'python "${{CLAUDE_PLUGIN_ROOT}}/scripts/story_step.py" where --task {args.task}'
+    held = (((controller.state() or {}).get("stages") or {}).get("S6") or {})
+    if held.get("status") == "completed":
+        return _s6_reentry(args.task, task_root, controller, held, where)
+    auto = controller.stage_scope("S6", state, "automation")
+    manual = controller.stage_scope("S6", state, "manual")
+    if not (auto.get("derived") and manual.get("derived") and isinstance(auto.get("scope"), list) and isinstance(manual.get("scope"), list)):
+        return None
+    if not manual["scope"]:
+        return None                                 # an empty manual half is FV3-24's world
+    if live_s6_scopes(state):
+        return None                                 # a walk that has not ended: no prepare, no close
+    if not stage_close.s6_automation_settled(state, auto["scope"]):
+        return "automation", [f'door: the automated half of S6 is not accepted yet; the manual half closes after it: python '
+                              f'"${{CLAUDE_PLUGIN_ROOT}}/scripts/story_step.py" start --task {args.task} --stage S6 --role qa-runner '
+                              f'--execution-kind automation'], 2, {}
+    done_cases = manual_done_cases(state)
+    done = [case for case in manual["scope"] if case in done_cases]
+    refused = dict(spent)
+    words = waiver.stand_passing_word(_read_pipeline(task_root))
+    for case in _manual_cases_left(state, manual["scope"], refused):
+        if words:
+            refused.update(_no_stand_cases(task_root, state, [case], words))
+            continue
+        why = manual_evidence.prepare_for_block(task_root, case)[1]
+        if not why:
+            return "left", [], 2, refused           # a case is ready: nothing is closed (its request file is prepare's own, E18)
+        refused[case] = why
+    case_lines = [f"{case}: not checked by hand - {why}" for case, why in refused.items()]
+    road = stage_close.SkillRoad(args.task, task_root, controller)
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(captured):
+            closed = stage_close.manual_half_close(road, done, list(refused.items()))
+    except (stage_close.Refused, StateConflict, ValueError) as exc:
+        text = str(exc)
+        head, sep, tail = text.rpartition("\ndoor: ")
+        door_line = "door: " + tail if sep else "door: repair what the line above names, then run this start again"
+        return "done", [*case_lines, *captured.getvalue().splitlines(),
+                        "story_step: refused - S6 was not closed: " + (head if sep else text), door_line], 2, refused
+    lines = [*case_lines, *captured.getvalue().splitlines()]
+    card = 'python "${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py" card --stage S7'
+    if closed:
+        why = ((controller.state().get("stages") or {}).get("S6") or {}).get("reason") or "the manual half of S6"
+        return "done", [*lines, f"S6 is closed by code: {why}", "next: " + card], 0, refused
+    return "done", [*lines, f"next: the failure analyst judges S6 first: {card}; or a person's word accepts it: "
+                    f"{stage_close.person_word_door(args.task, 'S6')}; after either, run this same start again: it closes S6"], 0, refused
 
 
 def _manual_block_door(task: str, given: list, state: dict, controller, spent=()) -> list:
@@ -1124,7 +1254,7 @@ def _manual_block_door(task: str, given: list, state: dict, controller, spent=()
             return [f"door: name the block's cases with --scope (1..{MANUAL_BLOCK_CASES} ids); the stage scope could not be "
                     f"derived: {derived.get('reason') or 'unknown'}"]
         done = manual_done_cases(state)
-        cleaned = [case for case in derived["scope"] if case not in done and case not in spent]
+        cleaned = _manual_cases_left(state, derived["scope"], spent)
         if not cleaned:
             covered = [case for case in derived["scope"] if case in done]
             return ["no manual-agent case is left for a block: nothing was dispatched; covered by "

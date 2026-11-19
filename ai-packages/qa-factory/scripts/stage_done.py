@@ -798,6 +798,28 @@ def read_pipeline(path: Path) -> dict:
     return hooklib.read_json(path, {}, kind=dict, errors=Exception)
 
 
+def iso_with_zone(value):
+    """The one parse of an ISO time that carries a zone (`Z` reads as UTC): the aware datetime, else None (not a string, no ISO time, or a
+    NAIVE time - a time with no zone is never guessed). Read by `stage_finished_at` and `stage_close.person_pass` (t-1558 F2)."""
+    if not isinstance(value, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo is not None else None
+
+
+def stage_finished_at(pipeline, stage: str):
+    """When the stage record of `stage` was finished (`apply_stage` stamps `finished` on done, halted and skipped), as a timezone-aware
+    datetime; None when the stage or its `finished` is absent, or the value is no ISO time with a zone. THE reader of the field (AR-13: its
+    writer owns it); `stage_close` asks it whether an S6 the controller completed also has its record (FV3-22, t-1209 F4-1). ERROR
+    DIRECTION: None reads as "the record is not written", the safe side - a close is never reported over a record nobody can date."""
+    stages = pipeline.get("stages") if isinstance(pipeline, dict) else None
+    entry = stages.get(stage) if isinstance(stages, dict) else None
+    return iso_with_zone(entry.get("finished") if isinstance(entry, dict) else None)
+
+
 def apply_stage(pipeline: dict, stage: str, status: str, role: str, digest: str,
                 at: str, agent_id: str = "") -> dict:
     stages = pipeline.setdefault("stages", {})
