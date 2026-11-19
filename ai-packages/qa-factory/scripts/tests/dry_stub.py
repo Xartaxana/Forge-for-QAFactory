@@ -1391,9 +1391,9 @@ def selftest_n2(tmp: Path) -> None:
     story = SW.load_story("dry-1")
     check_eq("N2 item 6: scenario_walk.load_story reads dry-1: id, task, synthetic, the nine stages", (story.id, story.task, [e["stage"] for e in story.walk]),
              ("dry-1", "DRY-1", [f"S{n}" for n in range(1, 10)]))
-    check_eq("N2 item 6: the kit holds two requirements, one automated case and one manual case, and names the first runner row",
+    check_eq("N2 item 6: the kit holds two requirements, one automated case and one manual case, and names the first runner row of two",
              ([c["id"] for c in kit["cases"] if c["channel"] == "auto"], [c["id"] for c in kit["cases"] if c["channel"] == "manual-agent"], kit["requirements"],
-              [r["id"] for r in runner_rows()], kit["runner"]), (["TC-1"], ["TC-2"], ["R-1", "R-2"], ["python-pytest"], "python-pytest"))
+              [r["id"] for r in runner_rows()], kit["runner"]), (["TC-1"], ["TC-2"], ["R-1", "R-2"], ["python-pytest", "ts-playwright"], "python-pytest"))
     # an unreadable story file is a red line naming the file; an empty runners folder is a refusal naming it
     def broken(name, files):
         folder = tmp / name

@@ -214,6 +214,9 @@ def test_the_dup_gate_is_in_forge_check_and_the_report_is_in_package_full_and_ne
 
 # ---------------------------------------------------------------- every check runs after a red neighbour (FG7-90)
 
+NODE_INSTALL = re.compile(r"npm ci( --[a-z-]+)*|npx playwright install( --with-deps)?( (chromium|firefox|webkit))*")   # FV3-11 E12: by FULL match, never startswith; no `&&`, `;`, `|` fits
+
+
 def hidden_checks(job, marker):
     """What would still hide a check behind a red neighbour in one job: names of the offending steps (`[]` = none). The marker
     step (an `id`) closes the setup steps; every later step except an `actions/upload-artifact` step is a check and must carry exactly
@@ -232,8 +235,8 @@ def hidden_checks(job, marker):
             run = s.get("run", "").strip()
             if "if" in s:
                 bad.append(f"setup step with a condition: {name}")
-            if not (s.get("uses", "").startswith(("actions/checkout", "actions/setup-python")) or s.get("id") == marker
-                    or run.startswith(("pip install", "git config"))):
+            if not (s.get("uses", "").startswith(("actions/checkout", "actions/setup-python", "actions/setup-node")) or s.get("id") == marker
+                    or run.startswith(("pip install", "git config")) or NODE_INSTALL.fullmatch(run)):
                 bad.append(f"not a setup step before the marker: {name}")
         elif not s.get("uses", "").startswith("actions/upload-artifact"):
             if "run" not in s:
@@ -250,9 +253,19 @@ def hidden_checks(job, marker):
 
 @pytest.mark.parametrize("workflow, job_name, marker", [("forge-check.yml", "forge-check", "base"),
                                                         ("forge-check.yml", "package-fast", "setup"),
-                                                        ("dry-story.yml", "tables", "setup")])
+                                                        ("dry-story.yml", "tables", "setup"),
+                                                        ("dry-story.yml", "runners", "setup")])
 def test_every_check_step_runs_after_a_red_neighbour(workflow, job_name, marker):
     assert hidden_checks(load(workflow)["jobs"][job_name], marker) == []
+
+
+@pytest.mark.parametrize("run, refused", [("npm ci", False), ("npx playwright install --with-deps chromium", False),
+                                          ("npx playwright test", True), ("npm test", True), ("npm ci && npx playwright test", True),
+                                          ("npx playwright install; pytest", True), ("npm ci | tee x", True)])
+def test_hidden_checks_takes_the_node_installs_by_full_match_only(run, refused):
+    """FV3-11 E12: before the marker `npm ci` and `npx playwright install` are installs; a check wearing their prefix is not."""
+    job = {"steps": [{"run": run}, {"id": "m", "run": "git config --global x y"}]}
+    assert bool(hidden_checks(job, "m")) is refused
 
 
 # ---------------------------------------------------------------- the jobs around it
@@ -428,6 +441,18 @@ def test_dry_story_matrix_comes_from_the_list_job_and_an_empty_list_says_so():
     assert "dry-1/exits" in listing and "no walk groups" in listing and 'echo "walk groups: $names"' in listing
     got = " ".join(runs(jobs["tables"]))        # FG7-90: one command per step now, the four texts unchanged
     assert all(t in got for t in ("dry_exits.py --check", "dry_exits.py --selftest", "dry_stub.py --selftest", "--part exits:selftest"))
+
+
+def test_dry_story_runners_job_walks_every_row_of_the_table_and_no_other_job_waits_for_it():
+    """FV3-11 (one road, P31): `runners` follows `list`, has no job-level `if:` (an install that fails turns it red, never skipped), nothing
+    needs it (the python-pytest road is green whether or not it runs), and its loop reads the table, not a row id or a language."""
+    jobs = load("dry-story.yml")["jobs"]
+    job = jobs["runners"]
+    assert job["needs"] == "list" and "if" not in job and "continue-on-error" not in job
+    assert all("runners" not in str(j.get("needs", "")) for n, j in jobs.items() if n != "runners")
+    check = runs(job)[-1]
+    assert "dry_stub.runner_rows()" in check and "profile_contract" in check
+    assert not re.search(r"ts-playwright|python-pytest|typescript|pytest -q|playwright test", check)
 
 
 def test_every_dry_story_job_that_runs_the_dry_world_installs_pytest():
