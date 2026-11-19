@@ -3,6 +3,8 @@ import argparse
 import json
 from pathlib import Path
 
+from detector_verdict import refusal
+
 
 def check_source_inventory(task_root, pipeline=None):
     """S1 boundary check. Explicit unavailable sources are gaps, not fabricated success."""
@@ -11,7 +13,7 @@ def check_source_inventory(task_root, pipeline=None):
     path = task_root / "work" / "source-inventory.json"
     required = pipeline.get("source_inventory_required") is True
     if not path.exists():
-        return {"allowed": not required, "errors": (["required work/source-inventory.json is missing"]
+        return {"allowed": not required, "errors": ([refusal("source_preflight:check_source_inventory", "required work/source-inventory.json is missing")]
                                                       if required else []), "gaps": []}
     try:
         from source_inventory import (load_inventory, validate_inventory, completeness, verify_inventory_files,
@@ -19,7 +21,7 @@ def check_source_inventory(task_root, pipeline=None):
         inventory = load_inventory(path)
         errors = validate_inventory(inventory)
         if not any(item.get("required") for item in inventory.get("sources", [])):
-            errors.append("source inventory has no required sources")
+            errors.append(refusal("source_preflight:check_source_inventory", "source inventory has no required sources"))
         kinds = class_kwargs(task_root)
         # The kinds of gap the person answered about (C2-9) close their points here; a point the factory itself established
         # as out of reach (`defaulted_points`) is not in the unavailable lists below, so no error is raised and no question is
@@ -28,10 +30,10 @@ def check_source_inventory(task_root, pipeline=None):
         verified = verify_inventory_files(task_root, inventory)
         errors.extend(verified["errors"])
         if comp["pending"]:
-            errors.append("required sources remain pending: " + ", ".join(comp["pending"]))
+            errors.append(refusal("source_preflight:check_source_inventory", "required sources remain pending: " + ", ".join(comp["pending"])))
         if comp["incomplete_materials"]:
-            errors.append("source materials lack retrieval or inspection receipts: " +
-                          ", ".join(comp["incomplete_materials"]))
+            errors.append(refusal("source_preflight:check_source_inventory", "source materials lack retrieval or inspection receipts: " +
+                                         ", ".join(comp["incomplete_materials"])))
         # An unavailable source blocks a SILENT pass, and only that. Once a person has
         # accepted it in their own words it is a recorded gap the story carries forward —
         # TP1-15045 halted a third time on gaps its owner had already accepted, because
@@ -46,9 +48,9 @@ def check_source_inventory(task_root, pipeline=None):
                   "orchestrator shows it to the person and records their words "
                   "(`" + door(f"ticket_adapter.py accept-gap --output {path} --source-id <id>") + "`, "
                   "the orchestrator's command, not a role's)")
-        errors.extend(f"source unavailable and not accepted by a person: {source_id} — {accept}"
+        errors.extend(refusal("source_preflight:check_source_inventory", f"source unavailable and not accepted by a person: {source_id} — {accept}")
                       for source_id in comp["unavailable"])
-        errors.extend(f"source material unavailable and not accepted by a person: {source_id} — {accept}"
+        errors.extend(refusal("source_preflight:check_source_inventory", f"source material unavailable and not accepted by a person: {source_id} — {accept}")
                       for source_id in comp.get("unavailable_materials", []))
         if comp.get("review_missing"):
             errors.append("no person has reviewed the source decisions yet — show "

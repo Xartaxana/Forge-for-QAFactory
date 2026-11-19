@@ -3349,7 +3349,9 @@ def main() -> int:
                                     refusal("handoff_check:cli",
                                             f"was applied to the form but could not be renamed to {applied_name} ({exc}); "
                                             "it would be applied again over the form"),
-                                    f"delete {sibling_values(path).name}"))
+                                    # a role with no shell cannot delete the file (row `handoff_check:cli.values_rename`, R2-F7): it says so in its digest
+                                    f"delete {sibling_values(path).name}" if _doors(role)[0] else
+                                    f"say in your digest that `{sibling_values(path).name}` could not be renamed; the orchestrator removes it"))
 
     out = _Outcome(contract=contract, doc=doc, role=role, kept=kept, problems=problems, source_problems=source_problems,
                    fixed=fixed, shortened=shortened, judged=judged, untouched=untouched, no_verdict=art.no_verdict,

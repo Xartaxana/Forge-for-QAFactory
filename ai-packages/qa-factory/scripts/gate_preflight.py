@@ -83,6 +83,7 @@ from critic_rollcall import project_root_of as _project_root  # noqa: E402
 import hooklib  # noqa: E402  (`read_json`, the one JSON reader)
 from stand_gaps import GATE_STAGE, ROLE_NAMED, ROLE_SCOPES  # noqa: E402 (gate -> the stage it stands in front of: the ONE table)
 from hooklib import sorted_paths  # noqa: E402
+from detector_verdict import refusal  # noqa: E402  (the row id of a refusal that tells before it blames)
 from gate_template import acceptable, registry_problem, registry_why  # noqa: E402  (the ONE predicate a gate word is accepted through: the reuse of a proof reads the registry row)
 
 FACTORY_FIXABLE = "factory_fixable"
@@ -2198,7 +2199,8 @@ class Rehearsal:
             else:
                 door = (f"cases {item['where']} go back to qa-case-designer at S4, with this "
                         "finding as the reason")
-            self.add(check, FACTORY_FIXABLE, message,
+            # the caller that knows the requirement carries the id (EC-2); `add` folds the text, so it sites only: nothing printed changes
+            self.add(check, FACTORY_FIXABLE, refusal("gate_preflight:question_branches", message),
                      f"the factory's own to repair, not a question for you: {door}; "
                      + self.waiver_command("question branches", "S4"),
                      kind=item["kind"], where=item["where"], question=item["question"])
