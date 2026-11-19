@@ -20,9 +20,8 @@ you.
    `docs/TESTING.md` («Что запускать по своей правке», «Строка теста в DoD», «Бюджет / Файлы»): the DoD names
    its witness files explicitly - at most three whole-run test files, none of the canon-only class (a slow-list or
    `canon_only` file is checked by a narrow call of the changed functions) and never `--witness-for` (the dispatch gate
-   refuses all three; door `manifest-skip: dod-run -- <reason>`); a DoD never asks for a new
-   test file outside the keep rows of `test-layers.json`; a new case is
-   a variant/table row. `test:` lines are ONE PER BEHAVIOUR that reaches
+   refuses all three; door `manifest-skip: dod-run -- <reason>`); a DoD names the place of every new case on its `test:` line (`docs/TESTING.md` «Строка теста
+   в DoD»): a variant/table row by default, a new file only by the goal of `docs/TESTING.md` «Бюджет / Файлы». `test:` lines are ONE PER BEHAVIOUR that reaches
    a door - never one per critic finding, function or spec edge - and
    stand in the order they are worth writing, the strongest first: the
    builder writes them top-down until its test lines reach its code
