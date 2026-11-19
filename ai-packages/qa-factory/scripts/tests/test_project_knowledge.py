@@ -30,6 +30,10 @@ import event_store as ES  # noqa: E402
 import hooklib  # noqa: E402
 import project_decisions as PD  # noqa: E402
 import project_knowledge as PK  # noqa: E402
+import environment_record as ER  # noqa: E402
+import report_adapt as RA  # noqa: E402
+import stand_gaps as SG  # noqa: E402
+import stand_identity as SI  # noqa: E402
 
 AUDITOR = "QA_AUDITOR_EMAIL / QA_AUDITOR_PASSWORD"
 NON_ASCII = "".join(chr(code) for code in (0x2014, 0x20, 0x430, 0x443, 0x434, 0x438, 0x442, 0x43E, 0x440))      # a dash and a Cyrillic word, by code point
@@ -364,27 +368,86 @@ WORLDS = {
     "launch_open": (dict(), 0),
     "pipeline_no_over_launch": (dict(pipeline={"ticket": "T-1", "no_trace": False}, driver_state={"launch": {"no_trace": True}}), 0),
 }
+PROFILES = [{"profile_id": "web", "commands": {"one_test": {"argv": ["pytest", "-k", "x"], "cwd": "."}}}]
+OLD, FEW, TWO = tuple(WORLDS), ("launch_yes", "launch_open"), ("launch_yes", "none", "launch_open")
+
+
+def _mains(main, *argv):
+    return lambda p: main([a(p) if callable(a) else a for a in argv])
+
+
+def _words_in(p):
+    return str(p.words)
+
+
+def _text(p):
+    p.words.with_name("text.txt").write_text("the report lacked the names of the tests", encoding="utf-8")
+    return str(p.words.with_name("text.txt"))
+
+
+# writer -> (world list, run(proj) -> exit code); every one runs AFTER its story is placed and BEFORE a byte is written (PK2-11 N2)
 WRITERS = {
-    "side": lambda p: ["side", "--task", "T-1", "--name", "ui", "--deliverable", "no", "--words-file", str(p.words)],
-    "account": lambda p: ["account", *STAND_ARGS, "--words-file", str(p.words)],
-    "revoke": lambda p: ["revoke", "--task", "T-1", "--id", "PK-1", "--words-file", str(p.words)],
+    "side": (OLD, _mains(PK.main, "side", "--task", "T-1", "--name", "ui", "--deliverable", "no", "--words-file", _words_in)),
+    "account": (OLD, _mains(PK.main, "account", *STAND_ARGS, "--words-file", _words_in)),
+    "revoke": (OLD, _mains(PK.main, "revoke", "--task", "T-1", "--id", "PK-1", "--words-file", _words_in)),
+    "env-record": (TWO, _mains(ER.main, "record", "--task", "T-1", "--contour", "web", "--reason", "zero_tests", "--exit-code", "0",
+                               "--option", "accept", "--words-file", _words_in)),
+    "ask-again-pk": (FEW, lambda p: PK.main(SG.revoke_args(True, "PK-1", "T-1")[1:] + ["--words-file", str(p.words)])),
+    "ask-again-env": (FEW, lambda p: ER.main(SG.revoke_args(False, "EP-1", "T-1")[1:] + ["--words-file", str(p.words)])),
+    "report-kind": (("launch_yes",), _mains(RA.main, "kind", "--task", "T-1", "--profile", "web", "--reader", "trx", "--by", "driver")),
+    "report-understood": (FEW, _mains(RA.main, "understood", "--task", "T-1", "--profile", "web", "--by", "driver", "--text-file", _text)),
+    "report-forget": (FEW, _mains(RA.main, "forget", "--task", "T-1", "--id", "RA-1")),
+    "stand-record": (FEW, _mains(SI.main, "record", "--task", "T-1", "--environment", "dev", "--profile", "web", "--method", "person_confirms",
+                                 "--words", "I check it myself")),
+    "stand-forget": (FEW, _mains(SI.main, "forget", "--task", "T-1", "--environment", "dev", "--profile", "web", "--words", "not any more")),
 }
+CASES = [pytest.param(w, world, id=f"{w}-{world}") for w, (worlds, _run) in WRITERS.items() for world in worlds]
 
 
-@pytest.mark.parametrize("world", WORLDS)
-@pytest.mark.parametrize("writer", WRITERS)
+def _bytes(proj: Proj) -> dict:
+    return {p: p.read_bytes() for p in [proj.config, *sorted((proj.root / "qa-factory" / "records").glob("*"))]}
+
+
+def _held(proj: Proj) -> None:
+    """The rows `revoke` / `forget` take back, and the profile of the config the report and stand writers need."""
+    proj.write_config(profiles=PROFILES)
+    proj.facts([role_fact("PK-1", "auditor", "known", "2026-11-12T09:40:00+00:00")])
+    ER.write_rows(ER.record_path(proj.root), "properties", 1, [{"id": "EP-1", "option": "accept"}])
+    RA.append(proj.root, {"kind": "not_adapted", "by": "driver", "profile_id": "web", "argv_digest": "d", "understood": "x"})
+
+
+@pytest.mark.parametrize("writer, world", CASES)
 def test_writers_under_trace(writer, world, tmp_path, monkeypatch, capsys):
     kwargs, want = WORLDS[world]
     proj = Proj(tmp_path, monkeypatch, **kwargs)
-    proj.facts([role_fact("PK-1", "auditor", "known", "2026-11-12T09:40:00+00:00")])      # a carried row for `revoke` to take back
-    before = (proj.config.read_bytes(), proj.path().read_bytes())
+    _held(proj)
+    before = _bytes(proj)
     capsys.readouterr()
-    code = run(WRITERS[writer](proj))
+    code = WRITERS[writer][1](proj)
     err = capsys.readouterr().err
     assert code == want, err
-    assert ((proj.config.read_bytes(), proj.path().read_bytes()) == before) == bool(want)     # refused: nothing written anywhere
+    assert (_bytes(proj) == before) == bool(want)                      # refused: nothing written anywhere
     if want:
         assert ("could not be established" in err) == (world == "none") and ("(waiver)" in err) == (world == "launch_yes")
+    elif writer.startswith("ask-again"):
+        assert "revoked_at" in (proj.path() if writer.endswith("pk") else ER.record_path(proj.root)).read_text(encoding="utf-8")
+
+
+def test_writers_under_trace_in_process_and_without_a_story(tmp_path, monkeypatch):
+    """The in-process writers refuse on a closed story with their own shape and write for no story (E1); an unknown --task writes nothing (E2)."""
+    proj = Proj(tmp_path, monkeypatch, driver_state={"launch": {"no_trace": True}})
+    _held(proj)
+    key = {"scope": "level", "contour": "web", "argv_digest": "d", "reason_class": "zero_tests"}
+    row = {"kind": "not_adapted", "by": "driver", "profile_id": "web", "argv_digest": "d", "understood": "x"}
+    say, before = [], _bytes(proj)
+    SG.record_lasting(proj.root, {"gap": {"property_key": key, "contour": "web"}, "line": "w"}, "T-1", say.append, task_root=proj.task)
+    assert RA.append(proj.root, row, task_root=proj.task)[1] == PK.NO_TRACE_WORDS
+    with pytest.raises(SI.RegistryError, match="waiver"):
+        SI.append_row(proj.root, SI.make_row(proj.cfg(), "dev", "web", "person_confirms", words="w"), task_root=proj.task)
+    assert "the environment record is not (an experiment leaves no trace" in say[0] and _bytes(proj) == before
+    assert SI.main(["forget", "--task", "nope", "--environment", "dev", "--profile", "web", "--words", "w"]) == 2
+    assert ER.main(["revoke", "--task", "nope", "--id", "EP-1", "--words-file", str(proj.words)]) == 2
+    assert RA.append(proj.root, row)[0] is not None and _bytes(proj) != before          # F1: no story named, written
 
 
 def test_driver_dry_mode_launch_in_memory(tmp_path, monkeypatch):

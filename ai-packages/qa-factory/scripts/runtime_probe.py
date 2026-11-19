@@ -1351,7 +1351,7 @@ class Reading:
             key = (self.stand, self.profile)
             return key not in found["in_force"] and key not in found["withdrawn"]
         try:
-            written = SI.append_row(self.root, row, only_if=nothing_known)
+            written = SI.append_row(self.root, row, only_if=nothing_known, task_root=self.task_root)
         except SI.RegistryError as exc:
             warn(f"the way to read this stand was not recorded: {exc}")
             return

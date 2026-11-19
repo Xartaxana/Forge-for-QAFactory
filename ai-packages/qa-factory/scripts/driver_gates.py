@@ -1117,7 +1117,7 @@ class DriverGates:
                     continue
                 row, problem = report_adapt.append(self.project, {"kind": "not_adapted", "by": "driver", "profile_id": profile,
                                                                   "argv_digest": digest, "story": self.task,
-                                                                  "understood": report_adapt.NOT_CALLED_TEXT})
+                                                                  "understood": report_adapt.NOT_CALLED_TEXT}, task_root=self.task_root)
                 if row is None:
                     print(f"gate repair: the helper's turn for `{profile}` could not be recorded ({problem}); the report stays at the top of the gate")
                     self.state["adapt_handed"] = list(dict.fromkeys(list(self.state.get("adapt_handed") or []) + [key]))

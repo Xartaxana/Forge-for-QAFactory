@@ -1242,13 +1242,20 @@ def level_applied(task_root, gap):
     return [c for c in gap_cases(gap) if any(C.case_matches(d, c) for d in done)]
 
 
-def record_lasting(project, entry, story, say=print) -> None:
+def revoke_args(registry: bool, row_id, task) -> list:
+    """The argv of "ask again" for one held row: `[<tool>, "revoke", "--task", T, "--id", id]` (PK2-11 D1: `project_knowledge.py`
+    requires `--task`, and both tools refuse in an experiment by it). The caller appends the words file."""
+    return ["project_knowledge.py" if registry else "environment_record.py", "revoke", "--task", str(task), "--id", str(row_id)]
+
+
+def record_lasting(project, entry, story, say=print, task_root=None) -> None:
     """R8(b): put the `accept always` the person just wrote in the project's environment record - ONE row, their line whole,
     under the key of the gap (`property_key`, computed by the rehearsal). The caller has recorded the story's own answer
     already; a failure here is only SAID (the story's answer stands, the person is not asked again: FR-3)."""
     import environment_record as ER
     gap = entry["gap"]
-    row, problem, created = ER.record(project, gap.get("property_key"), "accept", entry.get("line"), story, ER.about_of(gap))
+    row, problem, created = ER.record(project, gap.get("property_key"), "accept", entry.get("line"), story, ER.about_of(gap),
+                                    task_root=task_root)
     if row is None:
         say(f"gate {gap.get('gate') or 'A'}: {_label(gap)}: the story's answer is recorded; the environment record is not ({problem})")
     else:
