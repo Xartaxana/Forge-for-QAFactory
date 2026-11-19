@@ -1,0 +1,1 @@
+- `story_step start --stage S6 --execution-kind manual` on an S6 the code already closed now stops before any preparation: no `request.json`, case refusal or block preparation is written under a hashed receipt.

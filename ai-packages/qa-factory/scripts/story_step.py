@@ -917,6 +917,16 @@ def start(args) -> int:
     # manual-block check below comes before anything is written - no pipeline stamp, no pre-work, no event, no brief.
     controller = Controller(task_root, wait_seconds=_wait(args))
     state = controller.state()
+    # FV3-41 (t-1558 R1) POSITION INVARIANT: ahead of `_manual_block_check` - an S6 the code closed (`code_only`, by either road) is never
+    # prepared again: X3 `prepare_for_block` and X2 `write_case_refusal` rewrite `request.json` files the receipt hashed. Writes nothing.
+    # ERROR DIRECTION: `_s6_reentry` (step 1b's reader); a record that cannot be read -> the E9 door, exit 2. An S6 not closed by code -> None.
+    if args.role == "qa-runner" and args.stage == "S6" and (getattr(args, "execution_kind", "") or "") == "manual":
+        held = (((state or {}).get("stages") or {}).get("S6") or {})
+        closed = _s6_reentry(args.task, task_root, controller, held, 'python "${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py" where --task '
+                             + args.task) if held.get("status") == "completed" else None
+        if closed is not None:
+            print("\n".join(closed[1]))
+            return closed[2]
     block, refusal, code = _manual_block_check(args, controller, state)
     if code or (refusal and block is None):      # FV3-22 K5.h: a close prints its lines and exits 0 with no block; every refusal today has code 2
         print("\n".join(refusal))
