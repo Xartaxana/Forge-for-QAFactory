@@ -276,6 +276,8 @@
         "scripts/tests/test_story_step_pause.py",
         "scripts/tests/test_story_step_s5_plan.py",
         "scripts/tests/test_story_step_manual_block.py",
+        "scripts/tests/test_story_step_close.py",
+        "scripts/tests/test_stage_close_tail.py",
         "scripts/tests/test_brief_pack_s5_plan.py",
         "scripts/config_view.py",
         "scripts/tests/test_story_step_card.py",
