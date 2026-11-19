@@ -456,18 +456,38 @@ class DriverStageS5:
             return True
         return route.get("action") == "close" and (not route.get("code") or answer.get("token") == "debt")
 
+    def s5_critic_completion(self, route: dict, answer: dict, last, *, cases=(), critic: str = ""):
+        """THE `complete` of an S5 critic's finish (FV3-35 B, AR-13): the live loop (`s5_review`) and the recovery road (`completion_for`)
+        both call it. `True` closes S5 (the last window, closed by `s5_window_closed`); `False` is a bare `--not-complete`; an
+        `OpenWork(S5_OPEN_WORD, reason)` is a send-back with an author round owed, in ANY window position: the controller accepts the
+        critic and the round runs. ORDER is the invariant: a window the close predicate closes is never open work, and open work is never
+        given without a recorded owed move (a route that owes a round, or the person's `round`/`fixed`/`review` for THIS dispatch).
+        `last` (a bool, or on the parallel road a callable read at the finish, under `_book`) is read only by the first step."""
+        if self.s5_window_closed(route, answer):
+            return bool(last() if callable(last) else last)
+        if self.route_owes_round(route):
+            what = f"a {route['action']} round of the author"
+        elif answer.get("token") in ("round", "fixed", "review"):
+            what = "the round the person chose" if answer["token"] == "round" else "the review the person chose"
+        else:
+            return False
+        from acceptance import S5_OPEN_WORD
+        from driver_core import OpenWork, open_work_reason
+        critic = str(critic or "")
+        text = (f"{critic or 'the critic'} sent the tests of {', '.join(str(c) for c in cases) or 'this window'} back; owed: {what}")
+        return OpenWork(S5_OPEN_WORD, open_work_reason(text, f"… [list: work/handoffs/{critic}.yaml]"))
+
     def s5_review(self, cases: list, last: bool, budget, step: dict | None) -> tuple:
         """(digest, critic, route, form): ONE review of the window. `step` (the person's answer `fixed` / `review`) is a critic
         dispatch with the cause the answer names, which spends none of the cap; otherwise the plain critic dispatch. The route is
         known BEFORE the critic's finish: the last window's critic closes S5 only when `s5_window_closed` says so - never while its
         author is owed a (mechanical) round, never over a seam reason the person has not answered."""
-        def closes(text: str, dispatch: str = "") -> bool:
+        def closes(text: str, dispatch: str = ""):
             # TR3-17: the critic dispatch is read ONCE and handed to both readers; `finish` calls with the digest alone, so the default is
             # this thread's `last_dispatch` (the serial road's value, byte for byte as before).
             dispatch = dispatch or getattr(self, "last_dispatch", "")
             route, _form = self.route_of(text, budget, dispatch)
-            # TR3-6: on the parallel road `last` is a callable (no other window open), read HERE, at the finish, under `_book`
-            return bool((last() if callable(last) else last) and self.s5_window_closed(route, self.repair_answer(cases, dispatch)))
+            return self.s5_critic_completion(route, self.repair_answer(cases, dispatch), last, cases=cases, critic=dispatch)
         if step and step.get("cause"):
             digest, _next = self.rework("S5", "qa-code-critic", cases, step.get("reason") or "the person asked for a new review",
                                         cause=step["cause"], complete=closes, extra=self.S5_CRITIC_BRIEF, budget=budget)

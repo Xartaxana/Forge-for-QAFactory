@@ -1421,6 +1421,7 @@ def stage_acceptance_errors(record, *, stage_def, author_dispatch) -> list:
 
 
 SUPERSEDED_WORD = "stage_superseded"         # the open-work word of a consumer's finish that sent the upstream handoff back (its own work is stale)
+S5_OPEN_WORD = "tests_in_repair"             # the open-work word of an S5 critic's send-back that owes the author a round (FV3-35 B); one window, not the stage
 AWAITS_WORD = "stage_awaits_acceptance"      # the open-work word an author's finish carries when its stage is judged by a CONSUMER role (X7-6)
 
 

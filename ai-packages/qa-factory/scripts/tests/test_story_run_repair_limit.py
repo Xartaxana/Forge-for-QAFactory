@@ -559,6 +559,12 @@ def f4_recovery_finish_owes_the_round():
             d.stage_scope = lambda stage, kind="": {"scope": ["TC-1"], "windows": [window()]}
             d.stand_check, d.build_check = lambda stage: None, lambda stage, cases=None: None
             stub_s5_roles(d, order)
+            from driver_core import OpenWork
+            for label, windows in (("only window", [window()]), ("non-last window", [window(), dict(window(), scope=["TC-2"], accepted_by={})])):
+                d.stage_scope = lambda stage, kind="", ws=windows: {"scope": ["TC-1"], "windows": ws}
+                got = d.completion_for("S5", "qa-code-critic", record)(digest_of(digest))
+                check_eq(f"F4 {cause}, {label}: the recovery finish is the live OpenWork (FV3-35 B)", (type(got), getattr(got, "unresolved", "")), (OpenWork, "tests_in_repair"))
+            d.stage_scope = lambda stage, kind="": {"scope": ["TC-1"], "windows": [window()]}
             raised, _ = rig.quietly(d.stage_S5)
             want = [("rework", "qa-automator", cause)] + ([("run_role", "qa-code-critic")] if cause == "test_defect" else [])
             check_eq(f"F4 {cause}: stage_S5 runs the owed round (no L5 refusal)", (raised, order), (None, want))
@@ -574,6 +580,48 @@ def f4_recovery_finish_owes_the_round():
         check_eq("F4 negative: a seam reason owes no ordinary round (it is asked)", (getattr(asked, "kind", ""), rig.driver.state.get("repair_limit")), ("repair_limit", None))
     finally:
         rig.done()
+
+
+def s5_critic_completion_table():
+    """FV3-35 B (card §2 C1, E2-E4): ONE predicate; (route, answer, last window) -> True / False / the owed word, never open work unrecorded."""
+    from driver_core import OpenWork
+    rig = Rig(budget(counted=0))
+    try:
+        d, close, cap = rig.driver, {"action": "close", "code": ""}, {"action": "close", "code": "cap"}
+        what = {a: f"a {a} round of the author" for a in ("test_defect", "mechanical")}
+        owed, word = (lambda action: {"action": action, "code": ""}), (lambda t: {"token": t})
+        rows = [(close, {}, True, True), (close, {}, False, False), (owed("test_defect"), {}, True, what["test_defect"]),
+                (owed("test_defect"), {}, False, what["test_defect"]), (owed("mechanical"), {}, True, what["mechanical"]),
+                (cap, {}, True, False), (cap, word("round"), True, "the round the person chose"), (dict(cap, code="nobody"), word("review"), True, "the review the person chose"),
+                (cap, word("fixed"), True, "the review the person chose"), (cap, word("debt"), True, True),
+                (owed("test_defect"), {"token": "debt", "owed": "round"}, True, True), (owed("test_defect"), word("stop"), True, what["test_defect"])]
+        for route, answer, last, want in rows:
+            got = d.s5_critic_completion(route, answer, lambda: last, cases=["TC-1"], critic=CRITIC)
+            shown = got.reason.split("owed: ")[1] if isinstance(got, OpenWork) else got
+            check_eq(f"S5 completion {route['action']}/{route['code'] or '-'} answer {answer.get('token', '-')} last={last}", shown, want)
+        boom = d.s5_critic_completion(owed("test_defect"), {}, lambda: 1 / 0, cases=["TC-1"], critic=CRITIC)
+        check_eq("E2: a raising `last` never decides an OpenWork (owed is read first)", (boom.unresolved, boom.reason.startswith(f"{CRITIC} sent the tests of TC-1 back")), ("tests_in_repair", True))
+    finally:
+        rig.done()
+
+
+def sendback_last_window_real_controller():
+    """FV3-35 B red-before (t-1542 (b), E1): the bare send-back of the true last window is refused by the REAL controller; the driver's pair is accepted."""
+    import test_s5_parallel_admission as P
+    rig, (root, c) = Rig(budget(counted=0)), P.story()
+    try:
+        for case, did in (("TC-2", "C2"), ("TC-3", "C3"), ("TC-4", "C4")):
+            P.send(c, root, did, "qa-code-critic", [case])
+            P.accept(c, root, did)
+        P.send(c, root, "C1", "qa-code-critic", ["TC-1"])
+        check_in("a bare send-back on the last window is refused (the conductor call of before)", "leaves S5 with no role to close it", P.refusal(lambda: P.accept(c, root, "C1")))
+        pair = rig.driver.s5_critic_completion({"action": "test_defect", "code": ""}, {}, True, cases=["TC-1"], critic="C1")
+        P.accept(c, root, "C1", unresolved=pair.unresolved, reason=pair.reason)
+        check_eq("the driver's pair is accepted: critic recorded with the word, S5 not closed",
+                 (P.rec(c, "C1")["status"], P.rec(c, "C1").get("unresolved"), P.stage(c)["status"] != "done"), ("accepted", "tests_in_repair", True))
+    finally:
+        rig.done()
+        harness.cleanup(root)
 
 
 def f5_the_real_roads_ask():
@@ -1208,6 +1256,8 @@ def main():
     f2_forced_budget_is_asked_not_closed()
     f3_owed_round_survives_a_person_at_the_stand()
     f4_recovery_finish_owes_the_round()
+    s5_critic_completion_table()
+    sendback_last_window_real_controller()
     f5_the_real_roads_ask()
     s3_take_answer_reaches_the_executor()
     owed_round_on_an_unreadable_count_asks()

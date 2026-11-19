@@ -3226,12 +3226,18 @@ class DriverDispatch:
 
     OWED_TOKENS = ("round", "fixed", "review", "route")     # `route`: a recovery finish left an ordinary round owed (t-729 F4)
 
+    @staticmethod
+    def route_owes_round(route: dict) -> bool:
+        """The ONE rule "this route owes the AUTHOR a round" (a test_defect or a mechanical one, no seam reason): `owe_route` records it
+        on the recovery road, `s5_critic_completion` says it as open work on every road (FV3-35 B, AR-13)."""
+        return not route.get("code") and route.get("action") in ("test_defect", "mechanical")
+
     def owe_route(self, dispatch: str, cases: list, route: dict) -> None:
         """A recovery road (`_finish_saved_result`, `resume_role`) finished a critic dispatch whose route still owes the AUTHOR a round
         (a test_defect or a mechanical one, no seam reason): the loop that would run it is not on the stack, so the round is recorded as
         owed and `stage_S5` runs it on the next entry - before the L5 refusal, which cannot name a door for it (t-698 A4, FR-1/FR-2).
         One record per window and critic dispatch (a repeated finish writes nothing new)."""
-        if route.get("code") or route.get("action") not in ("test_defect", "mechanical"):
+        if not self.route_owes_round(route):
             return
         owed = self.state.setdefault("repair_limit", {})
         if (owed.get(self.repair_key(cases)) or {}).get("dispatch") == dispatch:
