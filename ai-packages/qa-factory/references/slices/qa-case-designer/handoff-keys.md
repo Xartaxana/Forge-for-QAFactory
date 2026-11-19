@@ -69,7 +69,7 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 - [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
 - [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
 - [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
-- [handoff_check:required_rows] A required list (`scope`, `inputs_read`) is never empty: one row per entry, in its contract's fields. Door: write the rows as index lines in the values file, then run this check again.
+- [handoff_check:required_rows] A required list (`scope`, `inputs_read`, `rounds` beside `fixed`) is never empty: one row per entry. Door: write the rows as index lines in the values file, then run this check again.
 - [handoff_check:required_rows.null_word] A list's null-outcome word (the declared empty outcome) stands only when the list has no rows; never both. Door: remove the word or remove the rows.
 - [handoff_check:required_rows.owed_by_verdict] When the verdict owes rows (the verdict word names work done on items), the list is not empty. Door: write the rows the verdict owes, or change the verdict.
 - [handoff_check:tried] In a contract that asks what was tried (TRIED_CONTRACTS), each tried entry states what was tried and the error it gave (TRIED_MEANING). Door: fill the tried entry with the attempt and its error.

@@ -60,6 +60,197 @@ def _is_str_list(value):
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+# --- mutants (test rules S-D): a critic's mutation probes, shape and joins
+# only. Error direction: may FALSE-PASS a fabricated kill (the transcript
+# count of check 50 (b) is the guard for that), must NEVER false-refuse.
+# The cap 3 is data here; its rule is .claude/agents/critic.md rule 21.
+MUTANT_CAP = 3
+_MUTANT_OUTCOMES = ("killed", "survived", "invalid", "restore-mismatch")
+_MUTANT_LIMITS = {"place": 300, "change": 300, "run": 500}
+_KILLED_BY_MAX = 300
+_FLAG_RE = re.compile(r"--(test|target)\s+(?:\"([^\"]*)\"|'([^']*)'|(\S+))")
+_WORD_RE = re.compile(r"\w")
+_PREDATES = (
+    "missing required field: mutants (a verdict written before this field "
+    "existed is accepted only with the reason \"verdict predates a required "
+    "field (mutants)\" where its acceptance is recorded: "
+    ".claude/agents/critic.md rule 17)"
+)
+
+
+def _flag_values(run, flag):
+    values = []
+    for m in _FLAG_RE.finditer(run):
+        if m.group(1) == flag:
+            values.append(next(g for g in m.groups()[1:] if g is not None))
+    return values
+
+
+def _first_word(entry):
+    parts = entry.split()
+    return parts[0].rstrip(":") if parts else ""
+
+
+def _resolve_remark(remark, entries):
+    """Entries of blockers + fixes whose first word is the remark's."""
+    key = remark.strip().rstrip(":")
+    if not key:
+        return []
+    return [e for e in entries if _first_word(e) == key]
+
+
+def _one_mutant(i, m, obj, entries, reruns, seen_runs, tests):
+    """Errors of mutants[i]; appends its --test values to tests (S-D-2 split)."""
+    errors = []
+    tag = "mutant %d" % i
+    if not isinstance(m, dict):
+        errors.append("field 'mutants[%d]' must be an object" % i)
+        return errors
+    bad = False
+    for name, cap in _MUTANT_LIMITS.items():
+        v = m.get(name)
+        if not isinstance(v, str) or not (1 <= len(v) <= cap):
+            errors.append(
+                "%s: field '%s' must be a string of 1-%d characters" % (tag, name, cap)
+            )
+            bad = True
+    outcome = m.get("outcome")
+    if outcome not in _MUTANT_OUTCOMES:
+        errors.append(
+            "%s: field 'outcome' invalid: expected one of killed, survived, "
+            "invalid, restore-mismatch" % tag
+        )
+        bad = True
+    kb = m.get("killed_by")
+    if outcome == "killed":
+        if not isinstance(kb, str) or not (1 <= len(kb) <= _KILLED_BY_MAX):
+            errors.append(
+                "%s: outcome killed needs 'killed_by', a string of 1-300 characters" % tag
+            )
+    elif kb is not None:
+        errors.append("%s: 'killed_by' must be absent or null unless outcome is killed" % tag)
+    if bad:
+        return errors
+
+    run = m["run"]
+    if run in seen_runs:
+        errors.append("%s: run repeats another mutant's run" % tag)
+    seen_runs.add(run)
+    if "mutate_once.py" not in run:
+        errors.append("%s: run does not contain mutate_once.py" % tag)
+    joined = [r for r in reruns if r["command"] == run]
+    if not joined:
+        errors.append("%s: run equals no trail.reruns command" % tag)
+    elif not any(("outcome: %s" % outcome) in r["result"] for r in joined):
+        errors.append(
+            "%s: the joined rerun result lacks 'outcome: %s'" % (tag, outcome)
+        )
+    tvals = _flag_values(run, "test")
+    if not tvals:
+        errors.append("%s: run names no --test" % tag)
+    tests.extend(tvals)
+
+    if outcome == "survived":
+        errors.extend(_survivor_errors(m, tag, entries))
+    elif outcome == "restore-mismatch":
+        errors.extend(_restore_errors(m, tag, run, obj, entries))
+    return errors
+
+
+def _survivor_errors(m, tag, entries):
+    errors = []
+    eq = m.get("equivalent")
+    rk = m.get("remark")
+    has_eq = isinstance(eq, str) and bool(_WORD_RE.search(eq))
+    has_rk = isinstance(rk, str) and bool(rk.strip())
+    if has_eq == has_rk:
+        errors.append(
+            "%s: outcome survived needs exactly one of 'equivalent' or 'remark'" % tag
+        )
+    elif has_rk:
+        hits = _resolve_remark(rk, entries)
+        if not hits:
+            errors.append(
+                "%s: remark names no blockers or fixes entry (its first word)" % tag
+            )
+        elif len(hits) > 1:
+            errors.append("%s: remark names 2 or more entries" % tag)
+    return errors
+
+
+def _restore_errors(m, tag, run, obj, entries):
+    errors = []
+    rk = m.get("remark")
+    hits = _resolve_remark(rk, entries) if isinstance(rk, str) else []
+    targets = _flag_values(run, "target")
+    ok = (
+        obj.get("verdict") != "fit"
+        and len(hits) == 1
+        and "show HEAD:" in hits[0]
+        and any(t and t in hits[0] for t in targets)
+    )
+    if not ok:
+        errors.append(
+            "%s: outcome restore-mismatch needs a verdict other than fit and "
+            "a fix entry, named by remark, stating the target and the restore "
+            "door \"git -C <tree> show HEAD:<path> > <tree>/<path>\" "
+            "(.claude/agents/critic.md rule 21)" % tag
+        )
+    return errors
+
+
+def _mutant_errors(obj):
+    errors = []
+    if "mutants" not in obj:
+        return [_PREDATES]
+    mutants = obj.get("mutants")
+    if not isinstance(mutants, list):
+        return ["field 'mutants' must be an array"]
+    none = obj.get("mutants_none")
+    if not mutants:
+        if not (isinstance(none, str) and _WORD_RE.search(none)):
+            errors.append(
+                "field 'mutants' is empty: 'mutants_none' with a reason is required"
+            )
+        return errors
+    if none is not None:
+        errors.append("field 'mutants_none' must be absent when 'mutants' is non-empty")
+    if len(mutants) > MUTANT_CAP:
+        errors.append(
+            "field 'mutants' has %d items: at most %d (the cap of "
+            ".claude/agents/critic.md rule 21)" % (len(mutants), MUTANT_CAP)
+        )
+
+    entries = []
+    for key in ("blockers", "fixes"):
+        val = obj.get(key)
+        if isinstance(val, list):
+            entries.extend(e for e in val if isinstance(e, str))
+    reruns = []
+    trail = obj.get("trail")
+    if isinstance(trail, dict) and isinstance(trail.get("reruns"), list):
+        reruns = [
+            r for r in trail["reruns"]
+            if isinstance(r, dict)
+            and isinstance(r.get("command"), str)
+            and isinstance(r.get("result"), str)
+        ]
+
+    seen_runs = set()
+    tests = []
+    for i, m in enumerate(mutants):
+        errors.extend(_one_mutant(i, m, obj, entries, reruns, seen_runs, tests))
+    for t in dict.fromkeys(tests):
+        if not any(
+            "mutate_once.py" not in r["command"] and t in r["command"] for r in reruns
+        ):
+            errors.append(
+                "green control missing: no rerun without mutate_once.py names the --test value of a mutant"
+            )
+            break
+    return errors
+
+
 def validate_verdict(obj):
     """Return a list of ASCII violation strings; empty list means valid."""
     errors = []
@@ -166,6 +357,7 @@ def validate_verdict(obj):
         if not _is_str_list(obj.get("fixes")):
             errors.append("field 'fixes' must be an array of strings")
 
+    errors.extend(_mutant_errors(obj))
     return errors
 
 

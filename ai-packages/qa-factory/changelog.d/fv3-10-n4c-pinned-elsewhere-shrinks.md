@@ -1,0 +1,1 @@
+- The question-key census in the conductor doors test now counts the keys the dry story drives as driven, and eight pins (`code_close.*`, `s5.nobody_*`, `s6.walk_*`, `s6.data_change`) left `PINNED_ELSEWHERE`.

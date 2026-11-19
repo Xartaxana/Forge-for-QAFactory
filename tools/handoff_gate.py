@@ -5,7 +5,10 @@ docs/tasks/specs/t-744-f5-1-handback-carrier.md section 3.1, decisions F-1 B, F-
 WHY. A critic or a designer hands its whole report back as a file it writes itself (the file at
 `handoff:` is what the coordinator reads at acceptance), instead of text the Lead retypes. That gives a
 reading role the Write tool; this hook is the whole protection: it lets such a worker write the one
-path of its dispatch and refuses every other Edit/Write.
+path of its dispatch and refuses every other Edit/Write. Bash is
+not gated here. A critic's one sanctioned Bash write is the probe of .claude/agents/critic.md rule 21 (COORDINATOR.md
+rule 3): ai-packages/qa-factory/scripts/tests/mutate_once.py mutates one file and restores it from a byte copy with a
+sha256 check; any other write by a reading role, by any tool, stays outside its rules.
 
 WHO IS GATED. GATED_KINDS = critic, designer (the worker's kind is the sidecar meta's `agentType`,
 transcripts.agent_type). Never gated: the main session (no `agent_id` in the payload), builder (writes its

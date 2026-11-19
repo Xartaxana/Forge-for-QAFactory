@@ -107,8 +107,10 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    `tests-over:` is the Lead's word (`wave.py merge --tests-over`), you
    never write it. A dispatch that names more rows than the budget can
    hold is returned as a question before work starts. A new case
-   is a row of an existing scenario, table or junction, not a new file
-   (the one exception: «Бюджет / Файлы»).
+   is a row of an existing scenario, table or junction by default; a new test
+   file is written only where the DoD's `test:` line places it (docs/TESTING.md «Бюджет / Файлы»; a package file gets
+   its keep row). The expected value of a test and the red-before run of a defect row: TESTING.md «Откуда берётся
+   ожидаемое значение», «Тест может упасть».
 9. Runs, cheaply. While working, run at most the changed module's test file, and not after every edit; the
    witness is CLAUDE.md § Worker duties' one run, of the `docs/TESTING.md` «Что запускать по своей правке» scope, repeated once only if code changed after it
    (the owner, 30.09.2026). Run a test synchronously when you can; a polling wait

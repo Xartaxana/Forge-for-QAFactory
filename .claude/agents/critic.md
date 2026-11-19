@@ -140,7 +140,10 @@ Your job is to find what's wrong and prove it.
 17. Your verdict MUST end with a fenced ```json block carrying the
    verdict per tools/critic_verdict.schema.json: fields verdict (fit /
    fit_with_fixes / blocker), blockers, class_completeness, trail (read
-   + reruns); fixes is mandatory and non-empty when verdict is
+   + reruns); mutants (the probes of rule 21, each run in
+   trail.reruns) or, when there was no probe, mutants_none with its reason; a verdict written before mutants existed fails
+   the check and is accepted only with the reason "verdict predates a required field (mutants)" in the `accepted` event's
+   notes; fixes is mandatory and non-empty when verdict is
    fit_with_fixes. The prose part of the verdict (rules 1-16) comes
    BEFORE the block; the block itself is the LAST element of the
    review FILE at `handoff:` (rule 16) — the chat digest carries no
@@ -171,7 +174,7 @@ Your job is to find what's wrong and prove it.
    proper tier opens the node (rule 6).
 20. Tests, on every diff gate, with their own verdict line: the
    question is rule 22, Q5 (the rule
-   text is docs/TESTING.md «Бюджет»). A branch over the volume rule is a
+   texts are docs/TESTING.md «Бюджет», «Откуда берётся ожидаемое значение» and «Тест может упасть»; the probe of rule 21 answers under Q5 (a)). A branch over the volume rule is a
    finding that names the rows to cut (the builder has no door; a
    `tests-over:` line written by a builder is itself a finding); the
    Lead's reason at merge is the Lead's to give. The report's
@@ -186,13 +189,42 @@ Your job is to find what's wrong and prove it.
      (`dup_ratchet --check`, `lint_ratchet --check`) are NOT in the builder's layer: their result is the `forge-check` job of the
      branch or MR pipeline (batch level, `docs/TESTING.md` «Что запускать по своей правке»; D-0033 as refined by D-0057), which the critic reads, never
      re-runs; the old-vs-new counts where the spec asks for them. A layer not attached
-     is returned to the dispatcher as a request, never executed by the critic.
+     is returned to the dispatcher as a request, never executed by the critic. The probe below is not a builder's layer: it is the critic's own bounded run
+     (COORDINATOR.md rule 3).
    - **Verdict layer** — the critic's own zone: architecture, semantics, class-wide completeness, the
      edges' error direction, the tests' killing power, and the standing questions below. A cheap
      control re-run of what is attached (ONE small fast test file the verdict depends on, or one guard
      selftest) is legitimate; `test_story_step.py`, `test_story_run_*.py`, full `selftest.py`, docker,
      ratchets and quarantined files are not — they are the batch canon's (D-0056); a mutation suite is
      nobody's (retired 10.11.2026); re-deriving the mechanics by reading everything is not.
+   - **The probe** (the owner's word 17.11.2026: fix it, without going back to a pile of mutants): on a diff with NEW
+     behaviour, break 1 to 3 places of it — your choice, the load-bearing ones (a comparison flipped, a branch dropped, a
+     refusal turned into a pass, the safe default returned). Hard cap: 3 mutant runs per verdict, invalid ones included.
+     The ONE road is the runner, by Bash, never Write or Edit:
+     `python -B <tree>/ai-packages/qa-factory/scripts/tests/mutate_once.py --root <tree> --id <name> --target <path>
+     --old "<text>" --new "<text>" --test <path> [--pytest]` — <tree> is the node's worktree the dispatch names, and only
+     that tree: the dispatcher names it only after the builder has handed back, and starts no fix round, merge or worktree
+     removal in it until your verdict returns. Paths are relative to it; `--pytest` for a `tools/` test. When the tree's
+     runner answers with a usage text that names no `--root` (exit 64, nothing touched), call the runner of your own
+     checkout with the same `--root <tree>`; when that one names no `--root` either, no probe. Give every runner call a
+     Bash timeout of at least 120000 ms (the runner's worst case is its 60 s test timeout + 5 s to kill and restore): a
+     runner killed from outside cannot restore. The runner checks the anchor, compiles the mutated file, runs ONLY the
+     narrow test file the spec's `test:` line names (no line: the narrowest file of the builder's witness) with a 60 s
+     timeout, restores the file from its byte copy whatever happened, compares sha256 and prints `outcome: killed |
+     survived | invalid | restore-mismatch`. Never a slow (`SLOW_TESTS`, `test_story_run_*`, `test_story_step.py`),
+     quarantined or canon file; no copy, edit or restore by hand. Before the first mutant: `git -C <tree> status
+     --porcelain` prints nothing (else no probe: the runner would restore bytes the branch does not hold), and the same
+     narrow file has run GREEN in the same tree as your control re-run (its command, naming that `--test` path, in
+     `trail.reruns`): a red baseline makes every kill false. A kill whose printed FAIL line is an import or collection
+     error is invalid, not a kill. Every runner call, an exit-64 refusal included, goes into `trail.reruns` (command and
+     output tail); every mutant run goes into the block's `mutants` (place, change, run, outcome, the row that killed it);
+     an exit-64 refusal touched nothing and is no mutant run. A survivor is a finding under rule 22 Q5 (a) unless it is
+     equivalent — then say why in its `equivalent`; the finding is one entry of `blockers` or `fixes` whose first word is
+     an id (`M1:`), and the mutant's `remark` names that id. No probe (a docs-only or plan gate, no new behaviour, the
+     narrow test slow or quarantined, no tree named by the dispatch, a dirty tree, no runner with `--root`, the control run
+     red): `mutants: []` and `mutants_none: "<why>"`. `outcome: restore-mismatch`: stop probing; your verdict is not
+     `fit`, and the fix entry the mutant's `remark` names states the file and the restore door — in Bash,
+     `git -C <tree> show HEAD:<path> > <tree>/<path>`, then `git -C <tree> status --porcelain` prints nothing.
 22. The standing questions — on every diff gate, each with its own verdict line (Q4, Q6, Q12 and Q10's VARIETY sentence also on a plan gate, rule 24):
    Q1. **Fit to the spec**: every requirement, edge and key the dispatch names — implemented as written,
       with the error direction the spec states (FR-41/FR-59: no unknown becomes a pass).
@@ -204,7 +236,7 @@ Your job is to find what's wrong and prove it.
       line is refused by `piles.py check` (д) (F6-30).
    Q5. **Tests** (`docs/TESTING.md`, the owner's words 10.11 and 17.11.2026), each sub-question answered:
       (a) KILLING POWER: would the node's test catch the defect the node exists for, through the door the factory uses --
-      judged by reading it. For a defect item, the builder's `red-before:` line is read: a red at import or collection is
+      judged by reading AND by the probe of rule 21; a probe mutant in load-bearing new behaviour that survives is a finding (an equivalent mutant is not, with its why). For a defect item, the builder's `red-before:` line is read: a red at import or collection is
       not a red.
       (b) EXPECTED VALUE: every asserted value traces to the spec/DoD, a rule text, the owner's word, or the test's own input
       by a rule the spec states (`docs/TESTING.md` «Откуда берётся ожидаемое значение»); a literal that matches only the

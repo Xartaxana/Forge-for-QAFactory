@@ -79,8 +79,8 @@ coordinator's rules are not here: the SessionStart line `COORDINATOR RULES:` nam
    | R11 | when | duty |
    |---|---|---|
    | m | a WRITING dispatch's "given" manifest | executed as a MARKED declaration: an inline enumeration, OR a pointer to a persisted spec that itself carries the enumeration, ONE hop away — no marker, no manifest; `owns` itself is always given INLINE, never by pointer |
-   | f | a dispatch to builder, or any dispatch whose `owns:` holds an absolute path (D-0022) | carries its manifest as HEADER LINES outside fences and quotes: `given:`, `owns:` (absolute paths, on that line or right under it, no blank line, no heading marks; a path with spaces in backticks), `non-goals:`, `handoff:`, `edges:`, `DoD:` (the verification command in backticks), `siblings:` (entries, or `none -- <why>`) and, over COORDINATOR.md rule 2's threshold, `designer:` (the accepted draft's absolute path, `skip -- <reason>`, or `resubmission <task_id>`) and `test:` (`<where> | expected from: <source>`, or `none -- <why>`); `python -B tools/dispatch_new.py` prints these lines checked (never typed by hand); `tools/dispatch_manifest.py` refuses a dispatch without them and names what is missing; the informed pass is a line `manifest-skip: <item>[, <item>] -- <reason>` |
-   | h | critic/designer dispatch | report path on `handoff:`, never `owns:`; `tools/dispatch_gate.py` refuses a dispatch whose `handoff:` names no single `.md` file in the role's folder; `tools/handoff_gate.py` lets it write only that file; a designer dispatch also carries `facts:` (COORDINATOR.md rule 2) |
+   | f | a dispatch to builder, or any dispatch whose `owns:` holds an absolute path (D-0022) | carries its manifest as HEADER LINES outside fences and quotes: `given:`, `owns:` (absolute paths, on that line or right under it, no blank line, no heading marks; a path with spaces in backticks), `non-goals:`, `handoff:`, `edges:`, `DoD:` (the verification command in backticks), `siblings:` (entries, or `none -- <why>`) and, over COORDINATOR.md rule 2's threshold, `designer:` (the accepted draft's absolute path, `skip -- <reason>`, or `resubmission <task_id>`) and, for a builder, `test:` (`<where> | expected from: <source>`, or `none -- <why>`); `python -B tools/dispatch_new.py` prints these lines checked (never typed by hand); `tools/dispatch_manifest.py` refuses a dispatch without them and names what is missing; the informed pass is a line `manifest-skip: <item>[, <item>] -- <reason>` |
+   | h | critic/designer dispatch | report path on `handoff:`, never `owns:`; `tools/dispatch_gate.py` refuses a dispatch whose `handoff:` names no single `.md` file in the role's folder; `tools/handoff_gate.py` lets it write only that file; a critic's probe (`.claude/agents/critic.md` rule 21) is no write of its own: the runner restores the file from a byte copy; a designer dispatch also carries `facts:` (COORDINATOR.md rule 2) |
 
 ## Command hygiene (permission hygiene)
 
@@ -92,12 +92,11 @@ child shell, a byte copy (`cp`/`Copy-Item`) and its restore.
    the narrow target the work needs; the full sets run on CI, never on this machine (PROJECT.md, package change p. 2);
    the canonical form of a tool = its correctly invoked form, the invocation that finds a known sample.
 2. The proxy server — not used in this deployment: the contour is subscription and nothing in gateway/ is run.
-3. The shell's working directory never moves (`cd`, `Set-Location`): refused.
-- **Рабочий каталог шелла не меняется никогда** — ни `cd` в Bash, ни `Set-Location, Push-Location` и `cd` в PowerShell, даже
-  «внутри одной команды» (каталог PowerShell переживает вызовы). Хуки запускают `python tools/...` относительно cwd: после смены
-  они не находят `tools/*.py`, блокируются ВСЕ инструменты, и сессия сама себя не вернёт.
-  Вместо этого — `git -C <каталог>`, `python -B <абсолютный путь>`, флаги `--repo`/`--root`; тесты пакета, которым нужен каталог
-  пакета как cwd, идут у билдера в его worktree. Хук «не нашёл tools/x.py» — стоп и сброс папки сессии на корень.
+3. The shell's working directory never moves (`cd`, `Set-Location`, `Push-Location`), not even inside one command (the
+PowerShell location outlives the call): refused; the Bash `( cd <dir> && ... )` subshell is the door. Hooks run
+`python tools/...` relative to the cwd: after a move they find no `tools/*.py` and EVERY tool is blocked. Package tests
+that need the package as cwd run in the builder's worktree. A hook that "cannot find" its tools/ script -> stop and reset the
+session folder to the root.
 
 4. File edits — by any tool (the owner's word 16.11.2026: the Edit/Write-only rule is retired); a worker still writes
    only inside its `owns`, judged by the diff at acceptance.

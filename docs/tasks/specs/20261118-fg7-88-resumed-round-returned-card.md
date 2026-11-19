@@ -328,3 +328,16 @@ Needed beyond the manifest: `.claude/settings.json`, `tools/transcripts.py`, `to
 - F1 (a), conditional on L0: the L0 probe edits .claude/settings.json for a few minutes, so it waits for the owner's word; if PostToolUse does not fire for SendMessage, F1 returns to the Lead.
 - F2 (a) one `returned` per round; F3 (b); F4 (a); F5 (a); F6 (b); F7 card A then card B; F8 (b) after card A.
 - Card A is not dispatched before L0.
+
+## L0 result (measured by the Lead 18.11 ~15:55, owner's word «разрешаю»)
+
+Byte copy of `.claude/settings.json` taken (sha256 204ef9f4...ebc85), a PostToolUse `SendMessage` entry and a second
+SubagentStop entry added for a few minutes, both writing stdin to a scratch file; restored from the copy, sha256 equal.
+- X1 MEASURED yes: PostToolUse fires for SendMessage; the payload holds `tool_input.to` (the resumed agent's id),
+  `session_id`, `cwd`, `tool_response`, `tool_use_id`, and no `agent_id` on a Lead call.
+- X2 MEASURED yes: one scout stopped twice (first round, then after a SendMessage resume): two SubagentStop payloads with
+  the same `agent_id`.
+- X3 NOT measured (the matcher was SendMessage only, the scout sent none).
+- Side fact: settings.json is shared by every session in this checkout -- another live session's SendMessage and stops
+  were captured too (its own `session_id`); a producer must key on `session_id`.
+F1 (a) has its producer; card A may be dispatched.

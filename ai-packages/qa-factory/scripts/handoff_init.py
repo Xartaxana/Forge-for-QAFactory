@@ -183,11 +183,15 @@ def fill_head(text: str, *, task: str, dispatch: str, role: str, stage: str, sco
 def empty_optional_lists(text: str, contract: str) -> str:
     """The role's copy with every optional top-level list section of this contract that still holds only template rows
     written as `<section>: []` followed by the sample rows as comment lines (F1 (b), B-11: a reader never meets a template row as
-    data). Never touched: a `REQUIRED_LISTS` section, a `null_outcome` section, a section holding any real value (a carried or
-    prefilled row). Runs LAST, after the carry and the prefill. A text that cannot be read is returned as it was."""
+    data). Never touched: a `REQUIRED_LISTS` section that no `null_outcome` declares, a declared section whose condition opens rows
+    (`null_outcomes.CONDITIONS[..].opens_rows`: the triage's `scope`), a section holding any real value (a carried or prefilled row). A
+    declared list whose condition reads the form (`sibling_in`: `rounds`) is an ordinary optional list here. Runs LAST, after the carry and the prefill. A text that cannot be read is returned as it was."""
     try:                                                    # one uniform rule (critic t-1257 Q12), no contract named here
         nulled = handoff.null_outcomes(contract)
-        wanted = [p for p in handoff.list_paths(contract) if "." not in p and p not in handoff.REQUIRED_LISTS and p not in nulled]
+        import null_outcomes as NO
+        held = {p for p in handoff.REQUIRED_LISTS if p not in nulled}
+        held |= {p for p, entry in nulled.items() if getattr(NO.CONDITIONS.get(entry.get("condition")), "opens_rows", True)}
+        wanted = [p for p in handoff.list_paths(contract) if "." not in p and p not in held]
         if not wanted:
             return text
         doc = handoff.parse(text)
