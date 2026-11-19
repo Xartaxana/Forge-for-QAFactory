@@ -57,6 +57,8 @@ def _base_fit():
                 }
             ],
         },
+        "mutants": [],
+        "mutants_none": "no new behaviour: fixture",
     }
 
 
@@ -530,3 +532,88 @@ def test_stdin_deadline_quick_close_before_deadline_still_valid():
     assert proc.returncode == 0
     assert out.decode("utf-8").strip().startswith("VERDICT OK:")
     assert err == b""
+
+
+# ---------------------------------------------------------------------------
+# mutants (test rules S-D): one table, one parametrised test. Each row edits a
+# valid base verdict and names the diagnostic fragment it must draw (None =
+# must pass: the checker may false-pass a fabricated kill, never false-refuse).
+# ---------------------------------------------------------------------------
+
+_T = "tools/test_x.py"
+_MR = "python -B mutate_once.py --test %s --target tools/x.py --old a --new b"
+
+
+def _mut(n=1, outcome="killed", **extra):
+    run = _MR % _T + " --id %d" % n
+    m = {"place": "x.py:1", "change": "a to b", "run": run, "outcome": outcome}
+    if outcome == "killed":
+        m["killed_by"] = "test_x::case"
+    m.update(extra)
+    return m
+
+
+def _mv(*mutants, fixes=("M1: add a test", "F2 restore: git -C t show HEAD:tools/x.py > t/tools/x.py"), **top):
+    obj = _base_fit_with_fixes()
+    obj["fixes"] = list(fixes)
+    obj["trail"]["reruns"] = [
+        {"command": "python -m pytest %s -q" % _T, "result": "1 passed"}
+    ] + [
+        {"command": m["run"], "result": "outcome: %s" % m["outcome"]} for m in mutants
+    ]
+    obj["mutants"] = list(mutants)
+    del obj["mutants_none"]
+    obj.update(top)
+    return obj
+
+
+def _edit(fn, *mutants, **top):
+    obj = _mv(*mutants, **top)
+    fn(obj)
+    return obj
+
+
+def _set(**kw):
+    return lambda o: o["mutants"][0].update(kw)
+
+
+MUTANT_ROWS = [
+    ("killed passes", _mv(_mut()), None),
+    ("killed_by null off killed", _mv(_mut(outcome="invalid", killed_by=None)), None),
+    ("quoted --test", _edit(lambda o: None, _mut(run="python -B mutate_once.py --test '%s' --old \"a b\"" % _T)), None),
+    ("survived first-word link", _mv(_mut(outcome="survived", remark="M1:")), None),
+    ("survived dash entry", _mv(_mut(outcome="survived", remark="M1"), fixes=("M1 — add", "F2")), None),
+    ("survived equivalent", _mv(_mut(outcome="survived", equivalent="dead branch")), None),
+    ("restore-mismatch linked", _mv(_mut(outcome="restore-mismatch", remark="F2")), None),
+    ("restore-mismatch in blocker", _edit(lambda o: o.update(verdict="blocker", blockers=["B1 show HEAD:tools/x.py"]), _mut(outcome="restore-mismatch", remark="B1")), None),
+    ("empty with reason", dict(_base_fit(), mutants_none="none apply"), None),
+    ("four probes", _mv(*[_mut(i) for i in range(4)]), "at most 3"),
+    ("survivor neither", _mv(_mut(outcome="survived")), "exactly one of"),
+    ("survivor both", _mv(_mut(outcome="survived", remark="M1", equivalent="x y")), "exactly one of"),
+    ("remark matches none", _mv(_mut(outcome="survived", remark="Z9")), "names no blockers or fixes"),
+    ("remark matches two", _mv(_mut(outcome="survived", remark="M1"), fixes=("M1 a", "M1: b")), "2 or more"),
+    ("killed without killed_by", _edit(lambda o: o["mutants"][0].pop("killed_by"), _mut()), "killed_by"),
+    ("two mutants one run", _mv(_mut(1), _mut(1)), "repeats"),
+    ("run without mutate_once", _mv(_mut(run="python -m pytest %s --test %s" % (_T, _T))), "mutate_once.py"),
+    ("result lacks outcome", _edit(lambda o: o["trail"]["reruns"][1].update(result="ok"), _mut()), "lacks 'outcome: killed'"),
+    ("run not in reruns", _edit(lambda o: o["trail"]["reruns"].pop(1), _mut()), "equals no trail.reruns"),
+    ("no --test", _mv(_mut(run="python -B mutate_once.py --target t")), "names no --test"),
+    ("no control", _edit(lambda o: o["trail"]["reruns"].pop(0), _mut()), "green control"),
+    ("control on another file", _edit(lambda o: o["trail"]["reruns"][0].update(command="pytest tools/other.py"), _mut()), "green control"),
+    ("empty without reason", {k: v for k, v in _base_fit().items() if k != "mutants_none"}, "mutants_none"),
+    ("reason with probes", _mv(_mut(), mutants_none="why"), "mutants_none"),
+    ("restore-mismatch in fit", _edit(lambda o: o.update(verdict="fit", blockers=[]), _mut(outcome="restore-mismatch", remark="F2")), "restore-mismatch"),
+    ("restore-mismatch no door", _mv(_mut(outcome="restore-mismatch", remark="F2"), fixes=("M1 x", "F2 restore tools/x.py by hand")), "restore door"),
+    ("restore-mismatch no target", _mv(_mut(outcome="restore-mismatch", remark="F2"), fixes=("M1 x", "F2 show HEAD:other")), "restore door"),
+    ("old verdict line", _edit(lambda o: o.pop("mutants")), "verdict predates a required field (mutants)"),
+]
+
+
+@pytest.mark.parametrize("obj,expected", [r[1:] for r in MUTANT_ROWS], ids=[r[0] for r in MUTANT_ROWS])
+def test_mutants_rows(obj, expected):
+    ok, errors, _ = cvc.check_text(_wrap(obj))
+    if expected is None:
+        assert ok, errors
+    else:
+        assert not ok and any(expected in e for e in errors), errors
+    assert all(e.isascii() for e in errors)

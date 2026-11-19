@@ -4,7 +4,7 @@
   "title": "Critic verdict",
   "description": "Machine-checkable structure for a critic (Opus) review verdict. Emitted as the last fenced ```json block in the critic's final message (see .claude/agents/critic.md, the final rule). Validated by a critic_verdict_check.py script wired at the deploying host's own acceptance point (rules are hardcoded there; this file is the reference schema).",
   "type": "object",
-  "required": ["verdict", "blockers", "class_completeness", "trail"],
+  "required": ["verdict", "blockers", "class_completeness", "trail", "mutants"],
   "additionalProperties": true,
   "properties": {
     "verdict": {
@@ -48,6 +48,30 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "Required and non-empty when verdict is fit_with_fixes; optional otherwise."
+    },
+    "mutants": {
+      "type": "array",
+      "maxItems": 3,
+      "description": "Mutation probes (cap 3, critic.md rule 21). Each run equals a trail.reruns command containing mutate_once.py; the joined result contains 'outcome: <outcome>'; runs are pairwise distinct; each distinct --test value needs a rerun without mutate_once.py naming it. survived: exactly one of equivalent or remark (first word of exactly one blockers/fixes entry). restore-mismatch: verdict other than fit and a remark naming an entry with the --target value and 'show HEAD:'. Cross-field joins are enforced in critic_verdict_check.py only.",
+      "items": {
+        "type": "object",
+        "required": ["place", "change", "run", "outcome"],
+        "properties": {
+          "place": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "change": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "run": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "outcome": { "enum": ["killed", "survived", "invalid", "restore-mismatch"] },
+          "killed_by": { "type": ["string", "null"], "minLength": 1, "maxLength": 300 },
+          "equivalent": { "type": "string" },
+          "remark": { "type": "string" }
+        },
+        "if": { "properties": { "outcome": { "const": "killed" } } },
+        "then": { "required": ["killed_by"], "properties": { "killed_by": { "type": "string" } } }
+      }
+    },
+    "mutants_none": {
+      "type": "string",
+      "description": "Reason (a word character) required when mutants is empty; absent otherwise."
     }
   },
   "allOf": [
