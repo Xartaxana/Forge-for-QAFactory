@@ -1994,6 +1994,7 @@ def main() -> None:
     tbw_t4a_sites()
     tbw_t4b_sites()
     tbw_siting_command_sites()
+    tbw_t1rc_site_sites()
     finish("test_detector_verdict")
 
 
@@ -2299,6 +2300,69 @@ def tbw_t4b_sites(sg=None, capture: bool = False):
         else:
             os.environ["CLAUDE_PROJECT_DIR"] = saved_env
         hooklib._PROJECT_ROOT_CACHE = saved_cache
+        cleanup(root)
+
+
+def tbw_t1rc_site_sites() -> None:
+    """told-before-work TBW-T1rc-site: the six ids the T1r-cards rows added (`unsited` -6), one row each, the REAL function provoked. `old` is
+    what the OLD file printed (EC-1: a literal, or the sha256[:16] of a long text, captured over a byte copy of the six files); a Record
+    carries the row (`check`, `expected`); a finding of s5_precheck keeps its keys and ends with `told` (EC-6). Last: the door of the
+    rename refusal, for a role with a shell (today's text) and one without (the digest door)."""
+    import hashlib
+    from unittest import mock
+    import artifact_producer as AP
+    import estimate_record as ER
+    import gate_preflight as GP
+    import source_preflight as SP
+    import stage_joints as SJ
+    import test_handoff_values_main_block as HV
+    import test_question_branches as QB
+    import test_s5_precheck_sides as S5
+    from harness import use_project
+    sixteen = lambda text: hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]   # noqa: E731
+    root = temp_project("tbw-t1rc-")
+    try:
+        use_project(root)
+        task = QB.story("tbw-t1rc-qb-", plan=QB.BAD_PLAN, questions=[QB.register("Q1")], cases={
+            "TC-001": QB.case_text("TC-001", json.dumps([QB.qt("Q1", 1, {"a": "200"})]))})[1]
+        with mock.patch.object(GP.Rehearsal, "add", autospec=True) as add:
+            GP.Rehearsal(task, "A").check_question_branches()
+        records = (   # (id, the Records the function made, the old text)
+            ("source_preflight:check_source_inventory", SP.check_source_inventory(root, {"source_inventory_required": True})["errors"],
+             "required work/source-inventory.json is missing"),
+            ("estimate_record:facts_problems", ER.facts_problems({}), "estimate facts forecast must be an object\nestimate facts actual must be an object"),
+            ("artifact_producer:validate", [e for e in AP.validate("triage", {"triage": [{}]}) if e.startswith("triage[0]: instance_id")],
+             "triage[0]: instance_id and attempt_id required (missing: instance_id, attempt_id)"),
+            ("gate_preflight:question_branches", [c.args[3] for c in add.call_args_list], "6961288ad83f1734"))
+        for cid, got, old in records:
+            text = "\n".join(got)
+            check_eq(f"t1rc {cid}: the old text", text if old.count(" ") else sixteen(text), old)
+            check_eq(f"t1rc {cid}: every item is a Record of the row, with its sentence",
+                     {(isinstance(m, DV.Record), getattr(m, "check", None), getattr(m, "expected", None)) for m in got}, {(True, cid, SJ.told_text(SJ.row_for(cid)[0])[0])})
+        pending = {"case": "TC-1", "reason": "pending_implementation", "instance_ids": ["test_a"]}
+        real = {"sides": {"ui": {"reality": "real"}, "backend": {"reality": "real"}}}
+        found = (("s5_precheck:sides.provisional", S5.found(S5.story(root, {"tests": [S5.row(sides={"backend": "substituted"})],
+                                                                          "provisional": [S5.prov(kind="made_up")]}), S5.sides_of(ui="real", backend="substituted")), "4dae0129d5649ae2"),
+                 ("s5_precheck:sides.pending", S5.found(S5.story(root, {"tests": [S5.row(sides={"ui": "real"})], "unresolved": [pending]}, real),
+                                                       S5.sides_of(ui="real", backend="real")), "d52022a0aa35b627"))
+        for cid, out, old in found:
+            check_eq(f"t1rc {cid}: one finding, the old message, the old keys, `told` last and the row's",
+                     [(sixteen(f["message"]), list(f), f["told"][0]["check"]) for f in out], [(old, S5.BASE + ["told"], cid)])
+    finally:
+        cleanup(root)
+    # the rename refusal: a shell role is told to delete the file (as always), a role with none to say so in its digest
+    root = temp_project("tbw-t1rc-door-")
+    try:
+        art = HV._story(root)
+        form = HV._form(art)
+        sibling = HV.H.sibling_values(form)
+        sibling.write_text("scope[0].id: R-1\n", encoding="utf-8")
+        for tools, fix in ((("Read", "Bash"), f"delete {sibling.name}"),
+                           (("Read",), f"say in your digest that `{sibling.name}` could not be renamed; the orchestrator removes it")):
+            with mock.patch.object(HV.H.os, "replace", side_effect=OSError("locked")), mock.patch.object(HV.H.host_adapter, "role_tools", return_value=tools):
+                out = json.loads(HV._main_inproc(["--file", str(form), "--task-root", str(art), "--no-judge", "--fix", "--json"])[1])
+            check_eq(f"t1rc values_rename: the door of a role with {tools}", [p["fix"] for p in out["problems"] if p["path"] == sibling.name], [fix])
+    finally:
         cleanup(root)
 
 
