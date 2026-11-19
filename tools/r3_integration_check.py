@@ -203,7 +203,7 @@ def find_critic_trail(
     [window_start, window_end] (both bounds inclusive; window_start=
     None means the lower bound is unbounded). A match is any of:
         - event == "delegated" and agent == "critic"
-        - event == "accepted" and basis == "critic"
+        - event == "accepted" and basis == "critic" or `critic:<task id>` (critic_basis)
         - event == "accepted" and a valid (non-anti-trail) "critic:"
           occurrence in notes -- see _find_critic_notes_match
     Timestamps are compared as strings (this journal's own format --

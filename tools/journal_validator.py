@@ -155,7 +155,7 @@ log" section):
     (c) ok_rank: rank(by) > rank(agent) -- legal at any basis (a model ranked above a function's binding may stand in
         during an outage: a higher-ranked acceptor is never refused);
     (d) FLOOR: rank(by) < builder rank -- FAIL, before every remaining basis (no basis rescues it);
-    (e) basis=="critic": legal iff critic rank > rank(agent);
+    (e) basis=="critic" or `critic:<task id>` (critic_basis): legal iff critic rank > rank(agent);
     (f) basis=="queued-to-lead": legal iff agent in {critic, designer} and builder rank <= rank(by) < lead rank;
     (g) anything else -- FAIL with the generic role-vs-tier message.
     WARNs on a line the matrix passed (matrix_warnings; never a FAIL): `queued to itself` (basis queued-to-lead at
@@ -673,7 +673,7 @@ def _matrix_d0058_violation(event: str, agent, by: str, obj: dict, config_text=N
     2) basis == "judge" -- REFUSED on every line, before ok_rank: no acceptor rank makes a judge basis legal;
     3) ok_rank: rank(by) > rank(agent) -- legal at any basis;
     4) FLOOR: rank(by) < builder rank -- FAIL, before every remaining basis: no basis rescues it;
-    5) basis == "critic": legal iff critic rank > rank(agent);
+    5) basis == "critic" or `critic:<task id>` (critic_basis): legal iff critic rank > rank(agent);
     6) basis == "queued-to-lead": agent in QUEUED_TO_LEAD_AGENTS and builder rank <= rank(by) < lead rank;
     7) otherwise -- FAIL with the generic role-vs-tier message."""
     if event != "accepted":
