@@ -46,6 +46,7 @@ import hooklib  # noqa: E402
 import role_cli  # noqa: E402
 import stand_identity as SI  # noqa: E402
 import walk_session as WS  # noqa: E402
+from detector_verdict import Record, refusal  # noqa: E402
 from role_cli import RefusingParser, epilog, run_guarded  # noqa: E402
 
 SCRIPT = "first_look.py"
@@ -310,12 +311,13 @@ def _list_faults(value, where: str) -> list:
 
 
 def _locator_faults(item, where: str) -> list:
+    # told-before-work T3b: one caller (`_path_faults`), so the id may stand here (EC-2); the text of every problem is as it was
     if not isinstance(item, dict):
-        return [f"{where} is a mapping with what, selector and seen"]
-    out = [f"{where}: unknown key `{k}` (allowed: {', '.join(LOCATOR_KEYS)})" for k in item if k not in LOCATOR_KEYS]
-    out += [f"{where}.{k} is the text of what the walker found" for k in ("what", "selector") if not _text_of(item.get(k))]
+        return [refusal("first_look:put.rows.locator", f"{where} is a mapping with what, selector and seen")]
+    out = [refusal("first_look:put.rows.locator", f"{where}: unknown key `{k}` (allowed: {', '.join(LOCATOR_KEYS)})") for k in item if k not in LOCATOR_KEYS]
+    out += [refusal("first_look:put.rows.locator", f"{where}.{k} is the text of what the walker found") for k in ("what", "selector") if not _text_of(item.get(k))]
     if item.get("seen") not in _words("seen"):
-        out.append(f"{where}.seen is one of: {', '.join(_words('seen'))}; got {str(item.get('seen'))[:40]!r}")
+        out.append(refusal("first_look:put.rows.locator", f"{where}.seen is one of: {', '.join(_words('seen'))}; got {str(item.get('seen'))[:40]!r}"))
     return out
 
 
@@ -323,24 +325,24 @@ def _auth_faults(auth, where: str) -> list:
     prefix = str(data().get("auth_account_prefix") or "account:")
     if auth in _words("auth") or (isinstance(auth, str) and auth.startswith(prefix) and auth[len(prefix):].strip()):
         return []
-    return [f"{where}.auth is one of: {', '.join(_words('auth'))}, or {prefix}<role>; got {str(auth)[:40]!r}"]
+    return [refusal("first_look:put.rows.auth", f"{where}.auth is one of: {', '.join(_words('auth'))}, or {prefix}<role>; got {str(auth)[:40]!r}")]
 
 
 def _api_faults(item, where: str) -> list:
     """One route of `path.api`: method, path, auth, seen, and an optional `sample` of what the walker SAW (never what it expects)."""
     if not isinstance(item, dict):
-        return [f"{where} is a mapping with method, path, auth and seen"]
-    out = [f"{where}: unknown key `{k}` (allowed: {', '.join(API_KEYS)})" for k in item if k not in API_KEYS]
-    out += [f"{where}.{k} is the text of the route's {k}" for k in ("method", "path") if not _text_of(item.get(k))]
+        return [refusal("first_look:put.rows.api", f"{where} is a mapping with method, path, auth and seen")]
+    out = [refusal("first_look:put.rows.api", f"{where}: unknown key `{k}` (allowed: {', '.join(API_KEYS)})") for k in item if k not in API_KEYS]
+    out += [refusal("first_look:put.rows.api", f"{where}.{k} is the text of the route's {k}") for k in ("method", "path") if not _text_of(item.get(k))]
     out += _auth_faults(item.get("auth"), where)
     if item.get("seen") not in _words("seen"):
-        out.append(f"{where}.seen is one of: {', '.join(_words('seen'))}; got {str(item.get('seen'))[:40]!r}")
+        out.append(refusal("first_look:put.rows.api", f"{where}.seen is one of: {', '.join(_words('seen'))}; got {str(item.get('seen'))[:40]!r}"))
     sample = item.get("sample")
     if sample not in (None, ""):
         if not isinstance(sample, dict):
-            out.append(f"{where}.sample is a mapping of what the call showed: {', '.join(SAMPLE_KEYS)}")
+            out.append(refusal("first_look:put.rows.api", f"{where}.sample is a mapping of what the call showed: {', '.join(SAMPLE_KEYS)}"))
         else:
-            out += [f"{where}.sample: unknown key `{k}` - a sample is an observation (allowed: {', '.join(SAMPLE_KEYS)})"
+            out += [refusal("first_look:put.rows.api", f"{where}.sample: unknown key `{k}` - a sample is an observation (allowed: {', '.join(SAMPLE_KEYS)})")
                     for k in sample if k not in SAMPLE_KEYS]
     return out
 
@@ -350,18 +352,19 @@ def _path_faults(path, where: str) -> list:
     if path in (None, ""):
         return []
     if not isinstance(path, dict):
-        return [f"{where} is a mapping ({', '.join(PATH_KEYS)})"]
-    out = [f"{where}: unknown key `{k}` (allowed: {', '.join(PATH_KEYS)})" for k in path if k not in PATH_KEYS]
+        return [refusal("first_look:put.rows.path", f"{where} is a mapping ({', '.join(PATH_KEYS)})")]
+    out = [refusal("first_look:put.rows.path", f"{where}: unknown key `{k}` (allowed: {', '.join(PATH_KEYS)})") for k in path if k not in PATH_KEYS]
     if path.get("url") not in (None, "") and not _text_of(path.get("url")):
-        out.append(f"{where}.url is the address as text")
+        out.append(refusal("first_look:put.rows.path", f"{where}.url is the address as text"))
     for key in PATH_LISTS:
-        out += _list_faults(path.get(key), f"{where}.{key}")
+        # `_list_faults` has several callers (`gaps`, `sign_in` keep it bare): the id of a list field of a ROW is put here (EC-2)
+        out += [refusal("first_look:put.rows.list", p) for p in _list_faults(path.get(key), f"{where}.{key}")]
     for key, one in (("locators", _locator_faults), ("api", _api_faults)):
         listed = path.get(key)
         if listed in (None, ""):
             continue
         if not isinstance(listed, list):
-            out.append(f"{where}.{key} is a list (one `- ` mapping each)")
+            out.append(refusal("first_look:put.rows.list", f"{where}.{key} is a list (one `- ` mapping each)"))
             continue
         for n, item in enumerate(listed):
             out += one(item, f"{where}.{key}[{n}]")
@@ -370,7 +373,13 @@ def _path_faults(path, where: str) -> list:
 
 def _row_faults(row, n: int, ids: list, stand: str, walk: str, task_root) -> list:
     """What is wrong with ONE row of the role's record: its words against the closed lists, its requirement against the register, its
-    evidence against the walk (`walk_session.capture_cited`, with the walk's stand). `[]` when it is whole."""
+    evidence against the walk (`walk_session.capture_cited`, with the walk's stand). `[]` when it is whole. Told-before-work T3b: every
+    problem is a Record of `first_look:put.rows.row`, but the ones the `path` builders already carry (rows.path, .api, .auth, .locator, .list)."""
+    return [p if getattr(p, "check", "") else refusal("first_look:put.rows.row", p)
+            for p in _row_problems(row, n, ids, stand, walk, task_root)]
+
+
+def _row_problems(row, n: int, ids: list, stand: str, walk: str, task_root) -> list:
     if not isinstance(row, dict):
         return [f"rows[{n}] is a mapping ({', '.join(ROW_KEYS)})"]
     req = row.get("req")
@@ -696,8 +705,8 @@ def put_problems(task_root, record, attempt) -> list:
            for k in record if k not in TOP_KEYS and k not in SENT_BY_CODE]
     rows = record.get("rows")
     if not isinstance(rows, list) or not rows:
-        out.append("`rows` is one mapping per requirement of the register (" + (", ".join(ids[:12]) or "the register holds none")
-                   + (" - an empty register is `put --null empty_register`" if not ids else "") + ")")
+        out.append(refusal("first_look:put.rows", "`rows` is one mapping per requirement of the register (" + (", ".join(ids[:12]) or "the register holds none")
+                           + (" - an empty register is `put --null empty_register`" if not ids else "") + ")"))
         return out
     seen: dict = {}
     for n, row in enumerate(rows):
@@ -705,12 +714,12 @@ def put_problems(task_root, record, attempt) -> list:
         req = row.get("req") if isinstance(row, dict) else None
         if isinstance(req, str):
             if req in seen:
-                out.append(f"rows[{n}] ({req}): a second row for {req} (rows[{seen[req]}]); one row per requirement")
+                out.append(refusal("first_look:put.rows", f"rows[{n}] ({req}): a second row for {req} (rows[{seen[req]}]); one row per requirement"))
             seen.setdefault(req, n)
     absent = [r for r in ids if r not in seen]
     if absent:
-        out.append(f"no row for {', '.join(absent)}: every requirement of the register has one row (a requirement the stand does not show is "
-                   "`missing`, never an absent row)")
+        out.append(refusal("first_look:put.rows", f"no row for {', '.join(absent)}: every requirement of the register has one row (a requirement the stand does not show is "
+                           "`missing`, never an absent row)"))
     out += _list_faults(record.get("gaps"), "`gaps`")
     if "sign_in" in record and record["sign_in"] not in (None, {}):       # absent, null and `{}` are "no way in recorded"
         out += _sign_in_faults(task_root, record["sign_in"], attempt)
@@ -804,9 +813,11 @@ def put(task_root, file, null_reason="") -> dict:
         reasons = _words("null_reasons")
         if null_reason not in reasons:
             return {"written": False, "null": "", "rows": 0, "ignored": [],
-                    "problems": [f"--null is why no first look was walked, one of: {', '.join(reasons)}; got {str(null_reason)[:60]!r}"]}
+                    "problems": [refusal("first_look:put.null_reason",
+                                         f"--null is why no first look was walked, one of: {', '.join(reasons)}; got {str(null_reason)[:60]!r}")]}
         existing = read(task)
         if not existing["problem"] and not existing["null"] and not existing["stale"]:
+            # bare on purpose (E6, F-W6): `put.walked` has no row, the role has no door (it reads the current record)
             return {"written": False, "null": "", "rows": 0, "ignored": [],
                     "problems": ["a walked first look of these heads and this register exists and is current; a null record does not replace it "
                                  "(a null is for a story with no walked record, or a stale one) - leave it, the driver reads the walked record"]}
@@ -817,17 +828,18 @@ def put(task_root, file, null_reason="") -> dict:
         return {"written": not problems, "null": null_reason, "rows": 0, "ignored": [], "problems": problems}
     if not attempt:
         return {"written": False, "null": "", "rows": 0, "ignored": [],
-                "problems": ["the first-look walk for this story is not open; the driver opens it (`first_look.py begin`) - "
-                             "record what you saw as a gap in your handover and halt"]}
+                "problems": [refusal("first_look:put.walk_open", "the first-look walk for this story is not open; the driver opens it (`first_look.py begin`) - "
+                                     "record what you saw as a gap in your handover and halt")]}
     text, reg_hash = current_keys(task)
     if _canon(attempt.get("source_head")) != text or attempt.get("register_hash") != reg_hash:
         return {"written": False, "null": "", "rows": 0, "ignored": [],
-                "problems": ["the code or the register changed since this walk was opened, so its rows would be about other things than the "
-                             "walk saw; record what you saw as a gap in your handover and halt - the driver opens a new attempt "
-                             "(`first_look.py begin`) for the current code and register"]}
+                "problems": [refusal("first_look:put.inputs_current",
+                                     "the code or the register changed since this walk was opened, so its rows would be about other things than the "
+                                     "walk saw; record what you saw as a gap in your handover and halt - the driver opens a new attempt "
+                                     "(`first_look.py begin`) for the current code and register")]}
     parsed, why = _load_input(file)
     if parsed is None:
-        return {"written": False, "null": "", "rows": 0, "ignored": [], "problems": [why]}
+        return {"written": False, "null": "", "rows": 0, "ignored": [], "problems": [refusal("first_look:put.input", why)]}
     problems = put_problems(task, parsed, attempt)
     if problems:
         return {"written": False, "null": "", "rows": 0, "ignored": [], "problems": problems}
@@ -1111,6 +1123,15 @@ def _show(task, as_json: bool) -> int:
     return 0
 
 
+def _refuse_put(command: str, problems: list) -> int:
+    """The refusal of `put`: the problems joined as ever (the text is byte-identical), the FIRST problem's row (expected / door / check) on
+    it when that problem is sited, every sited problem in `records` (one told line per further check, EC-5)."""
+    text, first = " | ".join(problems), problems[0] if problems else None
+    if getattr(first, "check", ""):
+        text = Record(text, check=first.check, expected=first.expected, door=first.door)
+    return role_cli.refuse(command, text, records=problems)
+
+
 def _cli(argv) -> int:
     args = hooklib.exact_options(_parser(_command(argv))).parse_args(argv)
     task = hooklib.story_of(SCRIPT, root=args.task_root, key_flag=None)
@@ -1129,7 +1150,7 @@ def _cli(argv) -> int:
             return role_cli.refuse(command, "give exactly one of --file <your rows> and --null <reason>")
         done = put(task, args.file, args.null)
         if not done["written"]:
-            return role_cli.refuse(command, " | ".join(done["problems"]))
+            return _refuse_put(command, done["problems"])
         print(json.dumps(done, ensure_ascii=False))
         return 0
     if args.sub == "record-sign-in":
