@@ -470,6 +470,23 @@ def hold_file_lock(path, wait_s=0.0, *, purpose="", record_holder=False, poll_s=
         lock.release()
 
 
+@contextlib.contextmanager
+def hold_registry_lock(path, timeout, purpose, busy_words):
+    """A registry writer's lock as a block (PK2-13: project_knowledge and project_decisions each kept a copy of this): busy ->
+    `TimeoutError(busy_words.format(holder=<holder clause>))`, broken -> `TimeoutError(str(LockBroken))`, both chained from the
+    helper's error so a caller can tell them apart by `__cause__`. The holder is recorded under `purpose`."""
+    try:
+        held = take_file_lock(path, timeout, purpose=purpose, record_holder=True)
+    except LockBusy as exc:
+        raise TimeoutError(busy_words.format(holder=exc.holder_clause)) from exc
+    except LockBroken as exc:
+        raise TimeoutError(str(exc)) from exc
+    try:
+        yield held
+    finally:
+        held.release()
+
+
 class EventStore:
     def __init__(self, task_root, after_commit=None, wait_seconds=0.0, stale_marker=STALE_MARKER):
         """`after_commit`: a no-argument step run AFTER the writer lock is released, on every
