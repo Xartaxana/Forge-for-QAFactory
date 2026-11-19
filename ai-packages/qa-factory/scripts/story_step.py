@@ -1161,6 +1161,20 @@ def _manual_cases_left(state: dict, scope: list, spent) -> list:
     return [case for case in scope if case not in done and case not in spent]
 
 
+def _s6_reentry(task: str, task_root, controller, held: dict, where: str):
+    """Step 1b of `_s6_manual_close`: a completed S6 is never reduced again (a report the receipt hashed is never rewritten, AR-21). A stage
+    the controller completed otherwise (a role's accept, no `code_only`) is not this close's world: None, today's lines. A `code_only` S6 with
+    its record written: nothing to close; without a readable record: the E9 door (`stage_close.record_door`), exit 2."""
+    import stage_close
+    if not held.get("code_only"):
+        return None
+    if stage_close.stage_record_written(task_root, controller, "S6"):
+        return "done", ["S6 is completed already: nothing is closed again", "next: " + where], 0, {}
+    reason = held.get("reason") if isinstance(held.get("reason"), str) and held.get("reason") else "<the close reason>"
+    return "done", ["story_step: refused - S6 is completed in the controller but its stage record is not written",
+                    stage_close.record_door(task, "S6", ["--status", "done", "--digest", reason, "--no-journal"])], 2, {}
+
+
 def _s6_manual_close(args, controller, state: dict, spent: dict):
     """FV3-22 (P31): `start --stage S6 --execution-kind manual` finds nothing left to dispatch -> S6's manual half is closed by the SAME code as
     the driver's `manual_close` (`stage_close.manual_half_close` over `SkillRoad`): the reducer, then the failure analyst's record or a
@@ -1179,18 +1193,9 @@ def _s6_manual_close(args, controller, state: dict, spent: dict):
         return None
     task_root = _task_root(args.task)
     where = f'python "${{CLAUDE_PLUGIN_ROOT}}/scripts/story_step.py" where --task {args.task}'
-    # 1b. re-entry: a completed S6 is never reduced again (a report the receipt hashed is never rewritten, AR-21). A stage the controller
-    # completed otherwise (a role's accept) is not this close's world: today's lines.
-    stage = (((controller.state() or {}).get("stages") or {}).get("S6") or {})
-    if stage.get("status") == "completed":
-        if not stage.get("code_only"):
-            return None
-        if stage_close.stage_record_written(task_root, controller, "S6"):
-            return "done", ["S6 is completed already: nothing is closed again", "next: " + where], 0, {}
-        reason = stage.get("reason") if isinstance(stage.get("reason"), str) and stage.get("reason") else "<the close reason>"
-        return "done", ["story_step: refused - S6 is completed in the controller but its stage record is not written",
-                        f'door: python "${{CLAUDE_PLUGIN_ROOT}}/scripts/stage_done.py" --task {args.task} --stage S6 --status done '
-                        f'--digest "{reason}" --no-journal'], 2, {}
+    held = (((controller.state() or {}).get("stages") or {}).get("S6") or {})
+    if held.get("status") == "completed":
+        return _s6_reentry(args.task, task_root, controller, held, where)
     auto = controller.stage_scope("S6", state, "automation")
     manual = controller.stage_scope("S6", state, "manual")
     if not (auto.get("derived") and manual.get("derived") and isinstance(auto.get("scope"), list) and isinstance(manual.get("scope"), list)):

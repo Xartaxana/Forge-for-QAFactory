@@ -981,7 +981,14 @@ def test_fv3_22_nothing_left_closes_s6_on_the_skill_road():
         ctl, calls = _s6_world(root, ["automate"] * 7), []
         code, text, _ = _close(root, ctl, calls)
         check_eq("C10: today's lines, no step", (calls, "S6 awaits" in text), ([], False))
-    for name, status in (("C11", None), ("C11b", "paused"), ("C11c", "blocked")):             # C11: a live S6 dispatch
+    with temp_dir() as root:                                                                   # C2b: S6 completed by a role's accept, no code_only
+        ctl, calls = _s6_world(root), []
+        accept(ctl, root, "S6-qa-runner-2", "manual", ["TC-2", "TC-3", "TC-4"])
+        accept(ctl, root, "S6-qa-runner-3", "manual", ["TC-5", "TC-6", "TC-7"], complete=True)
+        code, text, _ = _close(root, ctl, calls)
+        check_eq("C2b: S6 completed by an accept: today's lines (exit 2), no step, no receipt, no E9 door", (ctl.state()["stages"]["S6"].get("status"), code, calls, _receipts(ctl),
+                 "stage_done.py" in text, "S6 was not closed" in text), ("completed", 2, [], [], False, False))
+    for name, status in (("C11", None), ("C11b", "paused")):             # C11: a live S6 dispatch
         with temp_dir() as root:
             ctl, calls, writes = _s6_world(root), [], []
 
@@ -1053,9 +1060,13 @@ def test_fv3_22_awaits_position():
         BASE.record_stage_acceptance(root, "S6", "S6-qa-runner-1")
         _close(root, ctl, [])
         check_eq("P5: a completed stage never awaits", story_progress.progress(root)["position"]["kind"] != "awaits", True)
-        check_eq("P2: S7 awaiting the doc scribe is named from the same table", story_progress._awaits_position(
-            {"stages": {}, "dispatches": {"d": {"id": "d", "stage": "S7", "role": "qa-failure-analyst", "status": "accepted", "unresolved": ["stage_awaits_acceptance"]}}},
-            {}, "S7") == ({"kind": "awaits", "author": "d", "consumer": "qa-doc-scribe", "consumer_stage": "S8", "who": "doc scribe"}), True)
+    with temp_dir() as root:                                                                   # P2: S7 awaits the doc scribe, through the line
+        (root / "state").mkdir()
+        (root / "state" / "controller.json").write_text(json.dumps(
+            {"stages": {}, "dispatches": {"d": {"id": "d", "stage": "S7", "role": "qa-failure-analyst", "status": "accepted", "unresolved": ["stage_awaits_acceptance"]}}}), encoding="utf-8")
+        (root / "pipeline.json").write_text(json.dumps({"stages": {f"S{i}": {"status": "done"} for i in range(0, 7)}}), encoding="utf-8")
+        got = story_progress.progress(root)
+        check_eq("P2: S7 awaiting the doc scribe is named in the line, from the same table", (got["position"]["kind"], "waiting for the doc scribe's acceptance (S8)" in got["line"]), ("awaits", True))
     _assert_green_since(count)
 
 

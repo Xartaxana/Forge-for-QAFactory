@@ -100,13 +100,13 @@ def person_pass(road, stage: str, author: str, line: str, answer: str = "", sinc
 
     def stamp(value) -> str:
         """One normal form for an `at` / `since`: `controller.stamp_utc` of the epoch second; `""` when it is no time (or has no zone)."""
-        from datetime import datetime
+        import stage_done
         from controller import stamp_utc
         if isinstance(value, str):
+            moment = stage_done.iso_with_zone(value)
             try:
-                moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-                return stamp_utc(moment.timestamp()) if moment.tzinfo is not None else ""
-            except (ValueError, OverflowError, OSError):
+                return stamp_utc(moment.timestamp()) if moment is not None else ""
+            except (OverflowError, OSError):
                 return ""
         return "" if isinstance(value, bool) or value is None else stamp_utc(value)
     words = " ".join(str(answer or "").split())
@@ -298,19 +298,25 @@ def file_passed_over(road, stage: str, receipt) -> None:
                      what="the finding about work a code close passed over", stage=stage)
 
 
+def record_door(task: str, stage: str, args) -> str:
+    """The `door:` line that completes a stage record a refusal left unwritten (E9): the ONE builder, read by `SkillRoad.record_close` and
+    `story_step._s6_reentry`, so the same world prints the same command on both (t-1558 F1)."""
+    command = " ".join(f'"{a}"' if any(ch.isspace() for ch in str(a)) else str(a) for a in args)
+    return f'door: python "${{CLAUDE_PLUGIN_ROOT}}/scripts/stage_done.py" --task {task} --stage {stage} {command}'
+
+
 def stage_record_written(task_root, controller, stage: str) -> bool:
     """True when the stage record of `stage` is written after the controller completed it by a `code_only` receipt: `stage_done.stage_finished_at`
     (the one reader of `finished`) is present and NOT EARLIER than the time of the stage's last `code_only` event (equal reads as written). The
     pipeline's `status` is no witness: the projection writes `done` from the controller on every apply (t-1209 F4-1). ERROR DIRECTION: any
     time that cannot be read, a missing event or an unreadable store reads as False (not written), never as written (FR-59, AR-28)."""
-    import hooklib
     import stage_done
     from datetime import datetime
     from controller import stamp_utc
     try:
         events = [e for e in controller.store.read() if e.get("type") == "code_only" and (e.get("payload") or {}).get("stage") == stage]
         completed = datetime.fromisoformat(stamp_utc(events[-1].get("created_at")))
-        finished = stage_done.stage_finished_at(hooklib.read_json(Path(task_root) / "pipeline.json", {}, kind=dict, errors=Exception), stage)
+        finished = stage_done.stage_finished_at(stage_done.read_pipeline(Path(task_root) / "pipeline.json"), stage)
         return finished is not None and finished >= completed
     except Exception:  # noqa: BLE001 - a time that cannot be read is the safe side: the record counts as not written
         return False
@@ -397,9 +403,7 @@ class SkillRoad:
         try:
             self.py("stage_done.py", "--task", self.task, "--stage", stage, *args, check=True)
         except Refused as exc:
-            command = " ".join(f'"{a}"' if any(ch.isspace() for ch in str(a)) else str(a) for a in args)
-            raise Refused(f"{exc}\ndoor: python \"${{CLAUDE_PLUGIN_ROOT}}/scripts/stage_done.py\" --task {self.task} --stage {stage} {command}",
-                          title=exc.title) from None
+            raise Refused(f"{exc}\n{record_door(self.task, stage, args)}", title=exc.title) from None
         for row in tail:
             self.py("log_append.py", *row)
 
