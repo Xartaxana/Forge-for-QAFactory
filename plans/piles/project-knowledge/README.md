@@ -63,6 +63,7 @@
 | `findings/20261111-zapis-zamechennoj-roli-gonka-proverki-i-zapisi.md` | находка | Замеченная роль: проверка реестра без замка и запись под замком; ответ человека может быть перезаписан | `plans/piles/project-knowledge/batch-2-usloviya-zamena-oglavlenie.md` | PK2-18, ожидает | нет | критик t-2370 (PK0-3); AR-28 |
 | `findings/20261112-s0-no-trace-komandy-dirizhera-pishut-v-reestr.md` | находка | В S0 прогона `--no-trace` `side`/`account`/`revoke` пишут строку в реестр: `pipeline.json` ещё нет, признак живёт в `launch.no_trace` | `plans/piles/project-knowledge/batch-2-usloviya-zamena-oglavlenie.md` | PK2-19, ожидает | нет | критик на план t-043 (N2); PK2-11; P8, FR-53, FR-59 |
 | `findings/20261114-cmd-account-i-cmd-role-chitayut-i-pishut-bez-zashchity.md` | находка | `cmd_account` и `cmd_role` читают реестр и пишут без защиты PK2-18: чтение и запись под одним замком, один помощник | `scripts/project_knowledge.py`, `scripts/tests/test_project_knowledge.py` | пачка 2, PK2-20 | нет | отчёт PK2-18 («Siblings»); AR-14, AR-28 |
+| `findings/20261119-s6-sprashivaet-default-posle-prinyatiya-na-gate-a.md` | находка | S6 снова спрашивает учётку `default` после принятия на gate A: блок принятия не снимает блок S6 `stand login missing` | `scripts/driver_stage_s6.py`, `scripts/waiver.py` | пачка 2, PK2-21 | нет | замер t-1581 (PK2-6a); AR-13, AR-19 |
 
 ## Что эта кучка вберёт из других (фазы 1–6 плана)
 
