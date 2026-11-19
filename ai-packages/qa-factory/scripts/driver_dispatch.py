@@ -3237,7 +3237,7 @@ class DriverDispatch:
         One record per window and critic dispatch (a repeated finish writes nothing new)."""
         if not self.route_owes_round(route):
             return
-        owed =self.state.setdefault("repair_limit", {})
+        owed = self.state.setdefault("repair_limit", {})
         if (owed.get(self.repair_key(cases)) or {}).get("dispatch") == dispatch:
             return
         owed[self.repair_key(cases)] = {"dispatch": dispatch, "token": "route", "cases": list(cases), "key": "", "at": _now(),
