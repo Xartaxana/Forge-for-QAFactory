@@ -211,7 +211,8 @@ the work, in the fields the role must fill.** *Why:* the detectors' rule for `ve
 lived only in code; once the strategist's card named the required fields up front, S3 closed on the
 first dispatch — 51 turns and $2.53, against 176 turns and $12.83 over four attempts without it.
 *Check:* for each new check on a role's artifact, name where the role is told its requirement before
-working.
+working: its row in `references/stage-joints.json`, reached through `detector_verdict.refusal()`;
+`stage_joints.py --check` and `contract_slices.py --check` are clean.
 
 **FR-39 — What the rules say a party may do, the guard permits.** *Why:*
 `guard_pre_tool.py` refused writes to the `references` directory that the rules name as the one place
