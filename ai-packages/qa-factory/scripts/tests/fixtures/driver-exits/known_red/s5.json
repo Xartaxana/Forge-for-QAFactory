@@ -150,27 +150,27 @@
    "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach s5.repair_limit: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
   },
   "s5.nobody_review/stop": {
-   "node": "FV3-35",
+   "node": "FV3-40",
    "raised_by": "t-1551 scratch run (per-family findings[].cause stub override, FV3-35 part A): the seed reaches the key and the row fails check C3: \"the answer changed nothing: the state fingerprint is the one it was asked at (C3)\""
   },
   "s5.nobody_review/free words": {
-   "node": "FV3-35",
+   "node": "FV3-40",
    "raised_by": "t-1551 scratch run (per-family findings[].cause stub override, FV3-35 part A): the seed reaches the key and the row fails checks C2: \"a conductor call followed the answer and its why is not on record\" and C3: \"the answer changed nothing: the state fingerprint is the one it was asked at (C3)\""
   },
   "s5.nobody_environment/stop": {
-   "node": "FV3-35",
+   "node": "FV3-40",
    "raised_by": "t-1551 scratch run (per-family findings[].cause stub override, FV3-35 part A): the seed reaches the key and the row fails check C3: \"the answer changed nothing: the state fingerprint is the one it was asked at (C3)\""
   },
   "s5.nobody_environment/free words": {
-   "node": "FV3-35",
+   "node": "FV3-40",
    "raised_by": "t-1551 scratch run (per-family findings[].cause stub override, FV3-35 part A): the seed reaches the key and the row fails checks C2: \"a conductor call followed the answer and its why is not on record\" and C3: \"the answer changed nothing: the state fingerprint is the one it was asked at (C3)\""
   },
   "s5.nobody_tooling/stop": {
-   "node": "FV3-35",
+   "node": "FV3-40",
    "raised_by": "t-1551 scratch run (per-family findings[].cause stub override, FV3-35 part A): the seed reaches the key and the row fails check C3: \"the answer changed nothing: the state fingerprint is the one it was asked at (C3)\""
   },
   "s5.nobody_tooling/free words": {
-   "node": "FV3-35",
+   "node": "FV3-40",
    "raised_by": "t-1551 scratch run (per-family findings[].cause stub override, FV3-35 part A): the seed reaches the key and the row fails checks C2: \"a conductor call followed the answer and its why is not on record\" and C3: \"the answer changed nothing: the state fingerprint is the one it was asked at (C3)\""
   },
   "exit.resume_limit/stop": {
