@@ -1,0 +1,1 @@
+An S5 code critic that sends a window back now finishes as open work with the reserved word `tests_in_repair` (one predicate, `s5_critic_completion`, for the live loop and the recovery road): the author round runs without a conductor call, in any window position. `story_step.py finish` lets this one word through `--not-complete`; every other word is still refused.

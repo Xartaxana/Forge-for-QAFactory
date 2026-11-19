@@ -1789,8 +1789,11 @@ def _open_window_refusal(args, unresolved: str, stage: str) -> str:
     """"" or the refusal for `--unresolved` together with `--not-complete` ON S5 (t-721 D1: SS narrows the rule to
     the stage it is about). An S5 window is either accepted as unresolved or left open; any other stage may say both:
     `stage_complete: false` with the work it leaves (the shape the controller already takes, test_stage_closure.py).
-    Checked once the dispatch is known and before anything is read or recorded."""
-    if stage == "S5" and unresolved and getattr(args, "not_complete", False):
+    Checked once the dispatch is known and before anything is read or recorded. A THIRD shape passes (FV3-35 B): the one reserved
+    word `S5_OPEN_WORD`, "left open with work the driver owes" - an S5 critic's send-back whose author round is owed; every other
+    word is refused as before."""
+    from acceptance import S5_OPEN_WORD
+    if stage == "S5" and unresolved and getattr(args, "not_complete", False) and unresolved != S5_OPEN_WORD:
         return ("story_step: finish got --unresolved together with --not-complete on S5. A window is either "
                 "accepted as unresolved, with its reason, or left open: the first closes the stage on this "
                 "critic, the second says more work remains. Drop --not-complete to accept it as "
