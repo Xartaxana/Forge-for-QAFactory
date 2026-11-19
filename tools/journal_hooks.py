@@ -2,6 +2,7 @@
 """The journal hooks (offload spec r2, §3.B23): the dispatch record, the end-of-dispatch record, the by-hand-edit gate.
 
     python -B tools/journal_hooks.py post-agent   PostToolUse Task|Agent  -> `delegated` (+ `returned` when a stop came first)
+    python -B tools/journal_hooks.py post-send    PostToolUse SendMessage -> `resumed` (a stopped worker of this session gets a new round)
     python -B tools/journal_hooks.py pre-edit     PreToolUse  Edit|Write  -> a journal file edited by hand: WARN (or deny)
     journal_hooks.record_returned(payload)        called by tools/dod_gate.py on every exit-0 decision of a SubagentStop
 
@@ -48,7 +49,8 @@ WRITER = "python -B tools/journal_write.py"
 DELEGATED_DOOR = f"write it: {WRITER} delegated …"
 EDIT_DOOR = (f"the writer is {WRITER} <event> … (event --json for a retro line)")
 WARN_LOG = "warn.log"               # <common>/forge-journal/warn.log: the stop-side WARN lines, read by calibration check 48(c)
-SESSION_RE = re.compile(r"^[A-Za-z0-9-]{1,16}$")
+AGENT_ID_MAX = 64                   # a real agent id is ~17 characters; a longer `to` is no worker (and no file name)
+SESSION_RE =re.compile(r"^[A-Za-z0-9-]{1,16}$")
 
 
 # ---------------------------------------------------------------- small helpers
@@ -123,6 +125,8 @@ def _find_delegated(objs: list, ref: str):
             found, done = obj, False
         elif obj.get("event") == "returned" and found is not None and obj.get("task_id") == found.get("task_id"):
             done = True
+        elif obj.get("event") == "resumed" and found is not None and obj.get("task_id") == found.get("task_id"):
+            done = False                # FG7-88: a resume opens a new round (the validator's _round_step rule)
     return found, done
 
 
@@ -276,6 +280,54 @@ def _post_agent(payload) -> list:
         lines.extend(_designer_skip(jw, root, journal, res.task_id, skip_reason, obj.get("feature")))
     lines.extend(_flush_pending(jw, root, path, agent_id, res.task_id, agent.strip(), model))
     return lines
+
+
+def post_send(payload) -> list:
+    """FG7-88: the lines of one PostToolUse(SendMessage) call. A send to a worker of THIS session whose round has ended (a
+    `returned` since its last start, task not accepted) writes `resumed`; every other send is not a resume and owes nothing
+    (`[]`, silent). Never raises."""
+    to = "?"
+    try:
+        tool_input = payload.get("tool_input") if isinstance(payload, dict) else None
+        to = tool_input.get("to") if isinstance(tool_input, dict) else None
+        return _post_send(payload, to)
+    except Exception as exc:  # noqa: BLE001 -- the contract: a hook never raises
+        return [f"JOURNAL: resumed NOT checked for agent:{one_line(to, 60)} -- the hook failed ({type(exc).__name__})"]
+
+
+def _post_send(payload, to) -> list:
+    jw, _jl, jk, transcripts = _imports()
+    if transcripts.agent_file_name(to) is None or len(to) > AGENT_ID_MAX or "agent_id" in payload:
+        return []                    # not an agent id (a peer pipe, junk, an absurd length), or a send made inside a worker (X3)
+    try:
+        root = jw.repo_root(payload.get("cwd") or os.getcwd())
+    except jw.Refused:
+        return []                    # no repository: no journal to hold a round
+    ref = f"agent:{to}"
+    state = _locate(jw, jk, root, to, ref)
+    if state is None:
+        return []
+    copy, delegated, done = state
+    session = _session(payload)
+    if delegated.get("session") and session and delegated.get("session") != session:
+        return []                    # F3 (b): another session's worker is not this session's round
+    task = delegated.get("task_id")
+    if not done or any(o.get("event") == "accepted" and o.get("task_id") == task for o in _tail_objs(copy)):
+        return []                    # an open round: a course correction; a closed task: no round (E5, E6)
+    obj = {"event": "resumed", "task_id": task, "agent": delegated.get("agent"), "worker_ref": ref,
+           "category": delegated.get("category") or jw._category(delegated.get("agent"))[0],
+           "notes": cut_notes(f"{ref} resumed by SendMessage")}
+    if delegated.get("model"):
+        obj["model"] = delegated["model"]
+    if delegated.get("session"):
+        obj["session"] = delegated["session"]
+    target = _root_of_journal(copy) or root
+    res = jw.write_event(target, obj, via="hook", lock_timeout=HOOK_LOCK_TIMEOUT)
+    if not res.written:
+        return [f"JOURNAL: resumed NOT written for {ref} -- {one_line(' / '.join(res.messages), 400)}; "
+                f"write it: {WRITER} event --json '{one_line(json.dumps(obj), 300)}'"]
+    _write_index(root, to, copy)
+    return [f"JOURNAL: resumed {task} written ({res.path}:{res.line_no})"]
 
 
 def _designer_skip(jw, root, journal: Path, task: str, reason: str, feature) -> list:
@@ -532,13 +584,18 @@ def main(argv=None) -> int:
     mode = args[0] if args else ""
     try:
         payload, timed_out = _read_payload()
-        if timed_out:           # post-agent says so with the door; pre-edit stays silent (it never blocks a tool)
+        if timed_out:           # post-agent says so with the door; pre-edit and post-send stay silent (they never block a tool)
             if mode == "post-agent":
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse",
                                                          "additionalContext": _door("stdin deadline exceeded")}}))
             return 0
         if mode == "post-agent":
             lines = post_agent(payload)
+            if lines:
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse",
+                                                         "additionalContext": " | ".join(lines)}}))
+        elif mode == "post-send":
+            lines = post_send(payload)
             if lines:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse",
                                                          "additionalContext": " | ".join(lines)}}))
