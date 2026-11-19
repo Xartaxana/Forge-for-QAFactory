@@ -84,3 +84,7 @@ sb_witness.py                  -> all 18 present OK, 5 absent OK, FAILURES 0
 negative control (key "Bash is not gated hereX") -> MISSING line, FAILURES 1
 E-B6 grep (4 files)            -> no output, rc=1; control `byte copy` finds handoff_gate.py:10
 ```
+
+## Round 3 (check 50 placement)
+Defect was mine: `s.index('## Weekly cost review')` hit check 48 (h)'s inline mention. Fixed: check 50 removed from check 48, re-inserted as its own item after check 49, before the heading line (blank line each side). `git diff HEAD -U0 -- PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md`: only the 13(j) hunk (lines 397-398) and the added check 50 block at 1153. `grep -c "^## Weekly cost review"` = 1.
+Witness: pytest (3 files) 223 passed in 1.86s; key run FAILURES 0; negative control FAILURES 1.
