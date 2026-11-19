@@ -1288,11 +1288,8 @@ def _card_text(task: str, stage: dict, role: str, dispatch_id: str, task_root: P
     is the dispatch's request (the committed event, or the record projected from it): a rework's identity
     reaches the prompt through it, any other dispatch renders exactly as it always did."""
     extras = _prompt_inputs(task, stage["id"], role, task_root, dispatch_id)
-    try:        # the one function the brief's line calls too (lazy import, as `_author_argv`); no line when it cannot be built: the page stands alone
-        import brief_pack
-        groups = brief_pack.dispatch_groups(task_root, stage["id"], role, dispatch_id)
-    except Exception:  # noqa: BLE001 - a card is never lost to a courtesy line
-        groups = None
+    import brief_pack      # lazy, as `_author_argv`: the one builder the brief's line and the driver's rework prompt call too (never raises)
+    groups = brief_pack.dispatch_groups(task_root, stage["id"], role, dispatch_id)
     return launch_card.render(task, role, dispatch_id,
                               _prompt(task, stage, role, dispatch_id, extras, brief, form, _packet_lines(packet, task), groups),
                               _finish_door(stage["id"], role))

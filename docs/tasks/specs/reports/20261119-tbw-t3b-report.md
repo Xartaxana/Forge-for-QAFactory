@@ -93,3 +93,17 @@ The 29 fast files of `scenario_walk.py --witness-for <owns>` run one by one (scr
 - `FIRST_LOOK_ROLES_MAX` removal was optional ("may go"); done. `_stand_names(limit=None)` keeps its parameter (test_brief_pack.py:2952 calls it with two arguments).
 - Needed beyond the manifest: `contract_slices.py` (`GROUPS`, `_group_heading`, page layout), `stage_joints.py` (`rows_for`, `load_rows`, `fill`), `controller.py` (`s5_part_of`), `s5_plan.mode`, `role_cli.refuse`, `driver_dispatch.py:655`, `test_first_look_wiring.py`, `test_ahead_cards.py`, `test_ahead_cards_rules.py`, `test_contract_slices.py:664`, `test_window_record.py:2188`, `slow_tests.json` via scenario_walk.
 - Loops or processes left running: none. Scratch files only in the OS temp.
+
+## Round 2 (coordinator answers; rebased onto origin/main first, `git rebase origin/main` clean)
+
+- Q1: `dispatch_groups` no longer raises: rows or stage list unreadable gives ONE entry `Code checks for this dispatch could not be read (<Type>: <reason>); the role page is the only list`, and `groups_line` prints it alone (brief and prompt). Row: `t3b_groups_line` (rows file made unreadable by a patched `stage_joints.load_rows`).
+- Q2 accepted and named: `dispatch_groups` reads the rows of ALL the role's stages, as the page does (first-look rows say S6, the first look runs at S3).
+- One road: `story_step._card_text` and `driver_dispatch.py` (only the :655 rework prompt call) both pass `groups=brief_pack.dispatch_groups(...)`; `_prompt` keeps `groups=None` = no line for direct callers (tests).
+- Deleted/moved rows:
+  - test_first_look_wiring.py `first_look_brief_names_no_run_report`: moved to the new behaviour (DoD line names no `put`; the groups line is there). The `ahead card says put checks the record` row replaced by the groups-line row.
+  - deleted: test_ahead_cards.py "the brief carries the rules ahead of the work" and "and the card itself" (per role) -- pins the removed card
+  - deleted: test_ahead_cards_rules.py `built_designer_brief` and `a4_a_built_brief_carries_the_card_line` (with its negative control) -- pins the removed card (A5, V1 kept)
+  - deleted: test_contract_slices.py `T3a (c): ... the moved copy and the brief's own say the same` -- pins the removed `brief_pack.ahead_card`
+- Witness after all edits: test_first_look 463/463; test_first_look_wiring 102/102; test_ahead_cards 229/229; test_ahead_cards_rules 16/16; `t3b_groups_line` alone 23/23; `stage_joints.py --check` clean (unsited 6); `selftest.py --limits --lang` 4/4.
+- test_contract_slices.py: narrow `test_told_section_rows` run via a temp driver: 525/531, the 6 FAILs are `K10p/narrowed-by-contract/handoff_check:null_outcome.*` (roles list), not in a touched row, not from this change (estimate, not verified on base).
+- Quarantined files: ran test_ahead_cards_rules.py (edited). Not run, not edited: test_brief_pack_roles.py (pins `## Commands` hash and AHEAD_HEAD; dead after this node). test_brief_pack.py, test_window_record.py, test_story_step*.py: slow, canon judges.

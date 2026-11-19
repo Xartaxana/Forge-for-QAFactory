@@ -661,7 +661,6 @@ def test_told_section_rows() -> None:
                  CS.ahead_card("qa-x", told_plugin(tmp / "nocards")), "")
         real_card = CS.ahead_card("qa-scout")
         import brief_pack
-        check_eq("T3a (c): on the real package the moved copy and the brief's own say the same", real_card, brief_pack.ahead_card("qa-scout"))
         check("T3a (c): the real scout page carries the real card under `Not yet in rows`", "### Not yet in rows\n\n" + real_card in
               (PLUGIN_ROOT / "references" / "slices" / "qa-scout" / CS.KEYS_NAME).read_text(encoding="utf-8"))
         # TEMPORAL: the rows file unreadable is named, never an empty section passed as fine

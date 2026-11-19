@@ -652,8 +652,10 @@ class DriverDispatch:
             # `line` is the whole line when the caller has one (a dispatch continued after an
             # infrastructure interruption is NOT a rework, and saying "Rework reason" would tell the
             # role its work was refused); `reason` is the rework's own.
+            import brief_pack      # told-before-work T3b: the groups line comes from the one builder `story_step._card_text` calls
             prompt = story_step._prompt(self.task, stages[stage], role, dispatch,
-                                        [rework.get("line") or f"Rework reason: {rework.get('reason') or ''}"], brief)
+                                        [rework.get("line") or f"Rework reason: {rework.get('reason') or ''}"], brief,
+                                        groups=brief_pack.dispatch_groups(self.task_root, stage, role, dispatch))
         else:
             # TR3-6: POSITION - before `start`; INVARIANT: a drain registers no new dispatch (a chain that gets here while another raised stops)
             self.stop_if_drained()

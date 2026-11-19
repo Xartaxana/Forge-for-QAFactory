@@ -3749,6 +3749,16 @@ def t3b_groups_line() -> None:
         page = "".join(p.read_text(encoding="utf-8") for p in (harness.PLUGIN_ROOT / "references" / "slices" / role).glob("handoff-keys*.md"))
         check(f"T3b: {label}: every named group is a heading of the role's real page",
               all(f"### {g}" in page for g in got if not g.startswith(brief_pack.COULD_NOT_TELL)), page[:200])
+    import stage_joints
+    real_load = stage_joints.load_rows
+    try:
+        stage_joints.load_rows = lambda path=None: (None, "stage-joints.json is absent")
+        gone = brief_pack.dispatch_groups(Path("."), "S5", A, "S5-a-1")
+    finally:
+        stage_joints.load_rows = real_load
+    check("T3b (E-T3b-2, round 2): rows that cannot be read give ONE could-not-read line, printed alone (no silent absence)",
+          len(gone) == 1 and brief_pack.groups_line(gone) == gone[0] + "." and gone[0].startswith(brief_pack.UNREADABLE_HEAD)
+          and "the role page is the only list" in gone[0], gone)
     line = brief_pack.groups_line([first])
     check("T3b: a named group: the line names it and the rest as not for this dispatch",
           f"`{first}`; the other sub-sections are not for this dispatch." in line and line.startswith(brief_pack.GROUPS_LINE_HEAD), line)

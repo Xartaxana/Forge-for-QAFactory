@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The rules an S3/S4 role is judged by stand in its card, before its first attempt (t-1685 N3-1, N3-3, N3-5).
 
-A4 a built S4 designer brief carries the card line, with its negative control; A5 the case twins hold ONE basis rule,
+A5 the case twins hold ONE basis rule,
 read against the grammar's own regex. (A1-A3, the card and charter phrases, moved to design/role-rules.json.) V1 (N3-5) the uncommitted count of the test repository leaves
 out the factory's own folder and nothing else. (The file name is the spec's; V1 sits here because it is this node's
 second test file's neighbour in `owns`.)
@@ -27,33 +27,6 @@ CARDS = json.loads((PLUGIN_ROOT / "references" / "ahead-cards.json").read_text(e
 DESIGNER, CRITIC = "qa-case-designer", "qa-case-critic"
 ROW_LINE = "One case per plan row, an `unverifiable` row too"
 BASIS_HEADING = "## A case's basis"
-
-
-def built_designer_brief(card_text: str):
-    """The S4 designer brief of a fixture story, built with the card `card_text` (None = the real one)."""
-    root = harness.temp_project("qa-ahead-rules-")
-    real = brief_pack.ahead_card
-    try:
-        harness.use_project(root)
-        task = root / "qa-factory/artifacts/QA-9"
-        (task / "work").mkdir(parents=True)
-        (task / "pipeline.json").write_text(json.dumps(
-            {"ticket": "QA-9", "size": "S", "environment": "local",
-             "stages": {"S0": {"status": "done"}}, "gates": {}, "halts": []}), encoding="utf-8")
-        if card_text is not None:
-            brief_pack.ahead_card = lambda _role: card_text
-        return brief_pack.build("QA-9", "S4", DESIGNER, "S4-qa-case-designer-1", write=False)["markdown"]
-    finally:
-        brief_pack.ahead_card = real
-        shutil.rmtree(root, ignore_errors=True)
-
-
-def a4_a_built_brief_carries_the_card_line() -> None:
-    real = built_designer_brief(None)
-    check_in("A4: the S4 designer brief holds the card line", ROW_LINE, real)
-    stripped = CARDS[DESIGNER]["text"].replace(ROW_LINE, "")
-    # negative control: the same assertion on a card copy without the line must fail, or the assertion cannot fail
-    check("A4 NEGATIVE CONTROL: a brief built from a card without the line does not hold it", ROW_LINE not in built_designer_brief(stripped))
 
 
 def basis_kinds_of_the_grammar() -> list:
@@ -111,7 +84,6 @@ def v1_the_vcs_count_leaves_out_the_factory_folder_only() -> None:
 
 
 def main() -> None:
-    a4_a_built_brief_carries_the_card_line()
     a5_the_twins_hold_one_basis_rule()
     v1_the_vcs_count_leaves_out_the_factory_folder_only()
     finish("test_ahead_cards_rules")

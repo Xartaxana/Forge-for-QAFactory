@@ -4002,6 +4002,7 @@ def walk_record(task_root: Path, dispatch_id: str) -> dict:
 # Which of them are for THIS dispatch is told by one line, from the facts below - moved out of `build`, so the brief and the prompt
 # (`story_step._card_text`) read one function. A fact that cannot be read never names a member of an exclusive pair (FR-59).
 COULD_NOT_TELL = "could not tell: "
+UNREADABLE_HEAD = "Code checks for this dispatch could not be read"      # the rows (or the stage list) could not be read: ONE line, never a silent absence (AR-28)
 GROUPS_LINE_HEAD = 'What code will check of this dispatch: your injected key page, section "What code will check of you"'
 
 
@@ -4022,11 +4023,19 @@ def _manual_runner(role: str, dispatch: dict, first_look: bool) -> bool:
 
 
 def dispatch_groups(task_root: Path, stage: str, role: str, dispatch_id: str) -> list:
+    """`_dispatch_groups`, never raising: when the rows or the stage list cannot be read the answer is ONE entry that says so (`groups_line`
+    prints it alone), because a prompt with no line would hide the gap (AR-28)."""
+    try:
+        return _dispatch_groups(task_root, stage, role, dispatch_id)
+    except Exception as exc:  # noqa: BLE001
+        return [f"{UNREADABLE_HEAD} ({type(exc).__name__}: {_text_whole(exc)[:120]}); the role page is the only list"]
+
+
+def _dispatch_groups(task_root: Path, stage: str, role: str, dispatch_id: str) -> list:
     """The sub-sections of the role's key page that hold for this dispatch, as the page's own headings (without the `### `) in page
     order, then one `could not tell: ...` entry per exclusive pair whose fact cannot be read (a plan form that could not be
     established, no record of the dispatch where the pair depends on it): neither member of such a pair is named. Only groups the role
-    has rows in are named. Raises on an unreadable rows file: the callers (`build`, `story_step._card_text`) then print no line and
-    the page, which holds every group, stands alone."""
+    has rows in are named. Raises on an unreadable rows file (see `dispatch_groups`)."""
     import contract_slices as CS
     import stage_joints as SJ
     task_root = Path(task_root)
@@ -4062,6 +4071,8 @@ def dispatch_groups(task_root: Path, stage: str, role: str, dispatch_id: str) ->
 
 def groups_line(groups) -> str:
     """THE one sentence of the groups (`dispatch_groups`): the brief prints it under `## Commands`, `story_step._prompt` in the prompt."""
+    if any(g.startswith(UNREADABLE_HEAD) for g in groups):
+        return next(g for g in groups if g.startswith(UNREADABLE_HEAD)) + "."
     named = [g for g in groups if not g.startswith(COULD_NOT_TELL)]
     unsure = [g for g in groups if g.startswith(COULD_NOT_TELL)]
     tail = " and its sub-sections " + ", ".join(f"`{g}`" for g in named) if named else ' and none of its "Only in" sub-sections'
