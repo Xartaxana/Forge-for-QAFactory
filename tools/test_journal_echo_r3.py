@@ -126,7 +126,7 @@ def test_s1_basis_critic_without_delegation_suppresses_m1_but_m2_fires():
 ])
 def test_s1_basis_cited_critic_task_id(basis, delegated_under, kinds):
     # FG7-88 Q2 / QE3: `critic:t-NNN` is confirmed by a critic delegated under the CITED id
-    base = [] if delegated_under is None else [_l(event="delegated", agent="critic", task_id=delegated_under)]
+    base = [_l(event="delegated", agent="critic", task_id=delegated_under)]
     new = [_l(event="accepted", agent="builder", task_id="t-001", basis=basis)]
     assert _kinds(_accepted_events(new, base)) == kinds
 
