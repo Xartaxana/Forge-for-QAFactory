@@ -12,10 +12,6 @@
   "halt/free words": {
    "node": "FV3-16",
    "raised_by": "product gap: same cause as kind:halt/free words (same ask, same words): the driver prints 'answer for halt' but records no answer row; FV3-16"
-  },
-  "halt/stop": {
-   "node": "FV3-16",
-   "raised_by": "product gap: canon run 44124601253 (dry-1/exits:s0/halt/stop, C2: no driver-answers.jsonl row, 0 row(s) added); same class as gate_A/stop (critic t-1077): an answer whose branch raises a Person leaves no answer row; FV3-16"
   }
  },
  "pins": {
