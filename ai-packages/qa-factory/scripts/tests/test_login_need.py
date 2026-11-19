@@ -71,6 +71,24 @@ def test_manual_case_without_account_needs_login(tmp_path):
     assert needed(task, cfg) is True
 
 
+def test_env_only_account_names_no_role_needs_login(tmp_path):
+    # PK2-15: an `env:` account alone names no role, so the default login IS needed
+    env_account = dict(ADMIN, check={"env": "ADMIN_USER"})
+    task, cfg = story(tmp_path, [("TC-001", "manual-agent", [env_account])])
+    assert needed(task, cfg) is True
+
+
+def test_both_callers_read_one_role_set(tmp_path):
+    # PK2-17: the rule and the rehearsal share `case_account_roles`
+    items = [account(" admin "), dict(ADMIN, id="PC-2", check={"env": "X"}), dict(ADMIN, id="PC-3", check={"stand_account": "  "})]
+    assert GP.case_account_roles(items) == ["admin"]
+    task, cfg = story(tmp_path, [("TC-001", "manual-agent", items[:2])])
+    reh = GP.Rehearsal.__new__(GP.Rehearsal)
+    reh.task_root = task
+    reh.config = cfg
+    assert reh._actors_of_manual_cases() == {"admin": ["TC-001"]}
+
+
 def test_seeded_case_needs_login(tmp_path):
     seeds = {"id": "PC-2", "kind": "data", "what": "the case creates its data", "partitions": [], "check": {"case_seeds": "a project"}}
     task, cfg = story(tmp_path, [("TC-001", "manual-agent", [account("admin"), seeds])])
