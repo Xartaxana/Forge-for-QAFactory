@@ -1065,6 +1065,8 @@ def test_command_line():
         base = ["--task-root", str(task)]
         code, out, err = run("put", *base, "--null", "bogus")
         check("cli: an unknown null reason is a refusal with a code of 2 and no traceback", code == 2 and "Traceback" not in err and "no_stand" in err, err[-300:])
+        check("cli: ... and it carries the row's expected and door lines and its check id last (T3b)",
+              "  expected: A null first look carries a reason from the closed list." in err and err.rstrip().endswith("check: first_look:put.null_reason"), err[-300:])
         code, out, err = run("begin", *base, "--dispatch", WALK, "--env", STAND)
         check_eq("cli: begin", code, 0)
         rows = s.file({"rows": s.rows(caps)})
@@ -1086,6 +1088,40 @@ def test_command_line():
         check("cli: a bad outcome is a refusal", code == 2 and "Traceback" not in err, err[-300:])
     finally:
         harness.cleanup(root)
+
+
+def test_put_problems_carry_their_row_ids():
+    """Told-before-work T3b: each `first_look:put.*` id is told at its site, the problem's text as it was (the cases above read it)."""
+    def checks(done):
+        return {getattr(p, "check", "") for p in done["problems"]}
+    def bad_row(path):
+        return lambda s, caps: s.put([{**s.rows(caps)[0], "path": path}, *s.rows(caps)[1:]])
+    def register_moved(s, caps):
+        s.set_register({"R-1": "Another statement.", "R-2": "The stand shows R-2."})
+        return s.put(s.rows(caps))
+    cases = (("null_reason", lambda s, caps: FL.put(s.task, None, "bogus")),
+             ("walk_open", lambda s, caps: (FL._attempt_path(s.task).unlink(), s.put(s.rows(caps)))[1]),
+             ("inputs_current", register_moved),
+             ("input", lambda s, caps: FL.put(s.task, s.root / "absent.yaml")),
+             ("rows", lambda s, caps: s.put(s.rows(caps)[:1])),
+             ("rows.row", lambda s, caps: s.put([{**s.rows(caps)[0], "status": "works"}, *s.rows(caps)[1:]])),
+             ("rows.path", bad_row("a string")),
+             ("rows.api", bad_row({"api": [{"method": "GET"}]})),
+             ("rows.auth", bad_row({"api": [{"method": "GET", "path": "/c", "auth": "nobody", "seen": "reached"}]})),
+             ("rows.locator", bad_row({"locators": [{"what": "Pay"}]})),
+             ("rows.list", bad_row({"steps": "not a list"})))
+    for name, provoke in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            s = Story(tmp)
+            caps = s.ready()
+            done = provoke(s, caps)
+            check(f"put_problems_carry_their_row_ids: {name}: refused, the problem is a Record of first_look:put.{name}",
+                  not done["written"] and f"first_look:put.{name}" in checks(done), str(done["problems"])[:300])
+    with tempfile.TemporaryDirectory() as tmp:
+        s = Story(tmp)
+        caps = s.ready()
+        done = s.put([{**s.rows(caps)[0], "path": {"steps": "x"}}, *s.rows(caps)[1:]])
+        check_eq("put_problems_carry_their_row_ids: a clean record is no Record and writes", (s.put(s.rows(caps))["problems"], bool(done["problems"])), ([], True))
 
 
 def main():

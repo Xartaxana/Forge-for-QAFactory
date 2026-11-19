@@ -3718,7 +3718,58 @@ def of4_21_paths_follow_the_reader() -> None:
             harness.cleanup(folder)
 
 
+def t3b_groups_line() -> None:
+    """Told-before-work T3b (a)-(c): `dispatch_groups` names the page's groups that hold (plan, window, first look, plain), an unreadable
+    fact names neither member of its pair and says so, and the prompt keeps the line on a RESUMED rework (outside the `not resumed` branch)."""
+    import shutil
+    import tempfile
+    import controller as CT
+    plan, other = {"stage": "S5", "purpose": CT.S5_PLAN}, "S5-qa-automator-0"
+    A, R = "qa-automator", "qa-runner"
+    first, second = 'Only in a first look (replaces "Not in a first look")', 'Only in a plan dispatch (replaces "Only in a window")'
+    unsure = 'could not tell: read both "%s" and "%s" and ask the conductor'
+    table = (("plan", A, "S5", {"S5-a-1": plan}, [second]),
+             ("window", A, "S5", {"S5-a-1": {"stage": "S5"}, other: plan}, ['Only in a window (replaced by "Only in a plan dispatch")']),
+             ("first look", R, "S3", {"S5-a-1": {"stage": "S3", "purpose": "first_look"}}, [first]),
+             ("plain runner", R, "S6", {"S5-a-1": {"stage": "S6"}}, []),
+             ("plain scout", "qa-scout", "S1", {"S5-a-1": {"stage": "S1"}}, []),
+             ("no record, plan role", A, "S5", {}, [unsure % ("Only in a plan dispatch", "Only in a window")]),
+             ("no record, runner", R, "S6", {}, [unsure % ("Only in a first look", "Not in a first look")]),
+             ("broken state, plan role", A, "S5", "{broken", [unsure % ("Only in a plan dispatch", "Only in a window")]))
+    for label, role, stage, dispatches, want in table:
+        tmp = Path(tempfile.mkdtemp(prefix="qa-t3b-"))
+        try:
+            (tmp / "state").mkdir()
+            text = dispatches if isinstance(dispatches, str) else json.dumps({"dispatches": dispatches})
+            (tmp / "state" / "controller.json").write_text(text, encoding="utf-8")
+            got = brief_pack.dispatch_groups(tmp, stage, role, "S5-a-1")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        check_eq(f"T3b (a)(c): {label}: the groups that hold", got, want)
+        page = "".join(p.read_text(encoding="utf-8") for p in (harness.PLUGIN_ROOT / "references" / "slices" / role).glob("handoff-keys*.md"))
+        check(f"T3b: {label}: every named group is a heading of the role's real page",
+              all(f"### {g}" in page for g in got if not g.startswith(brief_pack.COULD_NOT_TELL)), page[:200])
+    line = brief_pack.groups_line([first])
+    check("T3b: a named group: the line names it and the rest as not for this dispatch",
+          f"`{first}`; the other sub-sections are not for this dispatch." in line and line.startswith(brief_pack.GROUPS_LINE_HEAD), line)
+    check_in("T3b: no group holds: the line says so", 'and none of its "Only in" sub-sections.', brief_pack.groups_line([]))
+    check_in("T3b (c): an unreadable pair: the line says could not tell and does not claim the rest is out",
+             "could not tell: read both", brief_pack.groups_line([unsure % ("A", "B")]))
+    stage = {"id": "S5", "inputs": []}
+    resumed = ("You are resumed (same agent as P): the brief is already read; read only d.md. If you do not hold P's context, read b.md first.",)
+    args = ("QA-9", stage, A, "S5-qa-automator-3", [], "qa-factory/x/b.md", "")
+    card = story_step._prompt(*args, resumed, [second])
+    check("T3b (b): a RESUMED rework's prompt carries the groups line and not the brief line",
+          brief_pack.GROUPS_LINE_HEAD in card and "first; it names the files" not in card, card)
+    fresh, bare = story_step._prompt(*args, (), [second]).splitlines(), story_step._prompt(*args, ()).splitlines()
+    check_eq("T3b (b): the first prompt keeps every line it had, in order, and gains the one line right before the brief line",
+             [x for x in fresh if not x.startswith(brief_pack.GROUPS_LINE_HEAD)], bare)
+    check_eq("T3b (b): ... the groups line stands before `Read <brief> first`", [i for i, x in enumerate(fresh) if x.startswith("Read ")],
+             [[i for i, x in enumerate(fresh) if x.startswith(brief_pack.GROUPS_LINE_HEAD)][0] + 1])
+
+
 def main() -> None:
+    t3b_groups_line()
     of3_1c_home_strategy()
     of4_21_paths_follow_the_reader()
     not_established_label()
@@ -3746,6 +3797,9 @@ def main() -> None:
         check_in("and the note says how big it is", "brief: qa-factory/artifacts/QA-9/work/briefs/S1-qa-scout-1.md",
                  started.stdout)
         scout = brief_path.read_text(encoding="utf-8")
+        check_in("T3b: the launch prompt `start` prints carries the groups line", brief_pack.GROUPS_LINE_HEAD, started.stdout)
+        check("T3b: the scout's brief has the groups line right under its commands and no ahead section",
+              "## The rules code will apply" not in scout and brief_pack.GROUPS_LINE_HEAD in scout.split("## Commands")[1].split("\n## ")[0], scout[-600:])
         check_in("the scout's card names the ticket adapter", "ticket_adapter.py get|children|diff", scout)
         check_in("and the diff pass instead of the diff", "diff_pass.py --diff", scout)
         check_in("the S1 brief lists the stage's input with its size", "qa-factory/artifacts/QA-9/pipeline.json (", scout)
@@ -3854,8 +3908,8 @@ def main() -> None:
         check_in("and --detail", "run_suite.py --detail <test substring> --request <request.json>", text)
         check_in("s5_precheck with the dispatch", "s5_precheck.py --task-root <task root> --dispatch S5-qa-automator-1 [--json]", text)
         check_in("manifest_put as the fragment door", "manifest_put.py --task QA-9 --fragment <file.json>", text)
-        check_in("the precheck rules are said ahead", "## The rules code will apply to your handoff", text)
-        check_in("including the contradiction route", "contradicts_requirement", text)
+        check_not_in("T3b: the rules are no longer copied into the brief (the key page tells them)", "## The rules code will apply to your handoff", text)
+        check_in("T3b: the brief says which groups of the page are for this dispatch", brief_pack.GROUPS_LINE_HEAD, text)
         check_in("the gate A words reach the automator", "gate A (approved): Gate A: approved. Proceed to S5", text)
         check_in("and the standing warning", "standing: tracker_write: no", text)
         check_in("and the S5 waiver", 'S5 block "vcs-1: uncommitted changes" -> go on', text)

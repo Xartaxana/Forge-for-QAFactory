@@ -250,7 +250,7 @@ RESUMED_PREFIX = "You are resumed"   # the first words of the line `_resumed_lin
 
 
 def _prompt(task: str, stage: dict, role: str, dispatch_id: str, extras: list, brief: str = "",
-            form: str = "", packet_lines: tuple = ()) -> str:
+            form: str = "", packet_lines: tuple = (), groups=None) -> str:
     base = f"qa-factory/artifacts/{task}/"
     # `project:readiness.json` / `project:state/journal.jsonl` are the data file's spellings; the
     # prompt names the path where the file really is (runtime_paths, t-232 section 8).
@@ -293,6 +293,11 @@ def _prompt(task: str, stage: dict, role: str, dispatch_id: str, extras: list, b
                 "is refused); do not run the checker - `story_step finish` validates the form",
                 "  what you cannot fill: put it under `blocked` - the conductor answers, you never "
                 "ask the person"]
+    if groups is not None:
+        # Told-before-work T3b (B3): which sub-sections of its key page are for this dispatch. POSITION: outside the `not resumed` branch
+        # below, so a rework that resumes its agent gets the line in its new prompt too; `None` (a caller that read none) adds nothing.
+        import brief_pack
+        lines.append(brief_pack.groups_line(groups))
     resumed = any(str(line).startswith(RESUMED_PREFIX) for line in packet_lines)
     if brief and not resumed:
         # The brief names the files to read and every command with its argument shape
@@ -1283,8 +1288,13 @@ def _card_text(task: str, stage: dict, role: str, dispatch_id: str, task_root: P
     is the dispatch's request (the committed event, or the record projected from it): a rework's identity
     reaches the prompt through it, any other dispatch renders exactly as it always did."""
     extras = _prompt_inputs(task, stage["id"], role, task_root, dispatch_id)
+    try:        # the one function the brief's line calls too (lazy import, as `_author_argv`); no line when it cannot be built: the page stands alone
+        import brief_pack
+        groups = brief_pack.dispatch_groups(task_root, stage["id"], role, dispatch_id)
+    except Exception:  # noqa: BLE001 - a card is never lost to a courtesy line
+        groups = None
     return launch_card.render(task, role, dispatch_id,
-                              _prompt(task, stage, role, dispatch_id, extras, brief, form, _packet_lines(packet, task)),
+                              _prompt(task, stage, role, dispatch_id, extras, brief, form, _packet_lines(packet, task), groups),
                               _finish_door(stage["id"], role))
 
 

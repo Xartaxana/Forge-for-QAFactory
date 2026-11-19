@@ -200,6 +200,19 @@ def window_text_fields() -> tuple:
     return tuple(name for name, spec in REQUIRED_ROW_FIELDS.items() if spec.window and spec.filled_by == "automator")
 
 
+def row_field_lines() -> list:
+    """The fields a `tests[]` row owes, one `- <name>: <what>` line each, rendered from their ONE carrier `REQUIRED_ROW_FIELDS` in the
+    words of `manifest_from_tests._legend_line` (axis 28, AR-13; told-before-work T3b moved it here from `brief_pack`, so a row
+    of `stage-joints.json` can read the same lines). The brief calls it; no list of names is spelled elsewhere."""
+    out = []
+    for name, spec in REQUIRED_ROW_FIELDS.items():
+        if spec.filled_by == "automator":
+            out.append(f"- {name}: {spec.what}" + (f" (one of: {', '.join(spec.values)})" if spec.values else ""))
+        else:
+            out.append(f"- {name}: {spec.what}; written by the marker, not by hand: {spec.origin_door}")
+    return out
+
+
 def _is_blank(value) -> bool:
     """A field is missing when its key is absent, `None` or `""` - and nothing else: the window copies `str(x or "")`
     and deletes an empty result, so a string of spaces is a VALUE to it and to the acceptance (FR-59: what the window
