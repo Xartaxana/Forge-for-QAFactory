@@ -3236,6 +3236,36 @@ def class_kwargs(task_root) -> dict:
             "image_size_limit": image_size_limit_of(task_root)}
 
 
+def inventory_summary(task_root) -> dict | None:
+    """`completeness` of the story's own `work/source-inventory.json` with its class kwargs, or None when the file is absent or ANY read or compute
+    step fails (FV3-27, AR-28: an inventory the factory cannot read is an unknown, and the unknown is asked, never hidden)."""
+    path = Path(task_root) / "work" / "source-inventory.json"
+    try:
+        if not path.is_file():
+            return None
+        summary = completeness(load_inventory(path), **class_kwargs(task_root))
+    except Exception:       # noqa: BLE001 - the width is the point: no failure of the read may close a question (card FV3-27 F1 (a))
+        return None
+    return summary if isinstance(summary, dict) else None
+
+
+def asked_in(summary) -> bool:
+    """Is something still ASKED at S1 (C2-9: the `unavailable` answer is offered only then). The ONLY False is a readable summary whose `unavailable` and
+    `unavailable_materials` are both empty; a missing summary (None) reads True - the error direction is "asked" (AR-28)."""
+    if summary is None:
+        return True
+    try:
+        return bool(summary.get("unavailable") or summary.get("unavailable_materials"))
+    except Exception:       # noqa: BLE001 - a summary that is no mapping is an unknown too
+        return True
+
+
+def asked_open(task_root) -> bool:
+    """The ONE product predicate "something is still asked at S1": `Driver.s1_review_text` offers `unavailable` on it and the dry walker's
+    `inventory_unavailable` fact reads it (AR-13, FV3-27). Never raises; missing or unreadable reads True."""
+    return asked_in(inventory_summary(task_root))
+
+
 def record_gap_class(output, causes, words, shown, story) -> tuple:
     """`(written, already, problem)`: one live row per cause, with the person's words whole. A cause outside `media_causes` and
     `source_unavailable` is a `ValueError` listing them (FR-1). A cause that has a live row stays as it is (`already`: the

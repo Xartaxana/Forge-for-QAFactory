@@ -288,6 +288,51 @@ def c29_class_problem_defect() -> None:
         harness.cleanup(root)
 
 
+def c29_s1_review_offer() -> None:
+    """FV3-27 (edges a-c): `unavailable` is offered while something is ASKED, and an inventory the factory cannot read never hides it (AR-28).
+    The one predicate `source_inventory.asked_open` is read by the text and by the dry walker's fact, so the two agree on every row."""
+    import source_inventory as SI
+    task = "QA-1"
+    root, task_root, env = s0_project(task)
+    asked_row = {"url": C29_MR, "status": "unavailable", "cause": "auth_required", "access_problem": True, "error": "auth_required: 302 to the SSO login"}
+    by_default = {"url": C29_SHARE, "status": "unavailable", "cause": "no_tool", "error": "no_tool: no browser"}
+    good = lambda *media: json.dumps({"schema_version": 1, "sources": [c29_source("SRC-1", list(media))]})      # noqa: E731
+    path = task_root / "work" / "source-inventory.json"
+    try:
+        driver = driver_for(root, env, task)
+        for label, raw, offered, defaulted_line in (
+                ("a: nothing unavailable", good(), False, False),
+                ("a: only what the factory itself established (a default)", good(by_default), False, True),
+                ("a: one point still asked", good(asked_row), True, False),
+                ("b: missing file", None, True, False), ("b: a directory at the path", "DIR", True, False), ("b: empty file", "", True, False),
+                ("b: bytes not UTF-8", b"\xff\xfe{", True, False), ("b: invalid JSON", "{not json", True, False),
+                ("b: JSON []", "[]", True, False), ("b: JSON null", "null", True, False), ("b: JSON \"x\"", '"x"', True, False), ("b: JSON 1", "1", True, False),
+                ("b: sources a string", '{"sources": "x"}', True, False), ("b: sources [1]", '{"sources": [1]}', True, False),
+                ("c: gap-classes.json unreadable, an asked point stays asked", good(asked_row), True, False)):
+            if path.is_dir():
+                path.rmdir()
+            elif path.exists():
+                path.unlink()
+            if raw == "DIR":
+                path.mkdir(parents=True)
+            elif raw is not None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(raw if isinstance(raw, bytes) else raw.encode("utf-8"))
+            classes = task_root / "work" / "gap-classes.json"
+            if label.startswith("c:"):
+                classes.write_text("{broken", encoding="utf-8")
+            try:
+                text = driver.s1_review_text("digest")
+            except Exception as raised:      # noqa: BLE001 - the row judges that nothing comes out
+                check(f"{label}: nothing raises out of s1_review_text", False, repr(raised))
+                continue
+            check_eq(f"{label}: `unavailable` offered", "for anything unavailable: get me access" in str(text), offered)
+            check_eq(f"{label}: the defaulted line", "cannot reach by itself" in str(text), defaulted_line)
+            check_eq(f"{label}: the predicate agrees with the text", SI.asked_open(task_root), offered)
+    finally:
+        harness.cleanup(root)
+
+
 def c29_unreachable_mr() -> None:
     """T8 (the code writes the verdict of an unreachable merge request, with its carrier) and T14 (`handoff` collects again for a gap by
     default, with no error)."""
@@ -371,6 +416,7 @@ def main() -> None:
         c29_s1_gap_answer,
         c29_partial_accept,
         c29_class_problem_defect,
+        c29_s1_review_offer,
         c29_unreachable_mr,
     ],
     )
