@@ -5373,9 +5373,9 @@ def _plan_names(plan_map) -> str:
 
 
 def _ref_shape_problems(refs, where: str, hash_required: bool) -> list:
-    """The shape texts of one `obligation_refs` list, ONE wording for the reader (`obligation_ref_problems`,
-    `hash_required=True`) and the stamp (`_stamp_row_refs`, `hash_required=False`: a missing hash is what the stamp
-    writes). At most one problem per ref: not an object / an id that is not a non-empty string / an id twice / (when
+    """The shape texts of one `obligation_refs` list, ONE wording for the reader (`obligation_ref_problems`;
+    the caller chooses `hash_required`, default True) and the stamp (`_stamp_row_refs`, `hash_required=False`: a
+    missing hash is what the stamp writes). At most one problem per ref: not an object / an id that is not a non-empty string / an id twice / (when
     required) no hash / a hash that is not a string."""
     if not isinstance(refs, list):
         return [f"{where} is {type(refs).__name__}, not a list; send {REF_SHAPE}"]
@@ -5399,13 +5399,14 @@ def _ref_shape_problems(refs, where: str, hash_required: bool) -> list:
     return out
 
 
-def obligation_ref_problems(refs, plan_map=None, strict=False) -> list:
+def obligation_ref_problems(refs, plan_map=None, strict=False, *, hash_required=True) -> list:
     """`[(kind, text), ...]` of the references in `refs`, kinds `shape` / `unknown` / `stale`; `[]` for an empty list
     (whether refs are DEMANDED is the caller's rule). Any `shape` problem is returned ALONE: a broken list never reaches
     the hash comparison. `unknown`: an id the non-empty `plan_map` does not name; with `strict` and no map every ref is
     unknown. `stale`: a hash that is not `content_hash` of the plan's obligation. With `strict=False` and no map only
-    shape is judged."""
-    shape = _ref_shape_problems(refs, "obligation_refs", hash_required=True)
+    shape is judged. `hash_required=False` (FV3-18: the row reader where the stamp could not have run) accepts ONLY an
+    absent hash, skipped by the stale comparison; a wrong or non-string hash and the id stay judged."""
+    shape = _ref_shape_problems(refs, "obligation_refs", hash_required=hash_required)
     if shape:
         return [("shape", text) for text in shape]
     if not plan_map:
@@ -5418,6 +5419,8 @@ def obligation_ref_problems(refs, plan_map=None, strict=False) -> list:
         if oid not in plan_map:
             out.append(("unknown", f"obligation_refs[{at}]: {oid} is not an obligation of the plan "
                                    f"(the plan names {_plan_names(plan_map)})"))
+        elif ref.get("obligation_hash") in (None, "") and not hash_required:
+            continue
         elif ref["obligation_hash"] != content_hash(plan_map[oid]):
             out.append(("stale", f"obligation_refs[{at}]: {oid} carries hash {ref['obligation_hash']}, the plan's "
                                  f"obligation hashes to {content_hash(plan_map[oid])}"))

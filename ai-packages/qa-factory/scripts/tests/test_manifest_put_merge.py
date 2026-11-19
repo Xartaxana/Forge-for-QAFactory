@@ -829,6 +829,12 @@ def fv1_19_predicate() -> None:
              (kinds([good("OB-1"), good("OB-2")], {}, True), kinds([good("OB-1")], None, True)), (["unknown", "unknown"], ["unknown"]))
     check_eq("predicate: not strict with an empty or missing map judges shape only",
              (kinds([good("OB-1")], {}), kinds([good("OB-1")], None), kinds([{"obligation_id": "OB-1"}], None)), ([], [], ["shape"]))
+    row_kinds = lambda r, m: [k for k, _t in C.obligation_ref_problems(r, m, hash_required=False)]   # noqa: E731
+    check_eq("predicate: hash_required=False accepts ONLY an absent hash (FV3-18)",
+             (row_kinds([{"obligation_id": "OB-1"}], None), row_kinds([{"obligation_id": "OB-1"}], plan),
+              row_kinds([good("OB-1") | {"obligation_hash": "bad "}], plan),
+              row_kinds([{"obligation_id": "OB-1", "obligation_hash": 123}], plan), row_kinds([{"obligation_id": "OB-9"}], plan)),
+             ([], [], ["stale"], ["shape"], ["unknown"]))
     check_eq("predicate: strict with an empty map still returns shape alone when the list is broken", kinds(["x"], {}, True), ["shape"])
     sent = {"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}])], "obligation_bindings": [{"obligation_id": "OB-1"}]}
     frozen = copy.deepcopy(sent)

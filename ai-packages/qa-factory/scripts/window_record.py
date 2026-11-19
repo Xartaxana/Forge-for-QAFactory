@@ -242,7 +242,8 @@ def _obligation_refs_problem(entry: dict, plan, known=None) -> str:
     absent or empty only shape is judged. Every verdict names the way on: send the refs again, ids only."""
     refs = entry.get("obligation_refs")
     if isinstance(refs, (list, tuple)) and any(isinstance(ref, dict) and ref.get("obligation_id") for ref in refs):
-        found = C.obligation_ref_problems(list(refs), known)
+        # the per-ref hash is demanded exactly when the stamp would have written it (contract._stamp_row_refs: `if plan_map`)
+        found = C.obligation_ref_problems(list(refs), known, hash_required=bool(known))
         if found:
             stale = any(kind == "stale" for kind, _text in found)
             text = "; ".join(("stale: " if kind == "stale" else "") + text for kind, text in found)
