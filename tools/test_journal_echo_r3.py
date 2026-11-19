@@ -118,6 +118,23 @@ def test_s1_basis_critic_without_delegation_suppresses_m1_but_m2_fires():
     assert _kinds(events) == [("phantom_basis", "t-001")]
 
 
+@pytest.mark.parametrize("delegated_under,kinds", [
+    ("t-777", []),                                   # the cited id names a critic delegated (another task): silent
+    ("t-778", [("phantom_basis", "t-001")]),         # none under the cited id: the M2 literal
+    (None, [("phantom_basis", "t-001")]),
+])
+def test_s1_basis_cited_critic_task_id(delegated_under, kinds):
+    # FG7-88 Q2 / QE3: `critic:t-NNN` is confirmed by a critic delegated under the CITED id
+    base = [] if delegated_under is None else [_l(event="delegated", agent="critic", task_id=delegated_under)]
+    new = [_l(event="accepted", agent="builder", task_id="t-001", basis="critic:t-777")]
+    assert _kinds(_accepted_events(new, base)) == kinds
+
+
+def test_s1_malformed_cited_basis_is_basis_none_m1():
+    new = [_l(event="accepted", agent="builder", task_id="t-001", basis="critic:t-77")]
+    assert _kinds(_accepted_events(new)) == [("no_input", "t-001")]
+
+
 def test_s1_negative_twin_no_basis_warns_m1():
     new = [_l(event="accepted", agent="builder", task_id="t-001")]
     events = _accepted_events(new)
