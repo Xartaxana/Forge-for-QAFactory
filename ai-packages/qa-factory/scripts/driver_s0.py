@@ -1142,7 +1142,7 @@ class DriverS0:
             import project_knowledge as PK
             row, problem, _ = PK.record(self.project, key=PK.SIDES_KEY, environment="", element=name, state=PK.KNOWN, scope="project",
                                         value={"deliverable": door == "ours", "settles_by": ""}, words=words or door, source="person",
-                                        story=self.task, by="driver", task_root=self.task_root,
+                                        story=self.task, by="driver", task_root=self.task_root, launch=launch,
                                         where=where or "the answer to sides.deliverable at the start of the story")
             if row is None:
                 not_kept(f"your answer about {name} was kept for this story only: the project's record of sides did not take it ({problem})")

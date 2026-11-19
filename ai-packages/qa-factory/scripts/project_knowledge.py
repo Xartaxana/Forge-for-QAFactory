@@ -726,12 +726,12 @@ def roster(root, cfg, stand) -> dict:
 
 # --- the one writer ----------------------------------------------------------------------------------------------------
 
-def _refuse_no_trace(task_root) -> str:
+def _refuse_no_trace(task_root, launch=None) -> str:
     """The reason a story that leaves no trace (or whose flag cannot be read) may not record an answer, or "" (P8, FR-53, FR-59). The
     one reader is `external_writes.trace_refusal` (PK2-11/19); a story not named (`task_root` None) is outside any story. Never raises."""
     try:
         import external_writes
-        return external_writes.trace_refusal(task_root)
+        return external_writes.trace_refusal(task_root, launch)
     except Exception:
         return ("whether this story is an experiment that leaves no trace could not be established: the reader failed; "
                 "run the same command again; nothing was recorded")
@@ -962,7 +962,7 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
     return out
 
 
-def record(root, *, key, environment, element, state, scope, value, words, source, story, by, where="", task_root=None, only_if_latest=None, from_held=None) -> tuple:
+def record(root, *, key, environment, element, state, scope, value, words, source, story, by, where="", task_root=None, only_if_latest=None, from_held=None, launch=None) -> tuple:
     """`(row, problem, created)`: ONE fact put in the registry, with the person's words whole.
 
     `from_held` (default None: `value` is used as given) is a pure function of the subject's latest live row (or None), run HERE
@@ -988,7 +988,7 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
         problems = record_problems(key, environment, element, state, scope, words, source, by, load_problem, value)
         if problems:
             return None, "; ".join(problems), False
-        reason = _refuse_no_trace(task_root)
+        reason = _refuse_no_trace(task_root, launch)
         if reason:
             return None, reason, False
         if skip:

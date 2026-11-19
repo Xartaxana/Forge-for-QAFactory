@@ -207,7 +207,7 @@ def trace_state(task_root, launch=None) -> tuple:
         if task_root is None:
             return "open", "no_story"
         root = Path(task_root)
-        if not root.is_dir():
+        if not root.is_dir() and not isinstance(launch, dict):   # a given launch record is a carrier even where nothing is on disk (dry)
             return "unknown", "none"
         pipe_file = root / "pipeline.json"
         pipeline = load_json(pipe_file)[0] if pipe_file.is_file() else None

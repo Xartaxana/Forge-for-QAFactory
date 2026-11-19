@@ -387,6 +387,16 @@ def test_writers_under_trace(writer, world, tmp_path, monkeypatch, capsys):
         assert ("could not be established" in err) == (world == "none") and ("(waiver)" in err) == (world == "launch_yes")
 
 
+def test_driver_dry_mode_launch_in_memory(tmp_path, monkeypatch):
+    """Dry mode: no files on disk (not even the story folder), only the driver's in-memory launch record (PK2-19 round 2, sides keep)."""
+    proj = Proj(tmp_path, monkeypatch, driver_state=None)
+    ghost = proj.root / "qa-factory" / "artifacts" / "T-dry"
+    assert proj.record(task_root=ghost, launch={}, by="driver")[0] is not None                        # no no_trace: the row is written
+    row, problem, _ = proj.record(task_root=ghost, launch={"no_trace": True}, by="driver", element="other")
+    assert row is None and "(waiver)" in problem                                                  # no_trace in memory: closed
+    assert "could not be established" in proj.record(task_root=ghost, element="third")[1]       # no launch given: unknown, refused
+
+
 def test_no_trace_refused(tmp_path, monkeypatch):
     proj = Proj(tmp_path, monkeypatch, pipeline={"ticket": "T-1", "no_trace": True})
     row, problem, created = proj.record(task_root=proj.task)
