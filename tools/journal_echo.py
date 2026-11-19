@@ -2190,8 +2190,9 @@ def _check_accepted_r3(obj: dict, critic_task_ids: set):
             if m.group(1) in critic_task_ids:
                 s5_valid = True
                 break
-    if basis == "critic":
-        if task_id in critic_task_ids or s5_valid:
+    is_critic, cited = journal_validator.critic_basis(basis)
+    if is_critic:
+        if task_id in critic_task_ids or s5_valid or (cited is not None and cited in critic_task_ids):
             return None  # S1 confirmed by delegation OR a valid S5
         return ("phantom_basis", task_id)  # M2 (S2 is not consulted here)
     if isinstance(notes, str) and CRITIC_SKIP_RE.search(notes):

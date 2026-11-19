@@ -331,6 +331,20 @@ CONFIG_REL = "delegation.config.yaml"   # read from the root of the repo being v
 REVIEWED_THROUGH_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 
 TASK_ID_RE = _jk.ID_RE      # the ONE read grammar of a task id (journal_keys.ID_RE): t-NNN[a-z]{0,2}, ASCII only
+
+
+def critic_basis(basis) -> "tuple[bool, str | None]":
+    """The ONE grammar of the critic basis (FG7-88 Q2), read by the matrix, the echo R3 and r3_integration_check:
+    (True, None) for exactly "critic"; (True, tid) for "critic:" + a task id; (False, None) for anything else (a
+    non-str included) -- it may err only toward FAIL. Form only: whether tid names a critic delegated is the echo's."""
+    word = "critic"
+    if basis == word:
+        return (True, None)
+    if isinstance(basis, str) and basis.startswith(word + ":"):
+        tid = basis[len(word) + 1:]
+        if TASK_ID_RE.fullmatch(tid):
+            return (True, tid)
+    return (False, None)
 # Dead-worker replacement marker (rule 9c2): the literal substring
 # "replaces_worker:" plus a non-empty handle = the first non-whitespace
 # token right after the colon (matches the shape of existing worker_ref
@@ -709,14 +723,14 @@ def _matrix_d0058_violation(event: str, agent, by: str, obj: dict, config_text=N
             "with no real tier oversight -- raise 'by' to at least sonnet"
         )
 
-    if basis == "critic":
+    if critic_basis(basis)[0]:
         if critic_rank > agent_rank:
             return None
         return (
             f"role-vs-tier acceptance matrix: agent={agent!r} (rank "
             f"{agent_rank}) accepted with basis='critic', but the "
             "critic's rank is not strictly above the executor's own rank "
-            "-- this would legalize an acceptance this exact matrix row "
+            "(basis 'critic' or 'critic:<critic task id>') -- this would legalize an acceptance this exact matrix row "
             "forbids, voiding the critic-gate guarantee for the "
             f"critic/designer class -- the legal path for agent={agent!r} is by "
             "a model ranked at or above lead, or basis='queued-to-lead' "
@@ -743,7 +757,7 @@ def _matrix_d0058_violation(event: str, agent, by: str, obj: dict, config_text=N
         "executor's rank and no critic justification bypasses the whole "
         "role-vs-tier acceptance matrix -- set basis='critic' (agent "
         "ranked below critic), or 'queued-to-lead' (agent in {critic,"
-        "designer}, by ranked below lead)"
+        "designer}, by ranked below lead); basis 'critic:<critic task id>' is read as 'critic'"
     )
 
 
