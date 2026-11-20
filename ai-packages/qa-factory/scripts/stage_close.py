@@ -563,7 +563,7 @@ class SkillRoad:
         except Refused as exc:
             raise Refused(f"{exc}\n{record_door(self.task, stage, args)}", title=exc.title) from None
         for row in tail:  # FV3-29: a failed tail row was dropped silently (q3c); now one note, the loop goes on, never a raise
-            self.owe_row("log_append.py", *row, what=f"journal row {row[0] if row else '(empty)'}")
+            self.owe_row("log_append.py", *row, what=f"journal row {row[row.index('--event') + 1] if '--event' in row[:-1] else (row[0] if row else '(empty)')}")
 
     def failures_to_triage(self, awaiting: str = "") -> str:
         return s7_failures_to_triage(self.task_root, awaiting)

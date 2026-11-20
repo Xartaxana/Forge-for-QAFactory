@@ -1183,7 +1183,7 @@ def _manual_cases_left(state: dict, scope: list, spent) -> list:
     return [case for case in scope if case not in done and case not in spent]
 
 
-def _code_close_reentry(task: str, task_root, controller, held: dict, where: str, stage: str):
+def _code_close_reentry(task: str, task_root, controller, held: dict, next_line: str, stage: str):
     """Step 1b of `_s6_manual_close` and step 2 of `_s7_code_close` (FV3-26: one reader for both stages): a completed S6/S7 is never closed again
     (a report the receipt hashed is never rewritten, AR-21). A stage the controller completed otherwise (a role's accept, no `code_only`) is
     not this close's world: None, today's lines. A `code_only` stage with its record written: nothing to close; without a readable record:
@@ -1192,10 +1192,22 @@ def _code_close_reentry(task: str, task_root, controller, held: dict, where: str
     if not held.get("code_only"):
         return None
     if stage_close.stage_record_written(task_root, controller, stage):
-        return "done", [f"{stage} is completed already: nothing is closed again", "next: " + where], 0, {}
+        return "done", [f"{stage} is completed already: nothing is closed again", "next: " + next_line], 0, {}
     reason = held.get("reason") if isinstance(held.get("reason"), str) and held.get("reason") else "<the close reason>"
     return "done", [f"story_step: refused - {stage} is completed in the controller but its stage record is not written",
                     stage_close.record_door(task, stage, ["--status", "done", "--digest", reason, "--no-journal"])], 2, {}
+
+
+def _wait_line(where: str) -> str:
+    return f"next: the investigation dispatch is still running: {where}; after it ends run this same start again: it closes S7"
+
+
+def _refused_close_lines(stage: str, exc, captured) -> list:
+    """The lines of a refused close by code, shared by `_s6_manual_close` and `_s7_code_close` (F4): what the module printed, the refusal
+    (a text that ENDS with `\ndoor: <command>` names that door), and the door - the default one when the text names none."""
+    head, sep, tail = str(exc).rpartition("\ndoor: ")
+    return [*captured.getvalue().splitlines(), f"story_step: refused - {stage} was not closed: " + (head if sep else str(exc)),
+            "door: " + tail if sep else "door: repair what the line above names, then run this start again"]
 
 
 def _s7_code_close(args, controller, state: dict):
@@ -1225,8 +1237,15 @@ def _s7_code_close(args, controller, state: dict):
             return None                                 # an accepted analyst: the driver's re-triage / scribe roads, not this close
         if acceptance.awaits_acceptance(state, "S6", _read_pipeline(task_root)):
             return None                                 # S6 awaits its consumer: the analyst is let in for S6 (E7)
-        if code_close_conflicts(state, "S7"):
-            return None                                 # a live S7 dispatch, S6 behind: the one predicate (AR-13)
+        if code_close_conflicts(state, "S7"):           # a live dispatch, S6 behind: the one predicate (AR-13)
+            # F1 (t-1597): a running dispatch that is only an S7 investigation pass (`investigation.pass_members`, the one predicate) is
+            # waited for - the T6 lines, no `s7_code_close` (no place gap over a running pass); any other running id keeps today's None
+            import investigation
+            running = {str(d.get("id") or key) for key, d in state["dispatches"].items() if d.get("status") == "running"}
+            passes = {m["id"] for m in investigation.pass_members(state) if m.get("status") == "running"}
+            if running and running <= passes:
+                return [f"S7: the investigation {', '.join(sorted(running))} is running; S7 is not closed over it", _wait_line(where)], 0
+            return None
     except Exception:  # noqa: BLE001 - an unreadable state never yields a "closed" line (E2): today's lines
         return None
     road = stage_close.SkillRoad(task, task_root, controller)
@@ -1250,16 +1269,13 @@ def _s7_code_close(args, controller, state: dict):
         with contextlib.redirect_stdout(captured):
             verdict = stage_close.s7_code_close(road, "no_failures")
     except (stage_close.Refused, StateConflict, ValueError) as exc:
-        text = str(exc)
-        head, sep, tail = text.rpartition("\ndoor: ")
-        lines = [*captured.getvalue().splitlines(), "story_step: refused - S7 was not closed: " + (head if sep else text),
-                 "door: " + tail if sep else "door: repair what the line above names, then run this start again"]
-        if sep:     # F8a: the record door completes the record only; the tail row is not re-filed on it
-            lines.insert(-1, "note: the journal row dispatch_skipped was not filed")
+        lines = _refused_close_lines("S7", exc, captured)
+        if "\ndoor: " in str(exc):     # F8a: the record door completes the record only; the tail row is not re-filed on it
+            lines.insert(-1, "note: journal row dispatch_skipped was not filed: the record door does not file it")
         return lines, 2
     lines = captured.getvalue().splitlines()
     if verdict == "wait":
-        return [*lines, f"next: the investigation dispatch is still running: {where}; after it ends run this same start again: it closes S7"], 0
+        return [*lines, _wait_line(where)], 0
     if verdict == "dispatch_owed":
         return [*lines, f'next: python "${{CLAUDE_PLUGIN_ROOT}}/scripts/story_step.py" start --task {task} --stage S7 --role qa-failure-analyst '
                 "--purpose investigation (bind, finish --not-complete as the card's section Investigation says); then run this same start again: it closes S7"], 0
@@ -1319,11 +1335,7 @@ def _s6_manual_close(args, controller, state: dict, spent: dict):
         with contextlib.redirect_stdout(captured):
             closed = stage_close.manual_half_close(road, done, list(refused.items()))
     except (stage_close.Refused, StateConflict, ValueError) as exc:
-        text = str(exc)
-        head, sep, tail = text.rpartition("\ndoor: ")
-        door_line = "door: " + tail if sep else "door: repair what the line above names, then run this start again"
-        return "done", [*case_lines, *captured.getvalue().splitlines(),
-                        "story_step: refused - S6 was not closed: " + (head if sep else text), door_line], 2, refused
+        return "done", [*case_lines, *_refused_close_lines("S6", exc, captured)], 2, refused
     lines = [*case_lines, *captured.getvalue().splitlines()]
     card = 'python "${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py" card --stage S7'
     if closed:

@@ -1044,7 +1044,7 @@ def _s7_world(root, report=None):
 GREEN = {"execution_status": "passed", "totals": {"failed": 0}}
 
 
-def _s7(root, ctl, calls, fail=None):
+def _s7(root, ctl, calls, fail=None, **more):
     """`start --stage S7 --role qa-failure-analyst` with `SkillRoad.py` stubbed (the record writes `finished`, as `_close`)."""
     from datetime import datetime, timezone
 
@@ -1059,12 +1059,12 @@ def _s7(root, ctl, calls, fail=None):
             raise stage_close.Refused(f"{script} exit {code}: {out}")
         return code, out
     with mock.patch.object(stage_close.SkillRoad, "py", fake):
-        return start(root, ctl, None, kind="", stage="S7", role="qa-failure-analyst")
+        return start(root, ctl, None, kind="", stage="S7", role="qa-failure-analyst", **more)
 
 
 def test_fv3_26_nothing_to_triage_closes_s7_on_the_skill_road():
-    """FV3-26 T1-T9 (card 2.3, E1-E12). KILLS: the guard order of `_s7_code_close`; the need guard; a close over a halted report, a running
-    pass or S6 awaiting; a second receipt; a dropped `note:`; a refused record reported closed."""
+    """FV3-26 T1-T9 (card 2.3, E1-E12). KILLS: a close over an accepted analyst (step 3), a running pass (step 5, real pass), S6 awaiting, a
+    halted report or a need row; a second receipt; a tail note naming the wrong word; a refused record reported closed."""
     count = len(harness.RESULTS)
     receipts = lambda ctl: [e["payload"] for e in ctl.store.read() if e["type"] == "code_only" and e["payload"].get("stage") == "S7"]  # noqa: E731
     s7_rows = lambda ctl: [d for d in ctl.state()["dispatches"].values() if d["stage"] == "S7"]  # noqa: E731
@@ -1089,22 +1089,43 @@ def test_fv3_26_nothing_to_triage_closes_s7_on_the_skill_road():
         ctl, calls = _s7_world(root, GREEN), []
         code, text, _ = _s7(root, ctl, calls, fail={"stage_done.py": (1, "refused")})
         check_eq("T4: refused + door + note, the receipt stands", (code, len(receipts(ctl)), "S7 was not closed" in text, "--stage S7 --status done --digest" in text.splitlines()[-1],
-                 "dispatch_skipped was not filed" in text, "S7 is closed by code" in text), (2, 1, True, True, True, False))
+                 "journal row dispatch_skipped was not filed" in text, "S7 is closed by code" in text), (2, 1, True, True, True, False))
     with temp_dir() as root:
         ctl, calls = _s7_world(root, GREEN), []
         code, text, _ = _s7(root, ctl, calls, fail={"log_append.py": (1, "disk")})
-        check_eq("T9: a tail row fails -> note, exit 0, the close stands", (code, len(receipts(ctl)), "note:" in text and "disk" in text), (0, 1, True))
+        check_eq("T9: a tail row fails -> note, exit 0, the close stands", (code, len(receipts(ctl)), "note: journal row dispatch_skipped was not filed: disk" in text), (0, 1, True))
     with temp_dir() as root:                                                         # T5 S6 awaits, T6 running, T6b owed
         ctl, calls = _s7_world(root, GREEN), []
         with mock.patch.object(acceptance, "awaits_acceptance", lambda *a, **k: "S6-qa-runner-1"):
             code, text, seen = _s7(root, ctl, calls)
         check_eq("T5: S6 awaits -> today's dispatch, no receipt", (receipts(ctl), calls, seen["scope"] != []), ([], [], True))
-    for name, word, said in (("T6", ("wait", "INV-1"), "still running"), ("T6b", ("dispatch", ""), "--purpose investigation")):
-        with temp_dir() as root:
-            ctl, calls = _s7_world(root, GREEN), []
-            with mock.patch("investigation.decision", lambda *a, **k: word), mock.patch("investigation.open_targets", lambda *a, **k: {"unresolved": ["OB-1"]}):
-                code, text, seen = _s7(root, ctl, calls)
-            check_eq(f"{name}: exit 0, no close, no dispatch, the next line", (code, receipts(ctl), calls, said in text, seen["scope"]), (0, [], [], True, []))
+    with temp_dir() as root:                                                         # T6: a REAL running pass
+        ctl, calls = _s7_world(root, GREEN), []
+        _s7(root, ctl, calls, purpose="investigation")
+        before = ctl.state()["revision"]
+        code, text, seen = _s7(root, ctl, calls)
+        check_eq("T6: running pass -> its lines, exit 0, nothing closed or written", (code, receipts(ctl), calls, ctl.state()["revision"] == before, seen["scope"],
+                 "S7-qa-failure-analyst-1 is running" in text and "still running" in text), (0, [], [], True, [], True))
+        with mock.patch("investigation.pass_members", lambda state: []):                # a running id that is no pass member -> today's path
+            try:
+                _s7(root, ctl, calls)
+                refused = False
+            except StateConflict:
+                refused = True
+        check_eq("T6: a running id that is no pass member keeps today's code (the sequential refusal)", (refused, receipts(ctl)), (True, []))
+    with temp_dir() as root:                                                         # T6b: a pass owed
+        ctl, calls = _s7_world(root, GREEN), []
+        with mock.patch("investigation.decision", lambda *a, **k: ("dispatch", "")), mock.patch("investigation.open_targets", lambda *a, **k: {"unresolved": ["OB-1"]}):
+            code, text, seen = _s7(root, ctl, calls)
+        check_eq("T6b: exit 0, no close, no dispatch, the investigation start next", (code, receipts(ctl), calls, "--purpose investigation" in text, seen["scope"]), (0, [], [], True, []))
+    with temp_dir() as root:                                                         # step 3: an accepted analyst, then a green report
+        ctl, calls = _s7_world(root, {"execution_status": "failed", "totals": {"failed": 1}}), []
+        _s7(root, ctl, calls)
+        ctl.apply("accept", {"id": "S7-qa-failure-analyst-1", "status": "accepted", "stage_complete": False, "unresolved": ["repairs_pending"], "reason": "repairs pending",
+                             "evidence_refs": [BASE.evidence_ref(root, "S7-a.txt", "a")], "idempotency_key": "accept-s7-a"})
+        (root / "work" / "run-report.json").write_text(json.dumps(GREEN), encoding="utf-8")
+        code, text, _ = _s7(root, ctl, calls)
+        check_eq("T10: accepted analyst + green report -> today's lines, no receipt, no step", (receipts(ctl), calls, "S7 is closed by code" in text), ([], [], False))
     with temp_dir() as root:                                                         # T7 a counting need row
         need = {"current_manual_checks": [{"case": "TC-1", "unprepared": {"reason": "x", "need": "second-device", "need_why": "w"}}]}
         ctl, calls = _s7_world(root, dict(GREEN, **need)), []
