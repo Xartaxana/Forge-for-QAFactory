@@ -2894,7 +2894,7 @@ class DriverMachine:
                 # the person's line whole. A failure is printed, never added to `failed` (FR-3: it is the factory's, not a reason to
                 # ask the person to send the whole answer again)
                 import stand_gaps
-                stand_gaps.record_lasting(self.project, entry, self.task, print)
+                stand_gaps.record_lasting(self.project, entry, self.task, print, task_root=self.task_root)
         return recorded, failed, failed_cases
 
     def _repo_reminder(self) -> str:
@@ -3146,7 +3146,7 @@ class DriverMachine:
             row = gap.get("property") if isinstance(gap.get("property"), dict) else {}
             name = stand_gaps._label(gap)
             registry = bool(stand_gaps.pk_property_of(gap))      # PK0-9: a row of the project-knowledge registry, taken back by its own tool
-            code, text = self.py("project_knowledge.py" if registry else "environment_record.py", "revoke", "--id", str(row.get("id")),
+            code, text = self.py(*stand_gaps.revoke_args(registry, row.get("id"), self.task),
                                  *stand_gaps.words_args(self.words_file, entry["line"], "ask-again"))
             if code:
                 why = " ".join(text.split())[-160:]

@@ -19,7 +19,7 @@ no key - each is "not covered", and the card is shown. Nothing is recorded under
   environment_record.py show [--json]
   environment_record.py record --task T --contour web --reason zero_tests --exit-code 0 --option accept --words-file F
   environment_record.py record --task T --case TC-007 --gap PC-1 --option accept --words-file F
-  environment_record.py revoke --id EP-1 --words-file F
+  environment_record.py revoke --task T --id EP-1 --words-file F
 """
 import argparse
 import hashlib
@@ -323,7 +323,13 @@ def _write(root, rows) -> str:
     return write_rows(record_path(root), "properties", SCHEMA_VERSION, rows, RECORD_REL)
 
 
-def record(root, key, option, words, story, about="", now=None) -> tuple:
+def _trace_refusal(task_root) -> str:
+    """The ONE experiment refusal (PK2-11, AR-15): "" for no story named (E1) or an open story, else the words to refuse with."""
+    import external_writes
+    return external_writes.trace_refusal(task_root)
+
+
+def record(root, key, option, words, story, about="", now=None, task_root=None) -> tuple:
     """`(row, problem, created)`: one `accept always` put in the record, with the person's words whole.
 
     Refused (nothing written, `row` None, `problem` says why): an option other than `accept`, a key that is not whole, empty
@@ -336,6 +342,9 @@ def record(root, key, option, words, story, about="", now=None) -> tuple:
     text = str(words or "").strip()
     if not text:
         return None, "the person's words are empty", False
+    refused = _trace_refusal(task_root)
+    if refused:
+        return None, refused, False
     rows, problem = load(root)
     if problem:
         return None, problem + "; nothing was written over it", False
@@ -348,10 +357,13 @@ def record(root, key, option, words, story, about="", now=None) -> tuple:
     return (None, problem, False) if problem else (row, "", True)
 
 
-def revoke(root, ep_id, words, now=None) -> tuple:
+def revoke(root, ep_id, words, now=None, task_root=None) -> tuple:
     """`(row, problem)`: take one row back. The row stays, with `revoked_at` and the words said now; past stories are
-    untouched (their own overrides are theirs). An unknown id, an id already taken back, empty words and an unreadable
-    record are refused with the door in the text (`show`)."""
+    untouched (their own overrides are theirs). An unknown id, an id already taken back, empty words, an unreadable
+    record and a story that is an experiment are refused with the door in the text (`show`)."""
+    refused = _trace_refusal(task_root)
+    if refused:
+        return None, refused
     return revoke_row(record_path(root), "properties", SCHEMA_VERSION, ep_id, words, "`environment_record.py show`",
                       now=now, noun="property", label=RECORD_REL)
 
@@ -453,7 +465,7 @@ def cmd_record(ns) -> int:
     if got["key"] is None:
         return _refuse("this gap has no key to record it under (no machine check of it, no stand with an address of its own, "
                        "or no command in the config); the answer for this story is `accept` on the card; nothing was recorded")
-    row, problem, created = record(root, got["key"], ns.option, words, story, about_of(gap))
+    row, problem, created = record(root, got["key"], ns.option, words, story, about_of(gap), task_root=task_root)
     if row is None:
         return _refuse(f"{problem}; nothing was recorded")
     print(f"{row['id']}: {says(row)}" + ("" if created else " (already recorded; the earlier words stand)"))
@@ -465,7 +477,13 @@ def cmd_revoke(ns) -> int:
     if refusal:
         return _refuse(refusal)
     import hooklib
-    row, problem = revoke(hooklib.project_root(), ns.id, words)
+    task_root = None
+    if ns.task:                       # F1: no --task = outside any story = written; a named story that is not there is refused (E2)
+        task_root = hooklib.artifacts_dir(ns.task)
+        if not task_root.is_dir():
+            return _refuse(f"there is no story `{ns.task}` in this project, so nothing was taken back; pass the id of the story "
+                           "that is running as --task")
+    row, problem = revoke(hooklib.project_root(), ns.id, words, task_root=task_root)
     if row is None:
         return _refuse(problem)
     print(f"{row['id']} is taken back: {says(row)} is asked again at every gate; the stories already answered keep their own answers.")
@@ -516,6 +534,7 @@ def main(argv=None) -> int:
     rec.add_argument("--words-file", dest="words_file", default=None)
     rec.set_defaults(fn=cmd_record)
     rev = sub.add_parser("revoke")
+    rev.add_argument("--task", default="")
     rev.add_argument("--id", required=True)
     rev.add_argument("--words-file", dest="words_file", default=None)
     rev.set_defaults(fn=cmd_revoke)

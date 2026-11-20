@@ -481,15 +481,20 @@ def _file_for_write(path: Path) -> dict:
     return parsed
 
 
-def append_row(project_root, row: dict, *, sleep=time.sleep, only_if=None):
+def append_row(project_root, row: dict, *, sleep=time.sleep, only_if=None, task_root=None):
     """Append one row under the writer lock; the file is read again INSIDE the lock, written to a temp file and
     replaced (the bytes of a reader never see half a file). Returns the path, or None when `only_if(state)` said no
     after the re-read (the probe's discovered row: a row that appeared meanwhile, or a `withdrawn` in force, wins).
     Refuses (RegistryError, nothing written) a row that is not valid, and a file that cannot be read whole - an
-    unreadable file is never taken for "nothing known" by a writer (AE4)."""
+    unreadable file is never taken for "nothing known" by a writer (AE4). `task_root` (PK2-11) names the story the write is
+    made in: an experiment (or a story whose flag cannot be read) refuses, nothing written; None = outside any story."""
     problems = row_errors(row, "new")
     if problems:
         raise RegistryError("; ".join(problems))
+    import external_writes
+    refused = external_writes.trace_refusal(task_root)
+    if refused:
+        raise RegistryError(refused)
     path = registry_path(project_root)
 
     def work():
@@ -742,7 +747,7 @@ def cmd_record(ns) -> int:
         return _refuse("--words is empty. A decision of the person carries the person's own words, so nothing was recorded")
     row = make_row(cfg, ns.environment, ns.profile, ns.method, words=ns.words or "", source=ns.source, **kwargs)
     try:
-        append_row(root, row)
+        append_row(root, row, task_root=_task_root(ns.task) if ns.task else None)      # F1: no --task = outside any story
     except RegistryError as exc:
         return _refuse(str(exc))
     print(f"Recorded the decision for stand `{ns.environment}` ({ns.profile} tests) in {registry_rel()}: "
@@ -762,7 +767,7 @@ def cmd_forget(ns) -> int:
         return _refuse("--words is empty. Taking a decision back is the person's word too, so nothing was recorded")
     row = make_row(cfg, ns.environment, ns.profile, "withdrawn", words=ns.words)
     try:
-        append_row(root, row)
+        append_row(root, row, task_root=_task_root(ns.task) if ns.task else None)
     except RegistryError as exc:
         return _refuse(str(exc))
     print(f"Withdrew the decision for stand `{ns.environment}` ({ns.profile} tests) in {registry_rel()}: the factory "
@@ -858,7 +863,7 @@ def main(argv=None) -> int:
     show.add_argument("--json", action="store_true")
     show.set_defaults(fn=cmd_show)
     record = sub.add_parser("record")
-    common(record)
+    common(record, task=True)
     record.add_argument("--method", required=True)
     record.add_argument("--label", default="")
     record.add_argument("--path", default="")
@@ -870,7 +875,7 @@ def main(argv=None) -> int:
     record.add_argument("--source", default="person")
     record.set_defaults(fn=cmd_record)
     forget = sub.add_parser("forget")
-    common(forget)
+    common(forget, task=True)
     forget.set_defaults(fn=cmd_forget)
     confirm = sub.add_parser("confirm")
     common(confirm, task=True)

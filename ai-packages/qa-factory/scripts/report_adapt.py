@@ -97,13 +97,18 @@ def next_id(rows) -> str:
     return f"RA-{max(numbers, default=0) + 1}"
 
 
-def append(root, row: dict) -> tuple:
+def append(root, row: dict, task_root=None) -> tuple:
     """`(row, problem)`: one row after the others, with the next `RA-<n>` and the moment. Refused, nothing written, over a record
-    that cannot be read or a row of another shape. Never raises."""
+    that cannot be read, a row of another shape or a `task_root` that is an experiment (PK2-11; None = outside any story).
+    Never raises."""
     if row.get("kind") not in KINDS or not str(row.get("profile_id") or "").strip() or not str(row.get("argv_digest") or "").strip():
         return None, "a row names its kind (reporter_kind | not_adapted), its profile and the digest of its command"
     if row.get("by") not in WHO:
         return None, f"`by` is one of {', '.join(WHO)}"
+    import external_writes
+    refused = external_writes.trace_refusal(task_root)
+    if refused:
+        return None, refused
     rows, problem = load(root)
     if problem:
         return None, problem + "; nothing was written over it"
@@ -292,8 +297,25 @@ def _story(ns) -> str:
     return str(ns.task or "")
 
 
+def _placed(ns) -> tuple:
+    """`(story folder or None, refusal)`: F1 - no `--task` is a write outside any story (None, ""); a `--task` that is no story folder
+    is refused (E2), and so is an experiment (PK2-11). The command runs this BEFORE its first write, `config.json` included."""
+    if not ns.task:
+        return None, ""
+    import external_writes
+    import hooklib
+    try:
+        task_root = hooklib.story_root(ns.task, "report_adapt.py --task")
+    except ValueError as exc:
+        return None, f"{exc} Nothing was written."
+    return task_root, external_writes.trace_refusal(task_root)
+
+
 def cmd_kind(ns) -> int:
     import config_contract as CC
+    task_root, refused = _placed(ns)
+    if refused:
+        return _refuse(refused)
     root, cfg = _context()
     profile = _profile(cfg, ns.profile)
     if profile is None:
@@ -323,7 +345,8 @@ def cmd_kind(ns) -> int:
         return _refuse(f"{exc}. {door}")
     row, problem = append(root, {"kind": "reporter_kind", "profile_id": ns.profile, "argv_digest": _digest(_identity(profile)), "story": _story(ns),
                                  "by": ns.by, "reader": ns.reader,
-                                 "understood": f"the report was read as {ns.reader} ({tests} test(s) in the kept report)"})
+                                 "understood": f"the report was read as {ns.reader} ({tests} test(s) in the kept report)"},
+                         task_root=task_root)
     if row is None:
         print(f"report_adapt: the profile's report kind is now `{ns.reader}`, but the record row could not be written ({problem})", file=sys.stderr)
         return 1
@@ -351,6 +374,9 @@ def unfit_words(text) -> str:
 
 def cmd_understood(ns) -> int:
     import person_words
+    task_root, refused = _placed(ns)
+    if refused:
+        return _refuse(refused)
     root, cfg = _context()
     profile = _profile(cfg, ns.profile)
     if profile is None:
@@ -370,7 +396,7 @@ def cmd_understood(ns) -> int:
     if not argv:
         return _refuse(f"the profile `{ns.profile}` records no command that runs one test; nothing was written")
     row, problem = append(root, {"kind": "not_adapted", "profile_id": ns.profile, "argv_digest": _digest(_identity(profile)), "story": _story(ns),
-                                 "by": ns.by, "understood": text})
+                                 "by": ns.by, "understood": text}, task_root=task_root)
     if row is None:
         return _refuse(problem)
     print(f"{row['id']}: recorded for `{ns.profile}`; the person is asked about it once, with this.")
@@ -394,6 +420,9 @@ def cmd_show(ns) -> int:
 
 
 def cmd_forget(ns) -> int:
+    _task_root, refused = _placed(ns)
+    if refused:
+        return _refuse(refused)
     root, _cfg = _context()
     rows, problem = load(root)
     if problem:
@@ -433,6 +462,7 @@ def main(argv=None) -> int:
     show.add_argument("--json", action="store_true")
     show.set_defaults(fn=cmd_show)
     forget = sub.add_parser("forget")
+    forget.add_argument("--task", default="")
     forget.add_argument("--id", required=True)
     forget.set_defaults(fn=cmd_forget)
     ns = ap.parse_args(argv)
