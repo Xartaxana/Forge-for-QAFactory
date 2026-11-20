@@ -701,6 +701,8 @@
   {"name": "Driver.s7_retriage_once", "kind": "method", "home": "driver_stage_s7", "row": 76, "note": "C1-5b2 t-832: N1 re-triage once per chain; the second consecutive not-fresh one asks the person through the seam"},
   {"name": "Driver.s7_close", "kind": "method", "home": "driver_stage_s7", "row": 76, "note": "C1-5b2: every row ended: the close by code"},
   {"name": "Driver.s7_investigation_gate", "kind": "method", "home": "driver_stage_s7", "row": 76, "note": "P2 M3: the investigation decision at the three S7 code closers"},
+  {"name": "Driver.s7_investigation_dispatch", "kind": "method", "home": "driver_stage_s7", "row": 76, "note": "FV3-26: delegate of stage_close"},
+  {"name": "Driver.s7_code_close", "kind": "method", "home": "driver_stage_s7", "row": 76, "note": "FV3-26: delegate of stage_close"},
   {"name": "Driver.CONSUMER_ROUTES", "kind": "classconst", "home": "driver_stage_s6", "row": 74, "note": "X7-6c: THE table of the stages accepted by a consumer role (S6 by the failure analyst, S7 by the doc scribe): author, consumer's stage, words, closing predicate, rework completion"},
   {"name": "Driver.consumer_awaits", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "X7-6/X7-6b merged: the author's finish that would close the stage awaits the consumer's acceptance instead"},
   {"name": "Driver.consumer_pending", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "X7-6/X7-6b merged: the consumer's accept record stands and the stage is owed its close"},
