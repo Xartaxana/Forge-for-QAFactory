@@ -27,9 +27,14 @@ Before the first `record` the file does not exist; every reader treats an absent
 
 A LESSON is what a person taught about how a stand behaves (what takes long, how to narrow it): the subject is free words compared
 exactly, the person's words are stored whole and are the payload, `wait_s` is an optional number kept for display. Code never
-interprets the words. A lesson leaves with `revoke`; revoking the newest row of a subject shows the previous live row again, so
-removing a lesson means revoking every live row of the subject (`show` lists them). KNOWN RESIDUAL: a lesson belongs to the stand's
+interprets the words. A lesson leaves with `revoke`; no older lesson of the subject comes back (`show` lists the rows). KNOWN RESIDUAL: a lesson belongs to the stand's
 exact name, so a stand renamed in the config orphans its lessons; `show` still lists them.
+
+AN ANSWER'S LIFE (OF3-2 K1): a row may carry `condition` (the person's words, never parsed) and `supersedes` (the ids of the answers it
+replaces; `[]` = "I read none"). The answer in force for a subject is its HEADS: live rows no other row supersedes. A row with no
+`supersedes` key is LEGACY (written before K1) and supersedes every older row of its subject, so old registries read as they did.
+Two heads are a CONFLICT: every reader hands it over (`conflicts`), none picks one. A revoked row keeps superseding what it
+superseded, so taking back the head brings no older answer back, for every key. `asked` is a MARKER row, outside the answer graph.
 
 THE STAND'S PAGE LOAD (`environments.page_load`, C3-j1): the time the stand's start page took to load, SIGNED OUT, which the factory
 measures itself at gate A and uses (the S5 and S7 briefs carry it; the manual capture's page limit is 180 s or this + 30 s when that
@@ -141,26 +146,32 @@ def rows(key=None) -> list:
 
 
 def _derive_keys() -> tuple:
-    """`(KEYS, problem)` from the registry rows (`store` registry or config+registry), in row order. A registry row without `scope` or
-    `compare` is left OUT (toward "not a project-knowledge key", never a guessed scope) and is the problem when none came first."""
+    """`(KEYS, problem, one_value)` from EVERY catalogue row that names a string `scope` and `compare` (OF3-2 K1: a config-stored fact
+    the seam asks is a key too), in row order; `one_value` is the set of keys whose row says `value: one` (their element is `""`).
+    A row of a registry store without `scope` or `compare` is left OUT (toward "not a project-knowledge key", never a guessed scope)
+    and is the problem when none came first; a config row without them is simply no key (most of the catalogue)."""
     table, problem = _read_catalogue()
-    keys = {}
+    keys, one = {}, set()
     for row in table:
-        if row.get("store") not in ("registry", "config+registry"):
-            continue
         scope, compare = row.get("scope"), row.get("compare")
         if not (isinstance(scope, str) and scope and isinstance(compare, str) and compare):
-            problem = problem or _cut(f"the knowledge row {row['key']} has no scope/compare")
+            if row.get("store") in ("registry", "config+registry"):
+                problem = problem or _cut(f"the knowledge row {row['key']} has no scope/compare")
             continue
         keys[row["key"]] = {"scope": scope, "compare": compare}
-    return keys, problem
+        if row.get("value") == "one":
+            one.add(row["key"])
+    return keys, problem, frozenset(one)
 
 
-KEYS, CATALOGUE_PROBLEM = _derive_keys()
+KEYS, CATALOGUE_PROBLEM, ONE_VALUE_KEYS = _derive_keys()
 KNOWN, NOT_NEEDED, NOTICED, UNKNOWN = "known", "not_needed", "noticed_unconfirmed", "unknown"
-# `asked` is RESERVED for phase 2 (no producer here); `unreachable` is run-scoped and never stored. A row in any other state is skipped.
+# `asked` is a MARKER (the driver asked, nobody answered): never in STATES, so no answer reader sees it; `unreachable` is run-scoped
+# and never stored. A row in any other state is skipped.
+ASKED = "asked"
 STATES = (KNOWN, NOT_NEEDED, NOTICED)
-SOURCES = ("person", "role", "legacy_config", "measured")
+SOURCES = ("person", "role", "legacy_config", "measured", "factory")   # `factory` only with the `asked` marker
+MISSING = object()      # `record(supersedes=MISSING)`: the writer named nothing, so the row supersedes every head found under the lock
 BY = ("conductor", "driver", "gate")
 SIGN_INS = ("account", "none")
 NO_TRACE_WORDS = _EW.NO_TRACE_WORDS
@@ -225,34 +236,128 @@ def lock(root, timeout: float = 10.0):
         yield
 
 
-def _usable(row) -> bool:
-    """A row the readers believe: a live row of a known key, in a written state, whose scope is the key's own and whose element
-    (and, for a stand fact, stand) is present. Anything else is skipped - the asking side."""
-    if not isinstance(row, dict) or row.get("revoked_at"):
+def _row(key):
+    """The catalogue row of `key` (a copy), or None. Read fresh, so only for the rare callers (`fact`, `holds_none`, markers)."""
+    got = rows(key)
+    return got[0] if got else None
+
+
+def _shape_ok(row) -> bool:
+    """A row of the answer graph by SHAPE: a known key, an answer state, the key's own scope, its element (a one-value key's is `""`,
+    any other's is not blank) and, for a stand fact, its stand. Revoked or not: a revoked row still counts for what it superseded."""
+    if not isinstance(row, dict):
         return False
     spec = KEYS.get(row.get("key"))
     if spec is None or row.get("state") not in STATES or row.get("scope") != spec["scope"]:
         return False
-    if not isinstance(row.get("element"), str) or not row["element"].strip() or not isinstance(row.get("environment"), str):
+    element, environment = row.get("element"), row.get("environment")
+    if not isinstance(element, str) or not isinstance(environment, str):
         return False
-    return bool(row["environment"]) if spec["scope"] == "stand" else True
+    if (element != "") if row["key"] in ONE_VALUE_KEYS else not element.strip():
+        return False
+    return bool(environment) if spec["scope"] == "stand" else True
 
 
-def _latest(rows, key, environment, element, states=STATES):
-    """The latest usable row of the subject `(key, environment, element)`: the later `at` wins, on a tie the later row; a row whose
-    `at` cannot be parsed is the oldest there is. The environment is compared exactly, the element by the key's comparator."""
+def _usable(row) -> bool:
+    """A row the readers believe: a live row of the answer graph (`_shape_ok`). Anything else is skipped - the asking side."""
+    return _shape_ok(row) and not row.get("revoked_at")
+
+
+def _subject_pairs(rows, key, environment, element) -> list:
+    """`(index, row)` of every answer-shaped row (revoked too) of the subject `(key, environment, element)`, in file order. The
+    environment is compared exactly, the element by the key's comparator; a list key's blank element names no subject."""
     form = _form(key, element)
-    if not form:
-        return None
-    best, best_order = None, None
-    for index, row in enumerate(rows or []):
-        if (not _usable(row) or row["key"] != key or row["environment"] != environment or row["state"] not in states
-                or _form(key, row["element"]) != form):
+    if not form and key not in ONE_VALUE_KEYS:
+        return []
+    environment = str(environment or "")
+    return [(i, r) for i, r in enumerate(rows or []) if _shape_ok(r) and r["key"] == key and r["environment"] == environment
+            and _form(key, r["element"]) == form]
+
+
+def _subject_groups(rows, key, environment=None) -> dict:
+    """`{(environment, form): [(index, row)]}`: every subject of `key` (of one stand when `environment` is given), the one whose oldest
+    live row is oldest first (the order the roster has always listed its roles in)."""
+    groups = {}
+    for i, r in enumerate(rows or []):
+        if not _shape_ok(r) or r["key"] != key or (environment is not None and r["environment"] != environment):
             continue
-        order = (ER._moment(row.get("at")), index)
-        if best_order is None or order >= best_order:
-            best, best_order = row, order
-    return best
+        form = _form(key, r["element"])
+        if form or key in ONE_VALUE_KEYS:
+            groups.setdefault((r["environment"], form), []).append((i, r))
+
+    def first_live(pairs):
+        live = [(ER._moment(r.get("at")), i) for i, r in pairs if not r.get("revoked_at")]
+        return min(live) if live else (float("inf"), 0)
+    return dict(sorted(groups.items(), key=lambda item: first_live(item[1])))
+
+
+def _ids(rows) -> list:
+    return [r.get("id") for r in rows]
+
+
+def _subject_heads(pairs) -> tuple:
+    """`(heads, cycle)` of ONE subject: the ONE precedence of this module (seven readers and `record` meet it here). HEADS are the live
+    rows no row supersedes. SUPERSEDED is every id in the `supersedes` list of ANY row of the subject (a revoked row keeps superseding
+    what it superseded, so nothing comes back by itself) and, for every LEGACY row (no `supersedes` key: written before K1), every
+    row older by `(at, index)` (later-wins as it always was); a `supersedes` that is not a list supersedes nothing. `cycle` is the
+    ids of the rows that reach themselves through those edges (a hand edit, or a clock gone backwards), else []: the caller then
+    reads the subject as damaged, whatever heads there are."""
+    n = len(pairs)
+    order = [(ER._moment(r.get("at")), i) for i, r in pairs]
+    by_id, explicit, legacy = {}, [set() for _ in pairs], []
+    for pos, (_, r) in enumerate(pairs):
+        if isinstance(r.get("id"), str):
+            by_id.setdefault(r["id"], []).append(pos)
+    for pos, (_, r) in enumerate(pairs):
+        if "supersedes" not in r:
+            legacy.append(pos)
+        elif isinstance(r["supersedes"], list):
+            for sid in r["supersedes"]:
+                if isinstance(sid, str):
+                    explicit[pos] |= set(by_id.get(sid, ()))
+    newest_legacy = max((order[p] for p in legacy), default=None)
+    covered = set().union(*explicit)
+    alive = sorted((p for p in range(n) if not pairs[p][1].get("revoked_at") and p not in covered
+                    and not (newest_legacy is not None and order[p] < newest_legacy)), key=lambda p: order[p])
+    heads = [pairs[p][1] for p in alive]
+    # a cycle needs an edge that goes UP (to a row as new or newer): legacy edges and a normal writer's edges only go down
+    if not any(order[i] >= order[j] for j in range(n) for i in explicit[j]):
+        return heads, []
+    out = [set(e) for e in explicit]
+    for j in legacy:
+        out[j] |= {i for i in range(n) if order[i] < order[j]}
+    back = [{j for j in range(n) if i in out[j]} for i in range(n)]
+    left, changed = set(range(n)), True
+    while changed:        # peel every row that cannot be on a cycle: nothing it supersedes is left, or nothing left supersedes it
+        changed = False
+        for p in sorted(left):
+            if not (out[p] & left) or not (back[p] & left):
+                left.discard(p)
+                changed = True
+    return heads, sorted({str(pairs[p][1].get("id")) for p in left})
+
+
+def _heads(rows, key, environment, element) -> tuple:
+    return _subject_heads(_subject_pairs(rows, key, environment, element))
+
+
+def _settle(heads, cycle) -> tuple:
+    """`(head, ids)`: the one head, or None with the ids that keep the subject from having one - a conflict (two heads or more) or a
+    cycle. None with no ids is a subject nobody answered or one taken back."""
+    if cycle:
+        return None, list(cycle)
+    if len(heads) > 1:
+        return None, _ids(heads)
+    return (heads[0] if heads else None), []
+
+
+def _head(rows, key, environment, element) -> tuple:
+    return _settle(*_heads(rows, key, environment, element))
+
+
+def _condition_of(row) -> str:
+    condition = row.get("condition") if isinstance(row, dict) else None
+    return condition if isinstance(condition, str) else ""
 
 
 # --- the one reader ----------------------------------------------------------------------------------------------------
@@ -290,7 +395,12 @@ def _stand_roles(cfg, environment):
 
 
 def _blank(problem) -> dict:
-    return {"state": UNKNOWN, "row": None, "source": "", "problem": problem, "twins": [], "malformed": False}
+    return {"state": UNKNOWN, "row": None, "source": "", "problem": problem, "twins": [], "malformed": False, "conflicts": [], "condition": ""}
+
+
+def _cycle_text(key, element, ids) -> str:
+    return (f"the answers about {f'{key} {element}'.strip()} point at each other ({', '.join(str(i) for i in ids)}); "
+            "`project_knowledge.py show` lists them")
 
 
 def _source_of(row) -> str:
@@ -314,13 +424,16 @@ def _account_state(rows, problem, environment, element, cfg) -> dict:
     if len(GP.account_keys(roles[real])) != 2:
         out["malformed"] = True
         return out
-    row = _latest(rows, ACCOUNTS_KEY, environment, real, states=(KNOWN,))
-    out.update(state=KNOWN, row=row, source=(_source_of(row) or "registry") if row else "legacy_config")
+    row, _ = _head(rows, ACCOUNTS_KEY, environment, real)
+    row = row if row is not None and row.get("state") == KNOWN else None       # a head counts only when it is `known`
+    out.update(state=KNOWN, row=row, source=(_source_of(row) or "registry") if row else "legacy_config",
+               condition=_condition_of(row))
     return out
 
 
 def state(root, key, environment="", element="", cfg=None) -> dict:
-    """`{"state", "row", "source", "problem", "twins", "malformed"}` of ONE fact. PURE: writes nothing, never raises.
+    """`{"state", "row", "source", "problem", "twins", "malformed", "conflicts", "condition"}` of ONE fact. PURE: writes nothing, never
+    raises. `conflicts` are the ids of two heads that disagree (state `unknown`: nothing picks one); `condition` is the head's, as written.
 
     `state` is `known` / `not_needed` / `noticed_unconfirmed` / `unknown`; `unknown` is never stored. `problem` is the registry's
     load problem ("" when it reads) so the caller can say it (FR-41). `twins`: the config keys a role could mean when more than
@@ -330,10 +443,15 @@ def state(root, key, environment="", element="", cfg=None) -> dict:
         rows, problem = load(root)
         if key == ACCOUNTS_KEY:
             return _account_state(rows, problem, str(environment or ""), str(element or ""), _config(root, cfg))
-        row = _latest(rows, key, str(environment or ""), str(element or ""))
+        heads, cycle = _heads(rows, key, str(environment or ""), str(element or ""))
+        head, ids = _settle(heads, cycle)
         out = _blank(problem)
-        if row is not None:
-            out.update(state=row["state"], row=row, source=_source_of(row) or "registry")
+        if cycle:
+            out["problem"] = "; ".join(x for x in (problem, _cycle_text(key, str(element or ""), cycle)) if x)
+        elif ids:
+            out["conflicts"] = ids              # two answers disagree: unknown, nothing picks one
+        elif head is not None:
+            out.update(state=head["state"], row=head, source=_source_of(head) or "registry", condition=_condition_of(head))
         return out
     except Exception as exc:    # a reader never stops a gate: an unknown it could not establish is `unknown`
         return _blank(f"the record of project knowledge could not be read ({type(exc).__name__})")
@@ -396,12 +514,14 @@ def value(root, key, environment="", cfg=None, element="") -> dict:
             return out
         store = row.get("store")
         if store in ("registry", "config+registry"):
-            if not isinstance(element, str) or not element.strip():
+            if key not in ONE_VALUE_KEYS and (not isinstance(element, str) or not element.strip()):
                 out["problem"] = _cut(f"{key} is a fact per element and no element was named; pass `element=` (the role or the side)")
                 return out
             got = state(root, key, str(environment or ""), element, cfg)
             row = got["row"] if isinstance(got["row"], dict) else None
             out.update(state=got["state"], source=got["source"], problem=got["problem"])
+            if got["conflicts"] or got["condition"]:        # keys appear only when they say something (a config read has neither)
+                out.update(conflicts=got["conflicts"], condition=got["condition"])
             if got["state"] == KNOWN and row is not None and row.get("value") is not None:
                 out["value"] = copy.deepcopy(row["value"])
             return out
@@ -436,23 +556,110 @@ def value(root, key, environment="", cfg=None, element="") -> dict:
         return {"value": None, "state": UNKNOWN, "source": "", "problem": f"the fact could not be read ({type(exc).__name__})"}
 
 
+def fact(root, key, environment="", element="", story="", known=None, cfg=None) -> dict:
+    """`{"step", "row", "conflicts", "condition", "asked", "problem"}`: where ONE fact stands for the seam's question (C9). PURE: writes
+    nothing, never raises. `step` is `known` | `not_needed` | `asked_here` (this story asked and got no answer) | `asked_before` (an
+    earlier story did) | `unknown`. `row` is the answer handed over when it does not decide by itself, `asked` the marker row.
+
+    ORDER (the catalogue is read FIRST, so a key with no row never reads `known`; the carrier is read before the registry, so the
+    registry never makes a config-stored fact `known`): 1 no catalogue row, or a damaged catalogue -> `unknown` with the problem; 2 a
+    list key with no element -> `unknown`; 3 a config-stored key: the caller's `known` (a bool; without it `value()`) decides, and `known`
+    ends here with the head's `condition` beside it; 4 the registry's heads: a conflict or a cycle -> `unknown`, one `not_needed` head
+    with no condition -> `not_needed`, a `known` head of a registry-stored key -> `known`, every other head is handed over as `row`;
+    5 the newest marker newer than every head (any marker when there is no head) -> `asked_here` for the same non-empty story, else
+    `asked_before`; 6 `unknown`.
+
+    ERROR DIRECTION: this reader SUPPRESSES a question, so it errs only toward asking: whatever it cannot establish is `unknown` (or
+    `asked_before`), never `known` / `not_needed`. A `not_needed` head WITH a condition never suppresses: code never judges whether a
+    condition applies (that is the reader's), so it hands the row over."""
+    out = {"step": UNKNOWN, "row": None, "conflicts": [], "condition": "", "asked": None, "problem": ""}
+    try:
+        table, damage = _read_catalogue()
+        spec_row = next((r for r in table if r["key"] == key), None)
+        if spec_row is None or damage:
+            out["problem"] = _cut(f"the project-knowledge catalogue is damaged ({damage})") if damage else _cut(f"no catalogue row for {key}")
+            return out
+        environment, element = str(environment or ""), str(element or "")
+        in_keys = key in KEYS
+        if in_keys and key not in ONE_VALUE_KEYS and not element.strip():
+            out["problem"] = _cut(f"{key} is a list; name the element (`project_knowledge.py show --contents` lists them)")
+            return out
+        rows, problem = load(root) if in_keys else ([], "")
+        heads, cycle = _heads(rows, key, environment, element) if in_keys and not problem else ([], [])
+        head, ids = _settle(heads, cycle)
+        store = spec_row.get("store")
+        config_stored = isinstance(store, str) and store.startswith("config:")
+        if config_stored and (known is True if known is not None else value(root, key, environment, cfg, element)["state"] == KNOWN):
+            out.update(step=KNOWN, condition=_condition_of(head) if head is not None else "")
+            return out
+        if problem:
+            out["problem"] = problem
+            return out
+        if cycle:
+            out["problem"] = _cycle_text(key, element, cycle)
+            return out
+        if ids:
+            out["conflicts"] = ids
+            return out
+        if head is not None:
+            condition = head.get("condition")
+            conditional = condition not in (None, "") and (not isinstance(condition, str) or condition.strip() != "")
+            out.update(condition=_condition_of(head) if isinstance(condition, str) else str(condition or ""))
+            if head.get("state") == NOT_NEEDED and not conditional:
+                out.update(step=NOT_NEEDED, row=head)
+                return out
+            if head.get("state") == KNOWN and not config_stored:       # a config-stored fact never reads `known` from the registry
+                out.update(step=KNOWN, row=head)
+                return out
+            out["row"] = head
+        # a marker counts only for a fact the catalogue asks at first need, and only when no head is newer than it
+        markers = [(ER._moment(r.get("at")), i, r) for i, r in _asked_rows(rows, key, environment, element)
+                   if spec_row.get("ask_when") == "first_need"]
+        if head is not None:
+            newest_head = (ER._moment(head.get("at")), next(i for i, r in enumerate(rows) if r is head))
+            markers = [m for m in markers if m[:2] > newest_head]
+        if markers:
+            marker = max(markers, key=lambda m: (m[0], m[1]))[2]
+            out.update(step="asked_here" if story and _story_of(marker) == story else "asked_before", asked=marker)
+    except Exception as exc:    # noqa: BLE001 - a reader of facts never stops a gate: what it could not establish is `unknown`
+        return {"step": UNKNOWN, "row": None, "conflicts": [], "condition": "", "asked": None,
+                "problem": f"the fact could not be read ({type(exc).__name__})"}
+    return out
+
+
+def holds_none(keys) -> bool:
+    """True only when `keys` is non-empty and EVERY key has a catalogue row that says `holds: "none"` (a question about them holds no
+    case, so it may wait). PURE; never raises. ERROR DIRECTION: False - the question is asked at once, never withheld - for a damaged
+    catalogue, a missing row, a row with no `holds`, and no keys."""
+    try:
+        keys = list(keys)
+        table, damage = _read_catalogue()
+        by_key = {r["key"]: r for r in table}
+        return bool(keys) and not damage and all(isinstance(k, str) and by_key.get(k, {}).get("holds") == "none" for k in keys)
+    except Exception:       # noqa: BLE001 - a reader that could not establish it asks
+        return False
+
+
 def subjects(root, key, environment=None) -> dict:
     """`{"subjects": [(environment, element)], "problem": str}`: the subjects of `key` that have a live row - ALL stands when
-    `environment` is None, else that stand only (compared exactly). PURE: writes nothing, never raises. The precedence is this
-    module's own (`_usable`, then the later `at`, a tie the later row, an unparseable `at` the oldest): a revoked row, a row in a state
-    the registry does not store and a row of another scope are skipped; the element returned is the latest row's, as written.
+    `environment` is None, else that stand only (compared exactly). PURE: writes nothing, never raises. The precedence is the heads
+    rule (`_subject_heads`): a taken-back subject, a row in a state the registry does not store and a row of another scope are
+    skipped; the element returned is the head's, as written. A subject in CONFLICT (or damaged by a cycle) is left out and listed in
+    `conflicts` - `[{"environment", "element", "ids"}]`, a key present only when there is one (toward asking; nothing picks).
     `problem` is the registry's load problem ("" when it reads), so a caller can tell "no row" from "could not read" (FR-41)."""
     out = {"subjects": [], "problem": ""}
     try:
         rows, out["problem"] = load(root)
-        latest = {}
-        for index, row in enumerate(rows):
-            if not _usable(row) or row["key"] != key or (environment is not None and row["environment"] != environment):
-                continue
-            subject, order = (row["environment"], _form(key, row["element"])), (ER._moment(row.get("at")), index)
-            if subject not in latest or order >= latest[subject][0]:
-                latest[subject] = (order, row)
-        out["subjects"] = sorted((env, row["element"]) for (env, _), (_, row) in latest.items())
+        found, conflicts = [], []
+        for (env, _), pairs in _subject_groups(rows, key, environment).items():
+            head, ids = _settle(*_subject_heads(pairs))
+            if ids:
+                conflicts.append({"environment": env, "element": pairs[-1][1]["element"], "ids": ids})
+            elif head is not None:
+                found.append((env, head["element"]))
+        out["subjects"] = sorted(found)
+        if conflicts:
+            out["conflicts"] = conflicts
     except Exception as exc:    # a lister never stops a gate: what it could not read is a problem, not an empty list
         out["problem"] = f"the record of project knowledge could not be read ({type(exc).__name__})"
         out["subjects"] = []
@@ -503,14 +710,18 @@ def lessons(root, stand) -> dict:
         if problem:
             out["problem"] = problem
             return out
-        elements = {}
-        for row in rows:
-            if _usable(row) and row["key"] == LESSONS_KEY and row["environment"] == stand:
-                elements.setdefault(_form(LESSONS_KEY, row["element"]), row["element"])
-        picked = [_latest(rows, LESSONS_KEY, stand, element) for element in elements.values()]
-        picked = sorted((row for row in picked if row is not None), key=lambda row: row["element"])
+        picked, conflicts = [], []
+        for _, pairs in _subject_groups(rows, LESSONS_KEY, stand).items():
+            head, ids = _settle(*_subject_heads(pairs))
+            if ids:
+                conflicts.append({"environment": stand, "element": pairs[-1][1]["element"], "ids": ids})
+            elif head is not None:
+                picked.append(head)
+        picked.sort(key=lambda row: row["element"])
         out["rows"] = copy.deepcopy(picked)
         out["lines"] = [_lesson_line(row) for row in picked]
+        if conflicts:       # a lesson whose answers disagree is left out, not picked (a key only when there is one)
+            out["conflicts"] = conflicts
     except Exception as exc:    # a reader never stops a gate: what it could not read is a problem, not an empty list
         out.update(lines=[], rows=[], problem=f"the record of project knowledge could not be read ({type(exc).__name__})")
     return out
@@ -535,7 +746,7 @@ def instance_answer(root, stand, need) -> dict:
         if problem:
             out["problem"] = problem
             return out
-        row = _newest_answer(rows, stand, need) if need in INSTANCE_NEEDS else None
+        row = _instance_head(rows, stand, need) if need in INSTANCE_NEEDS else None
         if row is not None and _instance_value_ok(row.get("value")):
             out["authorized"], out["row"] = row["value"]["authorized"], copy.deepcopy(row)
     except Exception as exc:    # a reader never stops a gate: what it could not read is a problem, not a "no"
@@ -543,20 +754,12 @@ def instance_answer(root, stand, need) -> dict:
     return out
 
 
-def _newest_answer(rows, stand, need):
-    """The row that decides the answer: the NEWEST row of the subject, revoked rows counted (the `_latest` order), and only a live
-    `known` row is an answer. A revoked or not-`known` newest row is no answer - never a fall back to an older row: after `revoke`
-    the next need asks the person again (review t-1311 F1, F4)."""
-    form = _form(EXTRA_INSTANCE_KEY, need)
-    best, best_order = None, None
-    for index, row in enumerate(rows or []):
-        if (not isinstance(row, dict) or not form or not _usable(dict(row, revoked_at=None)) or row["key"] != EXTRA_INSTANCE_KEY
-                or row["environment"] != stand or _form(EXTRA_INSTANCE_KEY, row["element"]) != form):
-            continue
-        order = (ER._moment(row.get("at")), index)
-        if best_order is None or order >= best_order:
-            best, best_order = row, order
-    return best if best is not None and not best.get("revoked_at") and best.get("state") == KNOWN else None
+def _instance_head(rows, stand, need):
+    """The row that decides the answer: the subject's single HEAD, and only a `known` one is an answer. A taken-back subject (the head
+    revoked: a revoked row supersedes what it superseded) and a conflict are no answer - never a fall back to an older row: after
+    `revoke` the next need asks the person again (review t-1311 F1, F4)."""
+    head, _ = _head(rows, EXTRA_INSTANCE_KEY, stand, need)
+    return head if head is not None and head.get("state") == KNOWN else None
 
 
 def _instance_value_ok(value) -> bool:
@@ -583,11 +786,16 @@ def sign_in(root, stand) -> dict:
         if problem:
             out["problem"] = problem
             return out
-        surfaces = sorted({row["element"] for row in rows if _usable(row) and row["key"] == SIGN_IN_KEY and row["environment"] == stand})
-        for surface in surfaces:
-            row = _latest(rows, SIGN_IN_KEY, stand, surface)
-            if row is None:
-                continue
+        picked, conflicts = [], []
+        for _, pairs in _subject_groups(rows, SIGN_IN_KEY, stand).items():
+            head, ids = _settle(*_subject_heads(pairs))
+            if ids:     # two recorded ways disagree: the surface is left out of `ways` (the walker finds the way itself)
+                conflicts.append({"environment": stand, "element": pairs[-1][1]["element"], "ids": ids})
+            elif head is not None:
+                picked.append(head)
+        if conflicts:
+            out["conflicts"] = conflicts
+        for row in sorted(picked, key=lambda r: r["element"]):
             provenance = row.get("provenance") if isinstance(row.get("provenance"), dict) else {}
             out["ways"].append({"surface": row["element"], "value": copy.deepcopy(row.get("value")), "story": provenance.get("story", ""),
                                 "at": row.get("at", ""), "id": row.get("id")})
@@ -627,7 +835,12 @@ def page_load(root, cfg, stand) -> dict:
         if problem:
             out.update(state="unreadable", why=problem)
             return out
-        row = _latest(rows, PAGE_LOAD_KEY, stand, PAGE_LOAD_ELEMENT)
+        heads, cycle = _heads(rows, PAGE_LOAD_KEY, stand, PAGE_LOAD_ELEMENT)
+        row, ids = _settle(heads, cycle)
+        if ids:     # two measurements disagree (or the links are damaged): none is believed, the default limit is the safe side
+            out["why"] = (_cycle_text(PAGE_LOAD_KEY, PAGE_LOAD_ELEMENT, ids) if cycle
+                          else f"the records of the page load disagree ({', '.join(str(i) for i in ids)}); `project_knowledge.py show` lists them")
+            return out
         if row is None:
             return out
         value = row.get("value")
@@ -690,23 +903,30 @@ def roster(root, cfg, stand) -> dict:
             cfg = data if isinstance(data, dict) else {}
         stand = str(stand or "").strip()
         seen = set()
-        newest = {}
-        for _, row in sorted(((i, r) for i, r in enumerate(rows) if _usable(r) and r["key"] == ROLES_KEY and r["environment"] == ""),
-                             key=lambda pair: (ER._moment(pair[1].get("at")), pair[0])):
-            newest[_form(ROLES_KEY, row["element"])] = row         # the latest row of each role form
+        newest, conflicts = {}, []
+        for (_, form), pairs in _subject_groups(rows, ROLES_KEY, "").items():
+            head, ids = _settle(*_subject_heads(pairs))
+            if CC.reserved_role(pairs[-1][1]["element"]):
+                continue
+            if ids:         # the person's answers about this role disagree: it is asked, never picked (and config evidence does not stand in)
+                conflicts.append({"environment": "", "element": pairs[-1][1]["element"], "ids": ids})
+                seen.add(form)
+            elif head is not None:
+                newest[form] = head                                # the head of each role form
         for form, row in newest.items():
-            if not form or CC.reserved_role(row["element"]):
+            if CC.reserved_role(row["element"]):
                 continue
             seen.add(form)
             provenance = row.get("provenance") if isinstance(row.get("provenance"), dict) else {}
             if row["state"] == NOT_NEEDED:
                 out["removed"].append({"role": row["element"], "id": row.get("id"), "story": provenance.get("story", ""),
-                                       "words": provenance.get("words", ""), "at": row.get("at", "")})
+                                       "words": provenance.get("words", ""), "at": row.get("at", ""), "condition": _condition_of(row)})
                 continue
             value = row.get("value") if isinstance(row.get("value"), dict) else {}
             out["elements"].append({"role": row["element"], "state": row["state"], "source": _source_of(row) or "registry",
                                     "sign_in": value.get("sign_in") if value.get("sign_in") in SIGN_INS else "account",
-                                    "story": provenance.get("story", ""), "at": row.get("at", ""), "id": row.get("id")})
+                                    "story": provenance.get("story", ""), "at": row.get("at", ""), "id": row.get("id"),
+                                    "condition": _condition_of(row)})
         for entry in _stands(cfg):
             held = entry.get("credentials_by_role")
             for name in held if isinstance(held, dict) else []:
@@ -715,7 +935,9 @@ def roster(root, cfg, stand) -> dict:
                     continue
                 seen.add(form)
                 out["elements"].append({"role": name, "state": KNOWN, "source": "legacy_config", "sign_in": "account",
-                                        "story": "", "at": "", "id": None})
+                                        "story": "", "at": "", "id": None, "condition": ""})
+        if conflicts:
+            out["conflicts"] = conflicts
         for element in out["elements"]:
             element["account"] = None if config_unknown else \
                 ((state(root, ACCOUNTS_KEY, stand, element["role"], cfg)["state"] == KNOWN) if stand else None)
@@ -889,11 +1111,26 @@ def _sign_in_value_faults(element, value) -> list:
     return out + FL.sign_in_secret_faults(value, [])
 
 
-def record_problems(key, environment, element, state, scope, words, source, by, load_problem="", value=None) -> list:
+def _marker_problems(key, source) -> list:
+    """Why the `asked` marker may not be written for `key`: only for a fact the catalogue asks at first need, with the source `factory`."""
+    out = []
+    row = _row(key)
+    if not (row and row.get("ask_when") == "first_need"):
+        out.append(f"the state 'asked' is written only by the driver, for a fact the catalogue asks at first need; {key} is not one; "
+                   "nothing was recorded")
+    if source != "factory":
+        out.append(f"the state 'asked' is written with the source 'factory', not {source!r}; nothing was recorded")
+    return out
+
+
+def record_problems(key, environment, element, state, scope, words, source, by, load_problem="", value=None, *, rows=None,
+                    supersedes=MISSING, condition="") -> list:
     """The reasons a row may not be written, as sentences with their door; `[]` when it may. Form and presence only (AR-29): a bad
     key, a state or a scope the key does not take, an empty stand or element, an element the decision registry cannot carry, empty
     words for a person's answer, an unreadable registry; for the three side keys also the shape of `value` and an exact, untrimmed
-    side name. Returns the reasons; never raises."""
+    side name; for a one-value key an element that is not `""`; a `condition` that is not text; a `supersedes` that is not a list of
+    ids of rows of the SAME subject (checked when the caller passes `rows`, the registry's rows); the `asked` marker for a key that
+    is not asked at first need. Returns the reasons; never raises."""
     spec = KEYS.get(key)
     if spec is None:
         if CATALOGUE_PROBLEM:     # a damaged catalogue: name the true cause and the door, never "not a key (the keys: )"
@@ -902,7 +1139,9 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
                     f"{door}nothing was recorded"]
         return [f"the key {key!r} is not a project-knowledge key (the keys: {', '.join(KEYS)}); nothing was recorded"]
     out = []
-    if state not in STATES:
+    if state == ASKED:     # the marker rules sit HERE, before every branch below; a marker is no answer, so it takes no link and no condition
+        out += _marker_problems(key, source)
+    elif state not in STATES:
         out.append(f"the state {state!r} cannot be recorded here (one of {', '.join(STATES)}); nothing was recorded")
     elif (spec["scope"] == "stand" or key in SIDE_KEYS) and state != KNOWN:
         out.append(f"a fact of a stand or of a side is recorded as `known` only, not {state!r}; nothing was recorded")
@@ -936,19 +1175,42 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
             out += _sign_in_value_faults(element, value)
         except Exception as exc:    # noqa: BLE001 - a check that could not run is a refusal, never a pass (FR-59)
             out.append(f"the way in could not be checked ({type(exc).__name__}); nothing was recorded")
-    elif not text.strip():
-        out.append("the element (the role) is empty; name it; nothing was recorded")
-    elif _unsafe_role(text):
-        out.append(_unsafe_role(text))
-    else:
-        import config_contract as CC
-        if CC.reserved_role(text):
-            out.append(f"the role {text.strip()[:60]!r} is a reserved form (`default`, `env:...`, `created:...`), never a product role; "
-                       "choose another name; nothing was recorded")
-        elif not _form(key, text):
-            out.append(f"the role {text.strip()[:60]!r} holds no letter or digit to tell it from another; name it; nothing was recorded")
+    elif key in ONE_VALUE_KEYS:     # BEFORE the role rules: a one-value key never meets them (none of the named keys above carries `value`)
+        if text != "":
+            out.append(f"{key} holds one value for the project; it takes no element; nothing was recorded")
+    elif spec["compare"] == "role_form":     # the role rules: a role key never skips them
+        if not text.strip():
+            out.append("the element (the role) is empty; name it; nothing was recorded")
+        elif _unsafe_role(text):
+            out.append(_unsafe_role(text))
+        else:
+            import config_contract as CC
+            if CC.reserved_role(text):
+                out.append(f"the role {text.strip()[:60]!r} is a reserved form (`default`, `env:...`, `created:...`), never a product role; "
+                           "choose another name; nothing was recorded")
+            elif not _form(key, text):
+                out.append(f"the role {text.strip()[:60]!r} holds no letter or digit to tell it from another; name it; nothing was recorded")
+    elif not text.strip():      # an `exact` key with no branch of its own: the side-name form rules (small choice: 80 characters)
+        out.append(f"the element of {key} is empty; name it; nothing was recorded")
+    elif _untrimmed_or_control(text) or len(text) > LESSON_SUBJECT_MAX:
+        out.append(f"the element {text.strip()[:60]!r} of {key} carries a space at an end, a control character, or is longer than "
+                   f"{LESSON_SUBJECT_MAX} characters; elements are compared exactly, so give it in a few plain words; nothing was recorded")
+    if state != ASKED:
+        if condition is not None and not isinstance(condition, str):
+            out.append(f"the condition is the person's words as text, not {type(condition).__name__}; nothing was recorded")
+        if supersedes is not MISSING:
+            if not isinstance(supersedes, list) or not all(isinstance(i, str) for i in supersedes):
+                out.append("`supersedes` is a list of the ids of the answers it replaces (`[]` when none was read); nothing was recorded")
+            elif rows is not None:
+                known = {r.get("id") for _, r in _subject_pairs(rows, key, environment, element)}
+                for pk_id in supersedes:
+                    if pk_id not in known:
+                        out.append(f"{pk_id} is not an answer about {f'{key} {text}'.strip()}{' on ' + str(environment) if environment else ''}; "
+                                   "nothing was recorded; `project_knowledge.py show` lists the ids")
     if source not in SOURCES:
         out.append(f"the source {source!r} is not one of {', '.join(SOURCES)}; nothing was recorded")
+    elif source == "factory" and state != ASKED:
+        out.append("the source 'factory' is for the `asked` marker only; nothing was recorded")
     if by not in BY:
         out.append(f"`by` {by!r} is not one of {', '.join(BY)}; nothing was recorded")
     if source == "person" and not str(words or "").strip():
@@ -962,30 +1224,65 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
     return out
 
 
-def record(root, *, key, environment, element, state, scope, value, words, source, story, by, where="", task_root=None, only_if_latest=None, from_held=None, launch=None) -> tuple:
+def _asked_rows(rows, key, environment, element) -> list:
+    """`(index, row)` of the live `asked` MARKERS of the subject, in file order: a marker is no answer (not in `STATES`), so only the
+    seam's reader (`fact`) and the marker's own idempotence look at it."""
+    spec, form = KEYS.get(key), _form(key, element)
+    if spec is None or (not form and key not in ONE_VALUE_KEYS):
+        return []
+    environment = str(environment or "")
+    return [(i, r) for i, r in enumerate(rows or []) if isinstance(r, dict) and r.get("state") == ASKED and not r.get("revoked_at")
+            and r.get("key") == key and r.get("scope") == spec["scope"] and r.get("environment") == environment
+            and isinstance(r.get("element"), str) and _form(key, r["element"]) == form]
+
+
+def _story_of(row) -> str:
+    provenance = row.get("provenance") if isinstance(row, dict) else None
+    return str(provenance.get("story") or "") if isinstance(provenance, dict) else ""
+
+
+def record(root, *, key, environment, element, state, scope, value, words, source, story, by, where="", task_root=None, only_if_latest=None, from_held=None, launch=None, condition="", supersedes=MISSING) -> tuple:
     """`(row, problem, created)`: ONE fact put in the registry, with the person's words whole.
 
-    `from_held` (default None: `value` is used as given) is a pure function of the subject's latest live row (or None), run HERE
-    under the lock; it returns `(value, skip)`: the value to write, and `skip` True to write nothing (`(None, "", False)`, after the
-    same refusals). It is how a caller carries a held field or declines a write without reading the registry outside the lock.
+    `held` below is the subject's single HEAD (`_subject_heads`), or None when there is no head OR the heads disagree (a conflict) or
+    the links are damaged: no field is ever carried from one of two disagreeing answers, and no guard sees a head that is not one.
 
-    `only_if_latest` (default None: no guard) is a tuple of states: the write happens only when the subject has no live row or its
-    latest state is one of them, checked HERE under the lock with the other checks (a caller's earlier read is not a check). When
-    the latest state is any other, nothing is written and the result is `(None, "", False)`: no row, an EMPTY problem (not an error),
-    nothing created. A caller that passes no guard is never refused by it.
+    `from_held` (default None: `value` is used as given) is a pure function of the held row (or None), run HERE under the lock; it
+    returns `(value, skip)`: the value to write, and `skip` True to write nothing (`(None, "", False)`, after the same refusals). It
+    is how a caller carries a held field or declines a write without reading the registry outside the lock.
+
+    `only_if_latest` (default None: no guard) is a tuple of states: the write happens only when the subject has no head (and no
+    conflict) or its head's state is one of them, checked HERE under the lock with the other checks (a caller's earlier read is not
+    a check). Otherwise - another state, or a conflict - nothing is written and the result is `(None, "", False)`: no row, an EMPTY
+    problem (not an error), nothing created. A caller that passes no guard is never refused by it.
+
+    `condition` is the person's words about when the answer holds, stripped at its ends and kept whole, never parsed. `supersedes` is
+    the list of ids of the answers the row replaces; MISSING (the default) names nothing, so the row supersedes EVERY head found under
+    the lock - it is the person's newest word on the subject; an explicit list is stored as given (`[]`: "I read no answer"), so a
+    writer that names a head which has since changed makes a conflict, not an overwrite.
+
+    A MARKER (state `asked`, source `factory`, a key the catalogue asks at first need) is written unconditionally: neither guard,
+    no link, no condition; the same story marks a subject once (the held marker is returned, `created` False).
 
     Under the lock it LOADS, checks (`record_problems`, `_refuse_no_trace`), numbers (`next_id`) and writes, so two stories never
-    lose a row. Refused, nothing written, `row` None and `problem` says why and the door. The same live state AND value for the same
-    subject again is the existing row with `created` False (a changed `value`, e.g. `sign_in`, is a new row; except that a kept page-load reason is replaced
-    in place, same id, whatever replaces it). A busy lock raises `TimeoutError` (the CLI exits 2: run it again)."""
+    lose a row. Refused, nothing written, `row` None and `problem` says why and the door. The same state, value and condition for
+    the same subject again (and no link but the head) is the existing row with `created` False (a changed `value`, e.g. `sign_in`,
+    is a new row; except that a kept page-load reason is replaced in place, same id, position and links, whatever replaces it). A
+    busy lock raises `TimeoutError` (the CLI exits 2: run it again)."""
     root = Path(root)
+    marker = state == ASKED
+    cond = condition.strip() if isinstance(condition, str) else ("" if condition is None else condition)
     with lock(root):
         rows, load_problem = load(root)
-        held = _latest(rows, key, environment, element)
+        heads, cycle = _heads(rows, key, environment, element)
+        held, conflicts = _settle(heads, cycle)
         skip = False
+        if marker and (from_held is not None or only_if_latest is not None):
+            return None, "a marker is written unconditionally; pass neither `from_held` nor `only_if_latest` with the state 'asked'; nothing was recorded", False
         if from_held is not None:       # PK2-20: the value is decided from the row held NOW, under the lock, never from an earlier read
             value, skip = from_held(held)
-        problems = record_problems(key, environment, element, state, scope, words, source, by, load_problem, value)
+        problems = record_problems(key, environment, element, state, scope, words, source, by, load_problem, value, rows=rows,
+                                   supersedes=supersedes, condition=cond)
         if problems:
             return None, "; ".join(problems), False
         reason = _refuse_no_trace(task_root, launch)
@@ -993,9 +1290,14 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
             return None, reason, False
         if skip:
             return None, "", False
-        if only_if_latest is not None and held is not None and held.get("state") not in only_if_latest:
-            return None, "", False                      # already decided by a later answer: not an error, not a write
-        if held is not None and held.get("state") == state and held.get("value") == value:     # a changed value is the person's new word
+        if only_if_latest is not None and (conflicts or (held is not None and held.get("state") not in only_if_latest)):
+            return None, "", False                      # already decided by a later answer, or by two: not an error, not a write
+        if marker:
+            same = [r for _, r in _asked_rows(rows, key, environment, element) if _story_of(r) == str(story or "")]
+            if same:
+                return same[-1], "", False
+        elif (held is not None and held.get("state") == state and held.get("value") == value and _condition_of(held) == cond
+              and (supersedes is MISSING or supersedes == [held.get("id")])):     # a changed value is the person's new word
             if key == LESSONS_KEY:       # a lesson's words ARE its payload: a corrected lesson is never "already recorded"
                 held_prov = held.get("provenance") if isinstance(held.get("provenance"), dict) else {}
                 same = str(held_prov.get("words") or "").strip() == str(words or "").strip()
@@ -1009,6 +1311,13 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
                "provenance": {"source": source, "words": str(words or "").strip(), "story": str(story or ""), "by": by,
                               "where": " ".join(str(where or "").split())[:160]},
                "at": ER.now_iso()}
+        if not marker:
+            row["condition"] = "" if in_place else cond
+            if in_place:        # the replaced row's links, as it carried them (absent stays absent): never a self-link, nothing revived
+                if "supersedes" in held:
+                    row["supersedes"] = copy.deepcopy(held["supersedes"])
+            else:
+                row["supersedes"] = [i for i in _ids(heads) if isinstance(i, str)] if supersedes is MISSING else list(supersedes)
         # a kept reason of a failed page load is REPLACED where it stands (the same cause with its count and time, another cause, or the
         # number that ends it): a reason never has a second row beside it; a measurement is a new row
         kept = [row if (in_place and r is held) else r for r in rows] if in_place else rows + [row]
@@ -1242,8 +1551,8 @@ def cmd_revoke(ns) -> int:
         print(f"{row['id']} is taken back ({row.get('key')} {row.get('element')}): it is asked again where it is needed; an account "
               "value in the project's settings stays until it is changed with `account --replace` or by hand.")
     else:
-        print(f"{row['id']} is taken back ({row.get('key')} {row.get('element')}): it is no longer read; an older live row of the same "
-              "subject, if any, is read again (`project_knowledge.py show` lists them).")
+        print(f"{row['id']} is taken back ({row.get('key')} {row.get('element')}): it is no longer read, and no older answer comes back; "
+              "the factory asks again where it needs it (`project_knowledge.py show` lists the rows).")
     return 0
 
 

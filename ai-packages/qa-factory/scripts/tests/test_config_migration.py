@@ -404,9 +404,10 @@ def knowledge_rows() -> None:
              [line.split(":")[0] for line in knowledge_gaps(TEMPLATE, stray)], ["stray_fact"])
     check("R1: artifact_root is the one top-level row outside the template",
           KEYS["knowledge"]["artifact_root"].get("in_template") is False and "artifact_root" not in TEMPLATE)
-    check_eq("R1: every row carries a reader list and a null ask_when (phase 1 fields only)",
+    check_eq("R1: every row carries a reader list, and ask_when is null or first_need; a first_need row carries scope, value one and holds none",
              sorted(k for k, row in KEYS["knowledge"].items()
-                    if not isinstance(row.get("needed_by"), list) or row.get("ask_when") is not None), [])
+                    if not isinstance(row.get("needed_by"), list) or row.get("ask_when") not in (None, "first_need")
+                    or (row.get("ask_when") == "first_need" and (row.get("scope"), row.get("value"), row.get("holds")) != ("project", "one", "none"))), [])
     without = {k: v for k, v in KEYS.items() if k != "knowledge"}
     check_eq("item 1: migration_plan on the live-shaped fixture is byte-equal with the `knowledge` section present",
              json.dumps(plan_of(fixture(), price_table_answer="builtin"), sort_keys=True),

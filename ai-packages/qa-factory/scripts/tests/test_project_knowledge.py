@@ -204,10 +204,10 @@ def test_revoked_row_covers_nothing(proj):
     assert PK.revoke(proj.root, row["id"], "again")[0] is None                                 # already taken back
     assert "PK-9" in PK.revoke(proj.root, "PK-9", "x")[1] and "project_knowledge.py show" in PK.revoke(proj.root, "PK-9", "x")[1]
     assert PK.revoke(proj.root, row["id"], "  ")[0] is None                                    # empty words
-    # a revoked LATER row does not hide the earlier live one (the live state is the latest LIVE row)
+    # a revoked later row covers what it superseded (Q3 a): taking an answer back never brings the older one back
     proj.facts([role_fact("PK-1", "auditor", "known", "2026-11-01T10:00:00+00:00"),
                 role_fact("PK-2", "auditor", "not_needed", "2026-11-02T10:00:00+00:00", revoked_at="2026-11-03T10:00:00+00:00")])
-    assert proj.state()["state"] == "known"
+    assert proj.state()["state"] == "unknown" and proj.state()["problem"] == ""
 
 
 def test_stand_name_exact(proj):
@@ -984,12 +984,11 @@ def test_lesson_verb_scenario(proj, capsys, tmp_path):
     assert run(lesson_args("--words-file", words, subject="Indexing")) == 0              # E34: compared exactly, two lessons
     assert len(PK.lessons(proj.root, "dev")["rows"]) == 2
     capsys.readouterr()
-    # E44: revoke the newest row of the subject: the previous live row is read again; revoke every live row: the subject is gone
+    # E44 (OF3-2 K1): revoke the newest row of the subject: no older row comes back; revoking the older ones still succeeds
     assert run(["revoke", "--task", "T-1", "--id", "PK-3", "--words-file", words]) == 0
     out = capsys.readouterr().out
-    assert "no longer read" in out and "an older live row of the same subject" in out and "account" not in out, out
-    assert PK.lessons(proj.root, "dev")["lines"][1].startswith('indexing: "it takes ten minutes, not three"')
-    assert "(at least" not in PK.lessons(proj.root, "dev")["lines"][1]
+    assert "no longer read" in out and "no older answer comes back" in out and "account" not in out, out
+    assert [r["element"] for r in PK.lessons(proj.root, "dev")["rows"]] == ["Indexing"]       # `indexing` is gone at once: nothing older comes back
     for pk in ("PK-2", "PK-1"):
         assert run(["revoke", "--task", "T-1", "--id", pk, "--words-file", words]) == 0
     assert [r["element"] for r in PK.lessons(proj.root, "dev")["rows"]] == ["Indexing"]
@@ -1096,7 +1095,8 @@ def test_lessons_problem_is_not_no_lesson(proj, monkeypatch):           # E40 an
 # --- phase 1 (OF3-1a): the catalogue and the one reader (AR-1, AR-9, AR-13, AR-28) -----------------------------------------------
 
 FIVE_KEYS = ["product.roles", "environments.credentials_by_role", "product.sides", "environments.sides", "environments.reference_for",
-             "environments.stand_lessons", "environments.sign_in", "environments.page_load", "environments.extra_instance"]       # the name is kept from the five of PC-1b; later keys appended
+             "environments.stand_lessons", "environments.sign_in", "environments.page_load", "environments.extra_instance",
+             "manual.accounts_way", "manual.data_way", "manual.data_way.may"]       # the name is kept from the five of PC-1b; later keys appended (OF3-2 K1: the three the seam asks)
 
 
 def test_keys_are_derived_from_the_catalogue_in_todays_order():
@@ -1109,8 +1109,11 @@ def test_keys_are_derived_from_the_catalogue_in_todays_order():
                        "environments.stand_lessons": {"scope": "stand", "compare": "exact"},
                        "environments.sign_in": {"scope": "stand", "compare": "exact"},
                        "environments.page_load": {"scope": "stand", "compare": "exact"},
-                       "environments.extra_instance": {"scope": "stand", "compare": "exact"}}
-    assert [row["key"] for row in PK.rows() if row["store"] in ("registry", "config+registry")] == FIVE_KEYS
+                       "environments.extra_instance": {"scope": "stand", "compare": "exact"},
+                       "manual.accounts_way": {"scope": "project", "compare": "exact"},
+                       "manual.data_way": {"scope": "project", "compare": "exact"},
+                       "manual.data_way.may": {"scope": "project", "compare": "exact"}}
+    assert [row["key"] for row in PK.rows() if row["store"] in ("registry", "config+registry")] == FIVE_KEYS[:9]   # the three new rows are config-stored
     assert [row["key"] for row in PK.rows("artifact_root")] == ["artifact_root"] and PK.rows("no.such.key") == []
 
 
@@ -1710,3 +1713,184 @@ def test_instance_cli_battery(tmp_path, monkeypatch, capsys, opts, raw, pipeline
         assert proj.rows()[0]["provenance"]["words"] == (raw[3:] if raw.startswith(BOM) else raw).decode().strip()
     else:
         assert needle in capsys.readouterr().err and not proj.path().exists()                          # nothing was written
+
+
+# --- OF3-2 K1: an answer's life - heads, conflict, condition, markers, `fact`, `holds_none` (AR-13, AR-25, AR-28) ------------------
+
+SEAM = "manual.accounts_way"
+
+
+def row_of(id, key=PK.ROLES_KEY, element="auditor", state="known", day=1, links=None, **extra) -> dict:
+    """A hand-written row of any key: `links` None is a LEGACY row (no `supersedes` key), a list is a phase-2 row."""
+    scope = PK.KEYS[key]["scope"]
+    row = fact(id, key, "dev" if scope == "stand" else "", element, state, f"2026-11-{day:02d}T10:00:00+00:00")
+    row.update({"scope": scope, **extra})
+    if links is not None:
+        row["supersedes"] = links
+    return row
+
+
+def mark(id, day, story="T-1") -> dict:
+    row = row_of(id, SEAM, "", "asked", day)
+    row["provenance"] = {"source": "factory", "words": "", "story": story, "by": "driver", "where": ""}
+    return row
+
+
+FACT_CASES = [      # id, rows (a list, raw file text, or "damaged"), kwargs of `fact`, step, {row id, conflicts, condition, problem needle}
+    ("registry_known_role", [row_of("PK-1")], {"key": PK.ROLES_KEY, "element": "auditor"}, "known", {"row": "PK-1"}),
+    ("not_needed", [row_of("PK-1", SEAM, "", "not_needed")], {}, "not_needed", {"row": "PK-1"}),
+    ("not_needed_with_condition_never_suppresses", [row_of("PK-1", SEAM, "", "not_needed", condition="only prod")], {}, "unknown",
+     {"row": "PK-1", "condition": "only prod"}),
+    ("marker_newer_than_conditional_not_needed", [row_of("PK-1", SEAM, "", "not_needed", condition="only prod"), mark("PK-2", 2)], {},
+     "asked_before", {"row": "PK-1", "condition": "only prod"}),
+    ("marker_older_than_not_needed", [mark("PK-1", 1), row_of("PK-2", SEAM, "", "not_needed", day=2)], {}, "not_needed", {"row": "PK-2"}),
+    ("two_heads", [row_of("PK-1", SEAM, "", links=[]), row_of("PK-2", SEAM, "", "not_needed", links=[])], {}, "unknown",
+     {"conflicts": ["PK-1", "PK-2"]}),
+    ("self_link", [row_of("PK-1", SEAM, "", "not_needed", links=["PK-1"])], {}, "unknown", {"problem": "point at each other"}),
+    ("noticed_head", [row_of("PK-1", SEAM, "", PK.NOTICED)], {}, "unknown", {"row": "PK-1"}),
+    ("revoked_head", [row_of("PK-1", SEAM, "", "not_needed", revoked_at="2026-11-03T10:00:00+00:00")], {}, "unknown", {}),
+    ("head_of_another_scope", [row_of("PK-1", SEAM, "", "not_needed", scope="stand")], {}, "unknown", {}),
+    ("head_on_another_stand_case", [row_of("PK-1", PK.LESSONS_KEY, "x")], {"key": PK.LESSONS_KEY, "environment": "Dev", "element": "x"},
+     "unknown", {}),
+    ("registry_known_but_caller_says_no", [row_of("PK-1", SEAM, "")], {"known": False}, "unknown", {"row": "PK-1"}),
+    ("config_known_by_caller", [], {"known": True}, "known", {}),
+    ("config_known_keeps_the_condition", [row_of("PK-1", SEAM, "", condition="staging only")], {"known": True}, "known",
+     {"condition": "staging only"}),
+    ("config_value_read", [], {"cfg": {"manual": {"accounts_way": {"words": "x"}}}}, "known", {}),
+    ("placeholder_but_caller_says_no", [], {"cfg": {"manual": {"accounts_way": "not known"}}, "known": False}, "unknown", {}),
+    ("marker_of_this_story", [mark("PK-1", 1, "T-2")], {}, "asked_here", {}),
+    ("marker_of_another_story", [mark("PK-1", 1, "T-1")], {}, "asked_before", {}),
+    ("marker_with_empty_story", [mark("PK-1", 1, "")], {"story": ""}, "asked_before", {}),
+    ("list_key_without_element", [], {"key": PK.LESSONS_KEY, "environment": "dev"}, "unknown", {"problem": "is a list"}),
+    ("key_with_no_row", [], {"key": "no.such.key"}, "unknown", {"problem": "no catalogue row"}),
+    ("unreadable_registry", "{not json", {}, "unknown", {"problem": "project-knowledge"}),
+    ("other_schema", json.dumps({"schema_version": 2, "facts": []}), {}, "unknown", {"problem": "schema_version"}),
+    ("damaged_catalogue", "damaged", {}, "unknown", {"problem": "damaged"}),
+]
+
+
+@pytest.mark.parametrize("rows, kw, step, extra", [pytest.param(*c[1:], id=c[0]) for c in FACT_CASES])
+def test_fact_table(proj, monkeypatch, rows, kw, step, extra):
+    if rows == "damaged":
+        monkeypatch.setattr(CC, "config_keys", _raises())
+    elif isinstance(rows, str):
+        proj.path().parent.mkdir(parents=True, exist_ok=True)
+        proj.path().write_text(rows, encoding="utf-8")
+    elif rows:
+        proj.facts(rows)
+    got = PK.fact(proj.root, **{"key": SEAM, "story": "T-2", **kw})
+    assert got["step"] == step, got
+    assert (got["row"] or {}).get("id") == extra.get("row") and got["conflicts"] == extra.get("conflicts", [])
+    assert got["condition"] == extra.get("condition", "") and extra.get("problem", "") in got["problem"]
+    assert bool(got["problem"]) == bool(extra.get("problem")) and not (proj.root / Path(PK.LOCK_REL)).exists()      # pure
+
+
+GONE = "2026-11-09T10:00:00+00:00"
+HEAD_CASES = [      # id, where (key, stand, element), rows, state, {row id, conflicts, problem needle, asks}
+    ("a_link", None, [row_of("PK-1", links=[]), row_of("PK-2", state="not_needed", day=2, links=["PK-1"])], "not_needed", {"row": "PK-2"}),
+    ("stale_named_head_is_a_conflict", None, [row_of("PK-1", links=[]), row_of("PK-2", day=2, links=["PK-1"]), row_of("PK-3", day=3, links=["PK-1"])],
+     "unknown", {"conflicts": ["PK-2", "PK-3"]}),
+    ("revoke_the_head_of_a_role", None, [row_of("PK-1", links=[]), row_of("PK-2", day=2, links=["PK-1"], revoked_at=GONE)], "unknown", {}),
+    ("revoke_the_head_of_a_side", (PK.SIDES_KEY, "", "UI"), [row_of("PK-1", PK.SIDES_KEY, "UI", links=[]),
+     row_of("PK-2", PK.SIDES_KEY, "UI", day=2, links=["PK-1"], revoked_at=GONE)], "unknown", {}),
+    ("revoke_the_head_of_a_lesson", (PK.LESSONS_KEY, "dev", "indexing"), [row_of("PK-1", PK.LESSONS_KEY, "indexing", links=[]),
+     row_of("PK-2", PK.LESSONS_KEY, "indexing", day=2, links=["PK-1"], revoked_at=GONE)], "unknown", {}),
+    ("revoke_during_a_conflict", None, [row_of("PK-1", links=[]), row_of("PK-2", state="not_needed", links=[], revoked_at=GONE)], "known", {"row": "PK-1"}),
+    ("legacy_later_wins", None, [row_of("PK-1"), row_of("PK-2", state="not_needed", day=2)], "not_needed", {"row": "PK-2"}),
+    ("legacy_after_a_phase_2_row", None, [row_of("PK-1", links=[]), row_of("PK-2", state="not_needed", day=2, links=["PK-1"]), row_of("PK-3", day=3)],
+     "known", {"row": "PK-3"}),
+    ("self_link", None, [row_of("PK-1", links=["PK-1"])], "unknown", {"problem": "point at each other"}),
+    ("cycle", None, [row_of("PK-1", links=["PK-2"]), row_of("PK-2", day=2, links=["PK-1"])], "unknown", {"problem": "point at each other"}),
+    ("a_marker_is_never_a_head", None, [row_of("PK-1", state="not_needed"), row_of("PK-2", state="asked", day=2)], "not_needed", {"row": "PK-1"}),
+    ("instance_answer_after_a_revoke_asks", (PK.EXTRA_INSTANCE_KEY, "dev", "another_instance"),
+     [row_of("PK-1", PK.EXTRA_INSTANCE_KEY, "another_instance", value={"authorized": True}),
+      row_of("PK-2", PK.EXTRA_INSTANCE_KEY, "another_instance", day=2, value={"authorized": True}, revoked_at=GONE)], "unknown", {"asks": True}),
+]
+
+
+@pytest.mark.parametrize("where, rows, state, extra", [pytest.param(*c[1:], id=c[0]) for c in HEAD_CASES])
+def test_heads_table(proj, where, rows, state, extra):
+    key, env, element = where or (PK.ROLES_KEY, "", "auditor")
+    proj.facts(rows)
+    got = PK.state(proj.root, key, env, element)
+    assert got["state"] == state and (got["row"] or {}).get("id") == extra.get("row") and got["conflicts"] == extra.get("conflicts", [])
+    assert extra.get("problem", "") in got["problem"] and bool(got["problem"]) == bool(extra.get("problem")), got["problem"]
+    listed = PK.subjects(proj.root, key, env)          # the lists agree with the reader: never a subject without an answer
+    assert ((env, element) in listed["subjects"]) == (state != "unknown")
+    assert bool(listed.get("conflicts")) == bool(got["conflicts"] or got["problem"])
+    if extra.get("asks"):
+        assert PK.instance_answer(proj.root, env, element)["authorized"] is None
+
+
+CONFLICT = [row_of("PK-1", links=[]), row_of("PK-2", state="not_needed", day=2, links=[])]
+SEAM_KW = dict(key=SEAM, element="", value=None, scope="project", words="the person said so")
+MARK_KW = dict(SEAM_KW, key="manual.data_way", state="asked", source="factory", by="driver", words="", story="T-1")
+PL_KW = dict(key=PK.PAGE_LOAD_KEY, environment="dev", element="frontend", scope="stand", words=PK.HOW_PAGE_LOAD, source="measured", by="gate")
+OLD = [dict(), dict(state="not_needed", value=None)]       # two writes of one role: PK-1, then PK-2 superseding it
+RECORD_CASES = [    # id, hand rows, earlier writes, the call, created, needle, rows after, check(proj, (row, problem, created), held)
+    ("condition_is_stripped_and_carried", [], [], dict(condition="  only on staging \n"), True, "", 1,
+     lambda p, r, h: all([r[0]["condition"] == "only on staging", p.state()["condition"] == "only on staging",
+                          PK.value(p.root, PK.ROLES_KEY, "", None, "auditor")["condition"] == "only on staging",
+                          PK.fact(p.root, PK.ROLES_KEY, "", "auditor")["condition"] == "only on staging",
+                          PK.roster(p.root, p.cfg(), "dev")["elements"][0]["condition"] == "only on staging"])),
+    ("condition_must_be_text", [], [], dict(condition=5), False, "condition", 0, None),
+    ("same_answer_and_condition_is_idempotent", [], [dict(condition="x")], dict(condition="x"), False, "", 1, lambda p, r, h: r[0]["id"] == "PK-1"),
+    ("another_condition_is_a_new_row", [], [dict(condition="x")], dict(condition="y"), True, "", 2, lambda p, r, h: r[0]["supersedes"] == ["PK-1"]),
+    ("foreign_supersedes_id_refused", [], [], dict(supersedes=["PK-9"]), False, "PK-9 is not an answer about product.roles auditor", 0, None),
+    ("own_would_be_id_refused", [], [], dict(supersedes=["PK-1"]), False, "PK-1 is not an answer", 0, None),
+    ("another_subjects_id_refused", [], [dict(element="viewer")], dict(supersedes=["PK-1"]), False, "PK-1 is not an answer", 1, None),
+    ("one_value_key_takes_the_empty_element", [], [], SEAM_KW, True, "", 1, lambda p, r, h: r[0]["element"] == "" and r[0]["supersedes"] == []),
+    ("one_value_key_refuses_an_element", [], [], dict(SEAM_KW, element="a,b"), False, "takes no element", 0, lambda p, r, h: "role" not in r[1]),
+    ("marker_for_a_first_need_key", [], [], MARK_KW, True, "", 1,
+     lambda p, r, h: "supersedes" not in r[0] and "condition" not in r[0] and r[0]["provenance"]["source"] == "factory"),
+    ("marker_refused_for_a_role_key", [], [], dict(state="asked", source="factory", by="driver", words=""), False, "asked", 0, None),
+    ("marker_idempotent_per_story", [], [MARK_KW], MARK_KW, False, "", 1, lambda p, r, h: r[0]["id"] == "PK-1"),
+    ("marker_of_another_story_is_a_new_row", [], [MARK_KW], dict(MARK_KW, story="T-2"), True, "", 2, None),
+    ("marker_takes_no_guard", [], [], dict(MARK_KW, only_if_latest=(PK.NOTICED,)), False, "written unconditionally", 0, None),
+    ("only_if_latest_in_a_conflict_writes_nothing", CONFLICT, [], dict(state=PK.NOTICED, source="role", by="driver", words="", only_if_latest=(PK.NOTICED,)),
+     False, "", 2, lambda p, r, h: r[0] is None),
+    ("from_held_gets_none_in_a_conflict", CONFLICT, [], dict(from_held=True), True, "", 3,
+     lambda p, r, h: h == [None] and r[0]["supersedes"] == ["PK-1", "PK-2"] and p.state()["state"] == "known"),
+    ("missing_supersedes_every_head", [], OLD, dict(), True, "", 3, lambda p, r, h: r[0]["supersedes"] == ["PK-2"]),
+    ("a_stale_named_head_makes_a_conflict", [], OLD, dict(supersedes=["PK-1"]), True, "", 3, lambda p, r, h: p.state()["conflicts"] == ["PK-2", "PK-3"]),
+    ("page_load_replace_keeps_id_and_links", [row_of("PK-1", PK.PAGE_LOAD_KEY, "frontend", links=[], value=pl_value()),
+     row_of("PK-2", PK.PAGE_LOAD_KEY, "frontend", day=2, links=["PK-1"], value=pl_reason())], [], dict(PL_KW, value=pl_value()), True, "", 2,
+     lambda p, r, h: r[0]["id"] == "PK-2" and r[0]["supersedes"] == ["PK-1"] and r[0]["condition"] == ""),
+    ("page_load_replace_of_a_legacy_row_stays_legacy", [row_of("PK-1", PK.PAGE_LOAD_KEY, "frontend", value=pl_reason())], [], dict(PL_KW, value=pl_value()),
+     True, "", 1, lambda p, r, h: r[0]["id"] == "PK-1" and "supersedes" not in r[0]),
+]
+
+
+@pytest.mark.parametrize("hand, pre, call, created, needle, nrows, check", [pytest.param(*c[1:], id=c[0]) for c in RECORD_CASES])
+def test_record_table(proj, hand, pre, call, created, needle, nrows, check):
+    if hand:
+        proj.facts(hand)
+    for item in pre:
+        assert proj.record(**item)[0], item
+    held = []
+    if call.get("from_held"):
+        call = dict(call, from_held=lambda row: (held.append(row) or ({"sign_in": "account"}, False)))
+    res = proj.record(**call)
+    assert res[2] is created and needle in res[1] and bool(res[1]) == bool(needle), res
+    assert len(proj.rows() if proj.path().exists() else []) == nrows
+    assert check is None or check(proj, res, held), res
+
+
+@pytest.mark.parametrize("keys, expected", [(["manual.accounts_way"], True), (["manual.accounts_way", "manual.data_way", "manual.data_way.may"], True),
+                                            (["manual.accounts_way", PK.ROLES_KEY], False), ([PK.ROLES_KEY], False), ([], False),
+                                            (["no.such.key"], False), (["manual.accounts_way", 5], False)], ids=lambda v: str(v)[:30])
+def test_holds_none(keys, expected):
+    assert PK.holds_none(keys) is expected
+
+
+def test_holds_none_asks_on_a_damaged_catalogue(monkeypatch):
+    monkeypatch.setattr(CC, "config_keys", _raises())
+    assert PK.holds_none(["manual.accounts_way"]) is False
+
+
+def test_catalogue_seam_join():
+    seam = [r for r in PK.rows() if r.get("ask_when") == "first_need"]
+    assert [r["key"] for r in seam] == ["manual.accounts_way", "manual.data_way", "manual.data_way.may"]
+    for r in seam:      # AR-22: every field a seam row carries has a reader, and the row is a key
+        assert (r["scope"], r["compare"], r["value"], r["holds"]) == ("project", "exact", "one", "none") and r["needed_by"], r["key"]
+        assert r["store"].startswith("config:") and r["key"] in PK.KEYS and r["key"] in PK.ONE_VALUE_KEYS
