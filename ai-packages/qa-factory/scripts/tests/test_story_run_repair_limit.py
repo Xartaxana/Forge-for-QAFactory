@@ -582,6 +582,49 @@ def f4_recovery_finish_owes_the_round():
         rig.done()
 
 
+def owed_f4_open_window_sendback():
+    """FV3-35b2 (card E12, F3 a): a window whose LAST round is an accepted critic with `tests_in_repair` is OPEN and `stage_S5` owes it its
+    author round as `route`, from that critic's own route. Edges: no word = closed; a later author round = not routed again; several = window
+    order, one entry at a time; an unreadable record = today's behaviour (nothing owed, the L5 refusal)."""
+    second = "S5-qa-code-critic-5"
+    crit = lambda ident, cases, **kw: dict({"id": ident, "scope": cases, "stage": "S5", "role": "qa-code-critic", "status": "accepted",
+                                           "unresolved": "tests_in_repair"}, **kw)
+    author = {"id": "S5-qa-automator-9", "scope": ["TC-1"], "stage": "S5", "role": "qa-automator", "status": "accepted"}
+    for label, rows, wins, open_want, owed_want, ran in (
+            ("the sent-back window", [crit(CRITIC, ["TC-1"])], 1, [["TC-1"]], ["TC-1"], [("rework", "qa-automator", "test_defect"), ("run_role", "qa-code-critic")]),
+            ("no word: closed as before", [crit(CRITIC, ["TC-1"], unresolved="")], 1, [], [], []),
+            ("an author round came after", [crit(CRITIC, ["TC-1"]), author], 1, [["TC-1"]], [], []),
+            ("two windows, window order", [crit(CRITIC, ["TC-1"]), crit(second, ["TC-2"])], 2, [["TC-1"], ["TC-2"]], ["TC-1", "TC-2"],
+             [("rework", "qa-automator", "test_defect"), ("run_role", "qa-code-critic")]),
+            ("unreadable record", None, 1, None, [], [])):
+        rig = Rig(budget(counted=0))
+        try:
+            d, order = rig.driver, []
+            windows = [window()] + ([dict(window(), scope=["TC-2"])] if wins == 2 else [])
+            for ident in (CRITIC, second):
+                write_form(rig.task_root, ident, [{"id": "F-1", "cause": "test_defect"}])
+            d.stage_scope = lambda stage, kind="", ws=windows: {"scope": ["TC-1", "TC-2"][:len(ws)], "windows": ws}
+            d.saved_result = lambda ident: {"result": digest_of("concerns")}
+            if rows is None:
+                d.controller_state = lambda: 1 / 0
+            else:
+                d.controller_state = lambda rs=rows: {"dispatches": {r["id"]: r for r in rs}}
+            d.stand_check, d.build_check = lambda stage: None, lambda stage, cases=None: None
+            stub_s5_roles(d, order)
+            if open_want is not None:
+                check_eq(f"E12 {label}: s5_open_windows", d.s5_open_windows(()), open_want)
+            raised, _ = rig.quietly(d.stage_S5)
+            kept = d.state.get("repair_limit") or {}
+            check_eq(f"E12 {label}: the owed records", [e["cases"][0] for e in kept.values() if e.get("token") == "route"], owed_want)
+            check_eq(f"E12 {label}: the first entry runs the owed round once", (order, raised is None), (ran, bool(ran)))
+            if wins == 2 and ran:
+                rig.quietly(d.stage_S5)
+                check_eq(f"E12 {label}: the next entry routes the second window", [o for o in order if o[0] == "rework"].__len__(), 2)
+                check("E12 two windows: both records executed", all(e["executed"] for e in d.state["repair_limit"].values()))
+        finally:
+            rig.done()
+
+
 def s5_critic_completion_table():
     """FV3-35 B (card §2 C1, E2-E4): ONE predicate; (route, answer, last window) -> True / False / the owed word, never open work unrecorded."""
     from driver_core import OpenWork
@@ -1256,6 +1299,7 @@ def main():
     f2_forced_budget_is_asked_not_closed()
     f3_owed_round_survives_a_person_at_the_stand()
     f4_recovery_finish_owes_the_round()
+    owed_f4_open_window_sendback()
     s5_critic_completion_table()
     sendback_last_window_real_controller()
     f5_the_real_roads_ask()

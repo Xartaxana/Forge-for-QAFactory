@@ -2993,7 +2993,8 @@ class DriverDispatch:
                     or any(cases & {str(c) for c in r.get("scope") or []} for r in running)
                     or owed or any(cases & {str(c) for c in r.cases} for r in live)
                     or (last_round is not None and last_round.get("status") == CT.RETURNED)
-                    or self._s5_author_awaits_critic(last_round)):
+                    or self._s5_author_awaits_critic(last_round)
+                    or self._s5_critic_sent_back(last_round)):
                 out.append(sorted(cases))
         return out
 
@@ -3007,6 +3008,45 @@ class DriverDispatch:
         import controller as CT
         return (isinstance(last_round, dict) and last_round.get("status") == "accepted" and last_round.get("role") == "qa-automator"
                 and CT.repair_cause(last_round) != "mechanical")
+
+    @staticmethod
+    def _s5_critic_sent_back(last_round) -> bool:
+        """FV3-35b2 (E12, F3 a): True when the window's LAST round is an ACCEPTED critic whose record names `S5_OPEN_WORD` - the send-back
+        whose author round is owed. The window is OPEN: an accepted critic in `accepted_by` no longer closes it. A later author round
+        makes that round the last one, so the window is open again only by `_s5_author_awaits_critic`. Error direction: open, never a close."""
+        from acceptance import S5_OPEN_WORD
+        return (isinstance(last_round, dict) and last_round.get("status") == "accepted" and last_round.get("role") == "qa-code-critic"
+                and last_round.get("unresolved") == S5_OPEN_WORD)
+
+    def s5_sendback_rounds(self, windows: list) -> list:
+        """[(window, critic record)] of the windows `_s5_critic_sent_back` names, in window order. RAISES with the readers (the caller
+        treats that as nothing owed: today's behaviour, the L5 refusal stays reachable)."""
+        import dispatch_identity
+        ctl = self.controller_state()
+        rows = dispatch_identity.records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
+        found = []
+        for window in windows:
+            last = self._s5_last_round(rows, window.get("scope") or [])
+            if self._s5_critic_sent_back(last):
+                found.append((window, last))
+        return found
+
+    def s5_owe_sendbacks(self, windows: list) -> None:
+        """E12: the driver died between a critic's OpenWork accept and the author's rework; no `route` round is recorded, so the round
+        would be lost. Each such window is owed its round as `route`, from the critic's OWN route (`route_of` over its saved digest and
+        typed form, the road `owe_route` takes on every recovery finish); `owe_route` writes one record per window and critic. A window
+        already holding an unexecuted owed record (a person's round) is left to it. Never raises: an unreadable record owes nothing."""
+        try:
+            for window, critic in self.s5_sendback_rounds(windows):
+                cases, ident = list(window.get("scope") or []), str(critic.get("id") or "")
+                held = (self.state.get("repair_limit") or {}).get(self.repair_key(cases)) or {}
+                if not ident or (isinstance(held, dict) and held.get("token") in self.OWED_TOKENS and not held.get("executed")):
+                    continue
+                digest = self.digest_of(self.saved_result(ident)["result"])
+                route, _form = self.route_of(digest, self.budget_or_none("S5", "qa-automator", cases), ident)
+                self.owe_route(ident, cases, route)
+        except Exception:       # noqa: BLE001 - FR-59: unreadable owes nothing; the refusal of stage_S5 stays
+            return
 
     @staticmethod
     def _s5_last_round(rows: list, cases) -> dict | None:
