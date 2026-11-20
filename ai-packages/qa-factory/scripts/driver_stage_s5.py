@@ -277,7 +277,9 @@ class DriverStageS5:
         # be: still running (the controller refuses a bare `--not-complete` accept of the stage's closing critic, so it stays so and its
         # window is in `todo`) or, with nothing else waiting, accepted.
         pending, pending_window = ({}, None) if owed else self.repair_debt_pending(windows)
-        if pending and (not todo or "qa-code-critic" not in (pending_window.get("accepted_by") or {})):
+        # FV3-35b3 (E9): the third disjunct - the pending critic is ACCEPTED as open work (`tests_in_repair`): there is no finish to make, the
+        # window closes here (`s5_close_debt`). Same position: after `owed`, before D3 and L5.
+        if pending and (not todo or "qa-code-critic" not in (pending_window.get("accepted_by") or {}) or self.s5_debt_on_open_work(pending)):
             self.s5_close_debt(pending, pending_window)
             return
         if not todo and not owed and self.s5_parallel_cap() != 1:
@@ -531,12 +533,50 @@ class DriverStageS5:
                            "comment/docstring/marker-only fix keeps its run (the factory answers "
                            "`reused`)."] + auto_extra)
 
+    def s5_debt_on_open_work(self, entry: dict) -> bool:
+        """FV3-35b3 (AR-13): True when the controller's record of `entry["dispatch"]` is `accepted` and names `S5_OPEN_WORD` - the critic was
+        accepted as open work (FV3-35b), so the person's `debt` on its owed round closes by `s5_close_debt`'s first branch. ONE predicate for
+        `stage_S5` and `s5_close_debt`. Any read failure is False: today's finish road, which the controller judges."""
+        from acceptance import S5_OPEN_WORD, unresolved_has_word
+        try:
+            record = (self.controller_state().get("dispatches") or {}).get(entry["dispatch"]) or {}
+            return record.get("status") == "accepted" and unresolved_has_word(record, S5_OPEN_WORD)
+        except Exception:       # noqa: BLE001
+            return False
+
     def s5_close_debt(self, entry: dict, window: dict) -> None:
         """The critic of `entry` was left open by an owed round and the person then chose `debt` instead of the round:
         finish it by the SAME close predicate as the gate's debt (`completion_for` -> `s5_window_closed`), so the window closes
         over the debt (the review-debts entry was written with the answer). Marked `finished` once the finish went through, so a
-        refused finish is made again by the next entry and a finished one never twice (t-733)."""
+        refused finish is made again by the next entry and a finished one never twice (t-733).
+        FV3-35b3: a critic ACCEPTED as open work (`s5_debt_on_open_work`) cannot be finished again (the controller refuses it): the window
+        closes by its own road - not the last round (a) or another window open (c): `finished` only; (b) unreadable windows: a Refusal;
+        (d) the last open window: S5 closes by code at the site `s5.debt_close`, over the debt record the controller reads itself."""
         cases, critic = list(window.get("scope") or []), entry["dispatch"]
+        if self.s5_debt_on_open_work(entry):
+            import dispatch_identity
+            try:
+                rows = dispatch_identity.records(self.controller_state().get("dispatches"))
+                last = self._s5_last_round(rows, cases)
+                others = [] if not last or last.get("id") != critic else self.s5_open_windows(excluding=cases)
+            except Exception as exc:    # noqa: BLE001 - FR-59: unreadable is open, never a close
+                raise Refusal(f"S5: the debt of {', '.join(cases)} is recorded, but the other windows cannot be read ({type(exc).__name__}); "
+                              "S5 is not closed over them") from None
+            if not last or last.get("id") != critic:
+                print(f"S5: the round the debt replaced for {', '.join(cases)} has already run ({(last or {}).get('id') or 'none'}); "
+                      "its review decides the window")
+            elif others:
+                print(f"S5: the debt of {', '.join(cases)} closes its window; the other windows are still open")
+            else:
+                owed = "the author's repair round" if entry.get("owed") == "route" else "the round the person chose"
+                self.close_by_code("S5", f"S5 closed over the person's review debt: the tests of {', '.join(cases)} stay rejected instead of {owed} "
+                                         f"(critic {critic}); every window left this way is in work/review-debts.json",
+                                   ["work/review-debts.json", f"work/handoffs/{critic}.yaml"], finalize=False, site="s5.debt_close",
+                                   digest=f"S5 closed over the review debt of {', '.join(cases)}")
+                self.s5_release_of_dispatch(critic)
+            entry["finished"] = True
+            self.save_state()
+            return
         print(f"S5: the person left the tests of {', '.join(cases)} rejected instead of another round; {critic} closes the window")
         digest = f"qa-code-critic S5 {', '.join(cases)} · concerns\nthe window is closed by the person's choice; the tests stay rejected (review debt)"
         self.finish(critic, digest, complete=self.completion_for("S5", "qa-code-critic", {"id": critic, "scope": cases}),

@@ -1897,6 +1897,10 @@ def code_close_conflicts_is_the_one_predicate() -> None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+GATE = {"id": "K", "stage": "S5", "role": "qa-code-critic", "status": "accepted", "scope": ["TC-1"], "unresolved": "tests_in_repair"}
+DEBT = {"stage": "S5", "cases": ["TC-1"], "critic_dispatch": "K", "reason": "unknown", "choice": {"token": "debt"}}
+
+
 def s5_code_only_is_closed_over_its_own_empty_derived_scope() -> None:
     """U7 5b (AR-28; expected from: spec r3 section 2 r11): `code_only` accepts S5 only when the controller's OWN `stage_scope("S5")` is
     derived, has no automate case, no case without a plan row and no case whose row names no disposition - never the request's word."""
@@ -1910,21 +1914,38 @@ def s5_code_only_is_closed_over_its_own_empty_derived_scope() -> None:
         "an approved case with no plan row -> refused": (["TC-1", "TC-9"], [row("TS-1", "TC-1", "manual-agent")], "cases TC-9 have no plan row"),
         "no row names a disposition (underived) -> refused": (["TC-1"], [row("TS-1", "TC-1", "")], "the plan's dispositions could not be read"),
         "no plan on disk -> refused with its reason": (["TC-1"], None, "the plan's dispositions could not be read"),
+        # FV3-35b3 (C1 g0-g5; expected from card 3 C1, 4 E3/E5-E8/E10): the window's critic left it open, S5 closes by code over the person's debt
+        "g0 the debt record cannot be read -> refused": (["TC-1"], [row("TS-1", "TC-1", "automate")], "work/review-debts.json) cannot be read",
+                                                         [GATE], "{not json"),
+        "g1 the last round still runs -> refused": (["TC-1"], [row("TS-1", "TC-1", "automate")], "its last round is not accepted",
+                                                    [dict(GATE, status="running")], DEBT),
+        "g2 the last round is an author round no critic saw -> refused": (
+            ["TC-1"], [row("TS-1", "TC-1", "automate")], "an author round no critic reviewed", [dict(GATE, role="qa-automator", unresolved="")], DEBT),
+        "g3 the critic's debt is recorded for another critic -> refused": (
+            ["TC-1"], [row("TS-1", "TC-1", "automate")], "no `debt` of the person is recorded for it", [GATE], dict(DEBT, critic_dispatch="other")),
+        "g4 no window is left over a debt (a plain critic) -> refused": (
+            ["TC-1"], [row("TS-1", "TC-1", "automate")], "no window is left over a review debt", [dict(GATE, unresolved="")], DEBT),
+        "g5 the word and its own debt -> accepted": (["TC-1"], [row("TS-1", "TC-1", "automate")], "", [GATE], DEBT),
     }
     done = {f"S{i}": {"status": "completed"} for i in range(5)}
-    for label, (scope, rows, words) in cases.items():
+    for label, (scope, rows, words, *debts) in cases.items():
         scratch = Path(tempfile.mkdtemp(prefix="qa-s5-code-only-"))
         try:
             if rows is not None:
                 (scratch / "work").mkdir()
                 (scratch / "work" / "test-plan.json").write_text(json.dumps({"rows": rows}), encoding="utf-8")
+            if debts and isinstance(debts[1], str):       # a damaged record of the answers (g0)
+                (scratch / "work" / "review-debts.json").write_text(debts[1], encoding="utf-8")
+            elif debts:
+                import ledger
+                ledger.write_review_debt(scratch, debts[1])
             (scratch / "ev.txt").write_text("receipt", encoding="utf-8")
             ref = {"path": "ev.txt", "sha256": hashlib.sha256(b"receipt").hexdigest()}
-            state = {"dispatches": {}, "stages": dict(done), "scope": scope, "source_revision": "r"}
+            state = {"dispatches": {d["id"]: d for d in debts[0]} if debts else {}, "stages": dict(done), "scope": scope, "source_revision": "r"}
             controller = Controller(scratch)
             said = refused(lambda: controller.validate("code_only", {"stage": "S5", "id": "i", "reason": "r", "evidence_refs": [ref]}, state))
             check(f"5b {label}", (words in said) if words else said == "", said[:300])
-            if words:
+            if words and not debts:
                 check(f"5b {label}: the refusal names the stage's rule and its door", "S5 only over its own empty derived plan scope" in said
                       and ("rework S3" in said or "S5 runs its author" in said), said[:300])
             if label.startswith("a case whose row"):

@@ -214,6 +214,9 @@ def s5_code_close_excuses_the_empty_manifest() -> None:
             check_eq("5b: stale receipt (code_only but S5 no longer completed) -> no excuse", AC.run_witness_excused(empty, task), "")
             CT.Controller.state = lambda self: {"stages": {"S5": {"status": "completed"}}}
             check_eq("5b: an S5 an automator completed (no code_only) with an empty manifest -> no excuse", AC.run_witness_excused(empty, task), "")
+            critic = {"id": "K", "stage": "S5", "role": "qa-code-critic", "status": "accepted", "unresolved": "tests_in_repair"}
+            CT.Controller.state = lambda self: {"stages": {"S5": {"status": "completed", "code_only": True}}, "dispatches": {"K": critic}}
+            check_eq("5b (FV3-35b3 E13): a debt close - an accepted S5 critic names the word - over an empty manifest -> no excuse", AC.run_witness_excused(empty, task), "")
         finally:
             CT.Controller.state = real
     finally:

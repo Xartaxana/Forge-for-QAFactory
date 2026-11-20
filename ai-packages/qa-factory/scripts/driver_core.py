@@ -390,6 +390,7 @@ def recorded_earlier(script: str, code: int) -> bool:
 # before the refusal; B1 of the review).
 CODE_CLOSE_SITES = {
     "s5.nothing": ("S5", "there was nothing to automate"),
+    "s5.debt_close": ("S5", "the person left the tests of the last open window rejected, so S5 closed over that review debt"),
     "s6.nothing": ("S6", "there was nothing to run"),
     "s6.results_stand": ("S6", "every automated result still stands, so nothing was run again"),
     "s6.reprobed": ("S6", "the tests ran on their current code, and the live checks of the tests that changed were proved again or left as they were"),

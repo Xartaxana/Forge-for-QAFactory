@@ -3009,14 +3009,19 @@ class DriverDispatch:
         return (isinstance(last_round, dict) and last_round.get("status") == "accepted" and last_round.get("role") == "qa-automator"
                 and CT.repair_cause(last_round) != "mechanical")
 
-    @staticmethod
-    def _s5_critic_sent_back(last_round) -> bool:
+    def _s5_critic_sent_back(self, last_round) -> bool:
         """FV3-35b2 (E12, F3 a): True when the window's LAST round is an ACCEPTED critic whose record names `S5_OPEN_WORD` - the send-back
         whose author round is owed. The window is OPEN: an accepted critic in `accepted_by` no longer closes it. A later author round
-        makes that round the last one, so the window is open again only by `_s5_author_awaits_critic`. Error direction: open, never a close."""
+        makes that round the last one, so the window is open again only by `_s5_author_awaits_critic`. Error direction: open, never a close.
+        FV3-35b3 (C4): EXCEPT a window the person left as a `debt` for THIS critic (a slot of `repair_limit`, token `debt`, its `dispatch` the
+        critic): it is never reopened, owed a round or re-reviewed; while the debt is pending (not `finished`) `repair_debt_pending` keeps it open."""
         from acceptance import S5_OPEN_WORD
-        return (isinstance(last_round, dict) and last_round.get("status") == "accepted" and last_round.get("role") == "qa-code-critic"
-                and last_round.get("unresolved") == S5_OPEN_WORD)
+        if not (isinstance(last_round, dict) and last_round.get("status") == "accepted" and last_round.get("role") == "qa-code-critic"
+                and last_round.get("unresolved") == S5_OPEN_WORD):
+            return False
+        left = self.repair_entry([{"scope": last_round.get("scope") or []}],
+                                 lambda e: e.get("token") == "debt" and e.get("dispatch") == last_round.get("id"))[0]
+        return not left
 
     def s5_sendback_rounds(self, windows: list) -> list:
         """[(window, critic record)] of the windows `_s5_critic_sent_back` names, in window order. RAISES with the readers (the caller
@@ -3052,15 +3057,10 @@ class DriverDispatch:
     def _s5_last_round(rows: list, cases) -> dict | None:
         """The LAST S5 window dispatch (not the plan) among `rows` (`dispatch_identity.records`, the controller's order = dispatch order)
         whose scope meets `cases`, once the statuses in `controller.DISCOUNTED` are dropped; None when there is none. ONE walk for the
-        returned clause of `s5_open_windows` and for every reader of "what came back last in this window" (TR4-10)."""
+        returned clause of `s5_open_windows` and for every reader of "what came back last in this window" (TR4-10). FV3-35b3 (AR-13): the
+        walk is `controller.s5_last_round`, which the controller's S5 debt close reads too; this keeps the name and returns it."""
         import controller as CT
-        mine = {str(c) for c in (cases or ()) if c}
-        found = None
-        for row in rows:
-            if (row.get("stage") == "S5" and CT.s5_part_of(row) != "plan" and row.get("status") not in CT.DISCOUNTED
-                    and mine & {str(c) for c in row.get("scope") or [] if c}):
-                found = row
-        return found
+        return CT.s5_last_round(rows, cases)
 
     def s5_open_flag(self, cases) -> list:
         """`["--open-windows", <cases>]` for a finish that does not close S5 while other windows are open, else []. Unreadable windows:

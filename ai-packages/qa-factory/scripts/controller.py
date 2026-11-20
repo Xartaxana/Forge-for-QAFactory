@@ -302,6 +302,48 @@ def repair_cause(dispatch):
     return cause if cause in REPAIR_CAUSES else "test_defect"
 
 
+def s5_last_round(rows: list, cases) -> dict | None:
+    """The LAST S5 window dispatch (not the plan) among `rows` (`dispatch_identity.records`, the controller's order = dispatch order)
+    whose scope meets `cases`, once the statuses in `DISCOUNTED` are dropped; None when there is none. ONE walk for the returned clause of
+    `Driver.s5_open_windows`, for every reader of "what came back last in this window" (TR4-10) and for `s5_debt_close_gaps` (FV3-35b3,
+    AR-13: the driver's `_s5_last_round` returns this)."""
+    mine = {str(c) for c in (cases or ()) if c}
+    found = None
+    for row in rows:
+        if (row.get("stage") == "S5" and s5_part_of(row) != "plan" and row.get("status") not in DISCOUNTED
+                and mine & {str(c) for c in row.get("scope") or [] if c}):
+            found = row
+    return found
+
+
+def s5_debt_close_gaps(windows: list, rows: list, debts: dict) -> list:
+    """FV3-35b3 (E1-E5): `[]` when S5 may close by code over the review debts the person recorded, else the gaps in words. Pure.
+    `windows` = `stage_scope("S5")["windows"]`, `rows` = `dispatch_identity.records(dispatches)`, `debts` = `ledger.read_review_debts`.
+    g0 an unreadable record of the answers is the only gap read (a debt of a damaged file is not trusted, AR-28); per window g1 its last
+    round is not accepted, g2 it is an author round no critic reviewed, g3 it is a critic naming `tests_in_repair` that no `debt` entry
+    of the same critic and cases names; g4 no window is left over a debt (the ordinary close is the last critic's own finish)."""
+    from acceptance import S5_OPEN_WORD, unresolved_has_word
+    if debts.get("problem"):
+        return [f"the record of the repair-limit answers (work/review-debts.json) cannot be read: {debts['problem']}"]
+    gaps, owing = [], 0
+    for window in windows:
+        cases = sorted(str(c) for c in (window.get("scope") or []))
+        last = s5_last_round(rows, cases)
+        label = ", ".join(cases)
+        if not isinstance(last, dict) or last.get("status") != "accepted":
+            gaps.append(f"window {label}: its last round is not accepted")
+        elif last.get("role") == "qa-automator" and (repair_cause(last) != "mechanical" or "qa-code-critic" not in (window.get("accepted_by") or {})):
+            gaps.append(f"window {label}: its last round is an author round no critic reviewed")
+        elif unresolved_has_word(last, S5_OPEN_WORD):
+            owing += 1
+            if not any(e.get("stage") == "S5" and e.get("critic_dispatch") == last.get("id") and sorted(e.get("cases") or []) == cases
+                       and (e.get("choice") or {}).get("token") == "debt" for e in debts.get("windows") or []):
+                gaps.append(f"window {label}: the critic {last.get('id')} left it open and no `debt` of the person is recorded for it")
+    if not owing:
+        gaps.append("no window is left over a review debt; S5 closes by its last critic's finish")
+    return gaps
+
+
 # What a dispatch request binds its role to, and what a continuation of it must carry
 # unchanged: the pinned CaseVersions it repairs, why the round exists and from where, the
 # accepted work it reworks, the sentence the role reads, and the shape of the work. TP2-2406:
@@ -4319,10 +4361,25 @@ class Controller:
                     why.append(f"the stage-scope answer has no `{key}` list; run the step again, and if it repeats, read `--operation stage-scope`")
                 elif held:
                     why.append(f"cases {', '.join(map(str, held))} {words}; {door}")
+            # FV3-35b3 (E10): a non-empty scope is the ONLY problem found and the story's windows are over the person's recorded review
+            # debts: the close is allowed. POSITION INVARIANT: after the derived / unmapped / undisposed reads found nothing, so an
+            # unreadable, unmapped or undisposed scope is refused first with today's text and the empty-scope close is untouched.
+            scope = got.get("scope")
+            if isinstance(scope, list) and scope and all(isinstance(got.get(k), list) and not got.get(k) for k in ("unmapped_scope", "undisposed")):
+                try:
+                    import dispatch_identity
+                    import ledger
+                    gaps = s5_debt_close_gaps(got.get("windows") or [], dispatch_identity.records(state.get("dispatches")),
+                                              ledger.read_review_debts(self.store.root))
+                except Exception as exc:    # noqa: BLE001 - AR-28: a record that cannot be read is a gap, never a pass
+                    gaps = [f"the windows or the review debts could not be read ({type(exc).__name__})"]
+                if not gaps:
+                    return []
+                why += gaps
         if not why:
             return []
         return [(StateConflict, "code-only receipts are allowed only for S0, S6, S7 or S8, and for S5 only over its own empty derived "
-                                "plan scope: " + " - ".join(why))]
+                                "plan scope, or over windows the person left as review debts: " + " - ".join(why))]
 
     @staticmethod
     def automation_half_refusal(problems) -> str:

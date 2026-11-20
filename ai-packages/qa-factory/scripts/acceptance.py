@@ -642,10 +642,15 @@ def _s5_closed_by_code(task_root) -> bool:
     `s7_pretriage.s6_closed_by_code` reads S6's: a controller that cannot be read says False - a doubt never excuses a witness."""
     try:
         from controller import Controller
-        stage = (Controller(Path(task_root)).state().get("stages") or {}).get("S5") or {}
+        state = Controller(Path(task_root)).state()
+        stage = (state.get("stages") or {}).get("S5") or {}
+        # FV3-35b3 (C5, E13): a close over the person's review debt (`s5.debt_close`) is also a `code_only` receipt, but tests were written
+        # and left rejected: an accepted S5 dispatch naming the open-work word means it is NOT "nothing to automate".
+        left_open = any(isinstance(d, dict) and d.get("stage") == "S5" and d.get("status") == "accepted" and unresolved_has_word(d, S5_OPEN_WORD)
+                        for d in (state.get("dispatches") or {}).values())
     except Exception:
         return False
-    return isinstance(stage, dict) and stage.get("status") == "completed" and stage.get("code_only") is True
+    return isinstance(stage, dict) and stage.get("status") == "completed" and stage.get("code_only") is True and not left_open
 
 
 def run_witness_excused(manifest, task_root=None) -> str:
