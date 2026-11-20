@@ -667,6 +667,34 @@ def sendback_last_window_real_controller():
         harness.cleanup(root)
 
 
+def debt_close_last_window_real_controller():
+    """FV3-35b3 red-before (E1, E3): the last window's critic is accepted as open work and the person's `debt` is recorded; the REAL controller
+    refuses the `code_only` close of S5 until the debt entry names that critic (the finish of the accepted critic was refused: nothing closed
+    S5), then closes it; the run witness stays owed over the empty manifest (E13)."""
+    import acceptance
+    import ledger
+    import test_s5_parallel_admission as P
+    root, c = P.story()
+    try:
+        for case, did in (("TC-2", "C2"), ("TC-3", "C3"), ("TC-4", "C4")):
+            P.send(c, root, did, "qa-code-critic", [case])
+            P.accept(c, root, did)
+        P.send(c, root, "C1", "qa-code-critic", ["TC-1"])
+        P.accept(c, root, "C1", unresolved="tests_in_repair", reason="C1 sent the tests of TC-1 back; owed: a test_defect round of the author")
+        (root / "ev.txt").write_text("debt", encoding="utf-8")
+        close = lambda n: c.apply("code_only", {"id": f"S5-code-only-{n}", "stage": "S5", "reason": "debt", "idempotency_key": f"k{n}",
+                                                "evidence_refs": [P.R.evidence(root, "ev.txt")], "expected_revision": c.state()["revision"]})
+        check_in("no debt recorded: the code close is refused, the stage stays open", "no `debt` of the person is recorded", P.refusal(lambda: close(1)))
+        debt = {"stage": "S5", "cases": ["TC-1"], "critic_dispatch": "C1", "reason": "unknown", "choice": {"token": "debt"}}
+        ledger.write_review_debt(root, dict(debt, critic_dispatch="C9"))
+        check_in("a debt of ANOTHER critic closes nothing", "no `debt` of the person is recorded", P.refusal(lambda: close(2)))
+        ledger.write_review_debt(root, debt)
+        check_eq("the critic's own debt: S5 closed by code", (P.refusal(lambda: close(3)), P.stage(c)["status"], P.stage(c).get("code_only")), ("", "completed", True))
+        check_eq("E13: the empty manifest of a debt close owes its run witness", acceptance.run_witness_excused({"tests": [], "unresolved": []}, root), "")
+    finally:
+        harness.cleanup(root)
+
+
 def f5_the_real_roads_ask():
     """t-729 F5 (must-fix 5): the gate is pinned in the REAL `run_role` and the REAL `resume_role`, not only where a test calls it:
     no answer -> a repair_limit Person and no finish; the answer `debt` -> the finish goes (the positive control)."""
@@ -795,6 +823,29 @@ def debt_on_an_owed_round_closes_the_window():
                      (None, closed, 1, 1, 0))
         finally:
             rig.done()
+    # FV3-35b3 (E1, E9, C4): the critic is ACCEPTED as open work: no finish, the last window closes S5 by code at `s5.debt_close`, once
+    for token in ("round", "route"):
+        rig = Rig(story_run.Refusal("controller prepare (exit 1):\nstate is locked"))
+        try:
+            d, order, closed = rig.driver, [], []
+            write_form(rig.task_root, CRITIC, [{"id": "F-1"}])
+            d.stage_scope = lambda stage, kind="": {"scope": ["TC-1"], "windows": [window()]}
+            d.stand_check, d.build_check = lambda stage: None, lambda stage, cases=None: None
+            d.controller_state = lambda: {"dispatches": {CRITIC: {"id": CRITIC, "scope": ["TC-1"], "stage": "S5", "role": "qa-code-critic",
+                                                                  "status": "accepted", "unresolved": "tests_in_repair"}}}
+            d.close_by_code = lambda stage, reason, evidence, **kw: closed.append((stage, kw.get("site"), evidence)) or True
+            stub_s5_roles(d, order)
+            d.state.setdefault("repair_limit", {})["S5|TC-1"] = owed_entry(token, action="test_defect")
+            rig.quietly(d.stage_S5)
+            rig.answer("debt")
+            check_eq(f"owed {token}, accepted as open work: the pending debt keeps the window open (C4)", d.s5_open_windows(()), [["TC-1"]])
+            raised, _ = rig.quietly(d.stage_S5)
+            check_eq(f"owed {token}, accepted as open work: the next entry closes S5 by code ONCE, finishes nothing, runs no round",
+                     (raised, closed, rig.log["finish"], order, d.state["repair_limit"]["S5|TC-1"].get("finished")),
+                     (None, [("S5", "s5.debt_close", ["work/review-debts.json", f"work/handoffs/{CRITIC}.yaml"])], [], [], True))
+            check_eq(f"owed {token}: a debt window is never reopened or owed a round (C4)", (d.s5_open_windows(()), d.s5_owe_sendbacks([window()]), d.state["repair_limit"]["S5|TC-1"]["token"]), ([], None, "debt"))
+        finally:
+            rig.done()
     # positive control: a readable count still runs the round, a debt that consumed nothing opens nothing
     rig = Rig(budget(counted=1))
     try:
@@ -906,6 +957,28 @@ def debt_on_an_owed_round_of_a_non_last_window():
             check_eq(f"t-760/4 {token}: the debt entry is not touched by the next window's review", d.state["repair_limit"]["S5|TC-1"], found)
         finally:
             rig.done()
+    # FV3-35b3 (E4): A's critic is ACCEPTED as open work, B is still to review: A's window closes (`finished`), nothing else; B is reviewed next
+    rig = Rig(story_run.Refusal("controller prepare (exit 1):\nstate is locked"))
+    try:
+        d, order, closed = rig.driver, [], []
+        write_form(rig.task_root, CRITIC, [{"id": "F-1"}])
+        d.stage_scope = lambda stage, kind="": {"scope": ["TC-1", "TC-2"], "windows": two_windows()}
+        d.stand_check, d.build_check = lambda stage: None, lambda stage, cases=None: None
+        d.controller_state = lambda: {"dispatches": {CRITIC: {"id": CRITIC, "scope": ["TC-1"], "stage": "S5", "role": "qa-code-critic",
+                                                              "status": "accepted", "unresolved": "tests_in_repair"}}}
+        d.close_by_code = lambda *a, **k: closed.append(k.get("site")) or True
+        stub_s5_roles(d, order)
+        d.state.setdefault("repair_limit", {})["S5|TC-1"] = owed_entry("route", action="test_defect")
+        rig.quietly(d.stage_S5)
+        rig.answer("debt")
+        rig.value = budget(counted=1)
+        raised, _ = rig.quietly(d.stage_S5)
+        check_eq("E4 accepted as open work: the first entry closes A's window only (no S5 close, no finish, no review yet)",
+                 (raised, closed, rig.log["finish"], order, d.state["repair_limit"]["S5|TC-1"].get("finished")), (None, [], [], [], True))
+        raised, _ = rig.quietly(d.stage_S5)
+        check_eq("E4 accepted as open work: the next entry reviews window B", (raised, order, closed), (None, [("run_role", "qa-code-critic")], []))
+    finally:
+        rig.done()
 
 
 def an_older_controller_for_nobody_keys():
@@ -1302,6 +1375,7 @@ def main():
     owed_f4_open_window_sendback()
     s5_critic_completion_table()
     sendback_last_window_real_controller()
+    debt_close_last_window_real_controller()
     f5_the_real_roads_ask()
     s3_take_answer_reaches_the_executor()
     owed_round_on_an_unreadable_count_asks()

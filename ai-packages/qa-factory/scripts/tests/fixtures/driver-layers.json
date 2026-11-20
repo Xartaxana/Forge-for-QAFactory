@@ -571,6 +571,7 @@
   {"name": "Driver.repair_entry", "kind": "method", "home": "driver_dispatch", "row": 68, "note": "t-733: the ONE reader of the kept repair-limit answers, by a predicate (repair_owed and repair_debt_pending use it)"},
   {"name": "Driver.repair_debt_pending", "kind": "method", "home": "driver_dispatch", "row": 68, "note": "t-733: a debt that consumed an owed round and whose critic finish is not completed yet"},
   {"name": "Driver.s5_close_debt", "kind": "method", "home": "driver_stage_s5", "row": 73, "note": "t-733: completes the critic finish of a debt that consumed an owed round, by the gate debt close predicate"},
+  {"name": "Driver.s5_debt_on_open_work", "kind": "method", "home": "driver_stage_s5", "row": 73, "note": "FV3-35b3: the critic of a pending debt is accepted as open work (one predicate for stage_S5 and s5_close_debt)"},
   {"name": "Driver.repair_passes", "kind": "staticmethod", "home": "driver_dispatch", "row": 68, "note": "C1-5b1: the controller's own pass keys, never rebuilt"},
   {"name": "Driver.repair_limit_gate", "kind": "method", "home": "driver_dispatch", "row": 68, "note": "C1-5b1: before a critic's finish (run_role, resume_role, _finish_saved_result)"},
   {"name": "Driver.repair_limit_facts", "kind": "method", "home": "driver_dispatch", "row": 68, "note": "C1-5b1"},
