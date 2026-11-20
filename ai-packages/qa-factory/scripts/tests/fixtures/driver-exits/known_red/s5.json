@@ -181,10 +181,6 @@
    "node": "FV3-35",
    "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
   },
-  "exit.resume_limit/empty": {
-   "node": "FV3-35",
-   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
-  },
   "exit.resume_limit_halted/stop": {
    "node": "FV3-35",
    "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit_halted: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
@@ -192,13 +188,9 @@
   "exit.resume_limit_halted/free words": {
    "node": "FV3-35",
    "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit_halted: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
-  },
-  "exit.resume_limit_halted/empty": {
-   "node": "FV3-35",
-   "raised_by": "canon dry run 44205734909 on c4d36ea6 (t-1223 round 8, Lead): \"seed did not reach exit.resume_limit_halted: met the conductor at S5: a state the driver has no move for\"; diagnosis is node FV3-35 (the conductor's words are not read yet)"
   }
  },
  "pins": {
-  "known_red": 49
+  "known_red": 47
  }
 }
