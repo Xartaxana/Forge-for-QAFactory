@@ -1031,6 +1031,97 @@ def test_fv3_22_nothing_left_closes_s6_on_the_skill_road():
     _assert_green_since(count)
 
 
+def _s7_world(root, report=None):
+    """S6 completed (the green run), `work/run-report.json` = `report` (None: no file), S7 untouched."""
+    ctl = real_story(root, ["automate"])
+    BASE.accept_stage(ctl, root, "S6")
+    (root / "work").mkdir(exist_ok=True)
+    if report is not None:
+        (root / "work" / "run-report.json").write_text(json.dumps(report), encoding="utf-8")
+    return ctl
+
+
+GREEN = {"execution_status": "passed", "totals": {"failed": 0}}
+
+
+def _s7(root, ctl, calls, fail=None):
+    """`start --stage S7 --role qa-failure-analyst` with `SkillRoad.py` stubbed (the record writes `finished`, as `_close`)."""
+    from datetime import datetime, timezone
+
+    def fake(self, script, *args, check=False, expect=""):
+        calls.append((script, list(args)))
+        code, out = (fail or {}).get(script, (0, ""))
+        if code == 0 and script == "stage_done.py":
+            data = _pipeline(root)
+            data.setdefault("stages", {}).setdefault("S7", {})["finished"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            (root / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+        if check and code:
+            raise stage_close.Refused(f"{script} exit {code}: {out}")
+        return code, out
+    with mock.patch.object(stage_close.SkillRoad, "py", fake):
+        return start(root, ctl, None, kind="", stage="S7", role="qa-failure-analyst")
+
+
+def test_fv3_26_nothing_to_triage_closes_s7_on_the_skill_road():
+    """FV3-26 T1-T9 (card 2.3, E1-E12). KILLS: the guard order of `_s7_code_close`; the need guard; a close over a halted report, a running
+    pass or S6 awaiting; a second receipt; a dropped `note:`; a refused record reported closed."""
+    count = len(harness.RESULTS)
+    receipts = lambda ctl: [e["payload"] for e in ctl.store.read() if e["type"] == "code_only" and e["payload"].get("stage") == "S7"]  # noqa: E731
+    s7_rows = lambda ctl: [d for d in ctl.state()["dispatches"].values() if d["stage"] == "S7"]  # noqa: E731
+    with temp_dir() as root:                                                         # T1 close, T3 again, T3b record older
+        ctl, calls = _s7_world(root, GREEN), []
+        code, text, seen = _s7(root, ctl, calls)
+        check_eq("T1: exit 0, one receipt, record then tail row, S8 next, no dispatch", (code, len(receipts(ctl)), [c[0] for c in calls], seen["scope"], s7_rows(ctl),
+                 "S7 is closed by code: no failures" in text and "card --stage S8" in text), (0, 1, ["stage_done.py", "log_append.py"], [], [], True))
+        check_eq("T1: the tail row", calls[1][1][:2], ["--event", "dispatch_skipped"])
+        code, text, _ = _s7(root, ctl, calls)
+        check_eq("T3: again - completed already, one receipt, no second step", (code, len(receipts(ctl)), len(calls), "S7 is completed already" in text), (0, 1, 2, True))
+        data = _pipeline(root)
+        data["stages"]["S7"]["finished"] = "2000-01-01T00:00:00+00:00"
+        (root / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+        code, text, _ = _s7(root, ctl, calls)
+        check_eq("T3b: a record older than the completion -> the door", (code, "S7 is completed already" in text, "stage_done.py\" --task QA-9 --stage S7 --status done" in text), (2, False, True))
+    with temp_dir() as root:                                                         # T2 a failure -> today's dispatch
+        ctl, calls = _s7_world(root, {"execution_status": "failed", "totals": {"failed": 1}}), []
+        code, text, seen = _s7(root, ctl, calls)
+        check_eq("T2: no receipt, the analyst is dispatched", (code, receipts(ctl), len(s7_rows(ctl)), seen["scope"] != []), (0, [], 1, True))
+    with temp_dir() as root:                                                         # T4 stage_done refused, T9 tail row fails
+        ctl, calls = _s7_world(root, GREEN), []
+        code, text, _ = _s7(root, ctl, calls, fail={"stage_done.py": (1, "refused")})
+        check_eq("T4: refused + door + note, the receipt stands", (code, len(receipts(ctl)), "S7 was not closed" in text, "--stage S7 --status done --digest" in text.splitlines()[-1],
+                 "dispatch_skipped was not filed" in text, "S7 is closed by code" in text), (2, 1, True, True, True, False))
+    with temp_dir() as root:
+        ctl, calls = _s7_world(root, GREEN), []
+        code, text, _ = _s7(root, ctl, calls, fail={"log_append.py": (1, "disk")})
+        check_eq("T9: a tail row fails -> note, exit 0, the close stands", (code, len(receipts(ctl)), "note:" in text and "disk" in text), (0, 1, True))
+    with temp_dir() as root:                                                         # T5 S6 awaits, T6 running, T6b owed
+        ctl, calls = _s7_world(root, GREEN), []
+        with mock.patch.object(acceptance, "awaits_acceptance", lambda *a, **k: "S6-qa-runner-1"):
+            code, text, seen = _s7(root, ctl, calls)
+        check_eq("T5: S6 awaits -> today's dispatch, no receipt", (receipts(ctl), calls, seen["scope"] != []), ([], [], True))
+    for name, word, said in (("T6", ("wait", "INV-1"), "still running"), ("T6b", ("dispatch", ""), "--purpose investigation")):
+        with temp_dir() as root:
+            ctl, calls = _s7_world(root, GREEN), []
+            with mock.patch("investigation.decision", lambda *a, **k: word), mock.patch("investigation.open_targets", lambda *a, **k: {"unresolved": ["OB-1"]}):
+                code, text, seen = _s7(root, ctl, calls)
+            check_eq(f"{name}: exit 0, no close, no dispatch, the next line", (code, receipts(ctl), calls, said in text, seen["scope"]), (0, [], [], True, []))
+    with temp_dir() as root:                                                         # T7 a counting need row
+        need = {"current_manual_checks": [{"case": "TC-1", "unprepared": {"reason": "x", "need": "second-device", "need_why": "w"}}]}
+        ctl, calls = _s7_world(root, dict(GREEN, **need)), []
+        with mock.patch.object(stage_close.SkillRoad, "failures_to_triage", lambda self, awaiting="": ""):     # the guard itself, reached
+            code, text, _ = _s7(root, ctl, calls)
+        check_eq("T7: guard -> refused, door, no receipt", (code, receipts(ctl), calls, "TC-1 need another instance of" in text and "door: ask the person" in text), (2, [], [], True))
+        code, text, seen = _s7(root, ctl, calls)
+        check_eq("T7: the row is itself a triage target (reality: card E12's guard is behind step 7) -> today's dispatch, no receipt", (code, receipts(ctl), calls, seen["scope"] != []), (0, [], [], True))
+    for name, report in (("T8", {"execution_status": "broken_run"}), ("T8b", None)):  # T8 halted / missing report
+        with temp_dir() as root:
+            ctl, calls = _s7_world(root, report), []
+            code, text, _ = _s7(root, ctl, calls)
+            check_eq(f"{name}: refused with the driver's text and the S6 card door", (code, receipts(ctl), "S7 entry: run-report.json execution_status is" in text,
+                     "card --stage S6" in text), (2, [], True, True))
+    _assert_green_since(count)
+
+
 def test_fv3_22_awaits_position():
     """FV3-22 K5.k P1-P5 (card r2 5.2): the progress position `awaits`, from the one reader. KILLS: a branch ahead of the gate; no
     `except`; the reader's `completed` guard bypassed."""
@@ -1091,6 +1182,7 @@ def main():
     the_cli_refuses_with_the_same_words()
     test_the_card_and_the_help_name_the_rule()
     test_fv3_22_nothing_left_closes_s6_on_the_skill_road()
+    test_fv3_26_nothing_to_triage_closes_s7_on_the_skill_road()
     test_fv3_22_awaits_position()
     the_driver_reads_the_shared_functions()
     finish("test_story_step_manual_block")

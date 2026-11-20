@@ -191,7 +191,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/stage_done.py" --task <TICKET> --stage S<n
 ```
 
 `--status running` when you dispatch, `done` or `halted` when the role hands back. A
-code-only stage (S0, S7 with nothing to triage) takes no `--role`. **Never edit
+code-only stage (S0) takes no `--role`. **Never edit
 `pipeline.json` by hand.**
 
 ## The two gates — the protocol both share

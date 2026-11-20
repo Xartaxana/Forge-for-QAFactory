@@ -302,7 +302,7 @@ def file_passed_over(road, stage: str, receipt) -> None:
 
 def record_door(task: str, stage: str, args) -> str:
     """The `door:` line that completes a stage record a refusal left unwritten (E9): the ONE builder, read by `SkillRoad.record_close` and
-    `story_step._s6_reentry`, so the same world prints the same command on both (t-1558 F1)."""
+    `story_step._code_close_reentry` (S6 and S7, FV3-26), so the same world prints the same command on both (t-1558 F1)."""
     command = " ".join(f'"{a}"' if any(ch.isspace() for ch in str(a)) else str(a) for a in args)
     return f'door: python "${{CLAUDE_PLUGIN_ROOT}}/scripts/stage_done.py" --task {task} --stage {stage} {command}'
 
@@ -485,6 +485,7 @@ class SkillRoad:
     environment). `dry` is always False: the skill road has no dry run. The Driver is the other road; no member is copied from it - each
     free body is the one survivor (AR-15)."""
     dry = False
+    plugin = Path(__file__).resolve().parent.parent      # FV3-26: the driver's default plugin dir (`--plugin-dir` or `HERE.parent`); `investigation.load_budget` reads it
 
     def __init__(self, task: str, task_root, controller):
         import hooklib
@@ -563,6 +564,20 @@ class SkillRoad:
             raise Refused(f"{exc}\n{record_door(self.task, stage, args)}", title=exc.title) from None
         for row in tail:  # FV3-29: a failed tail row was dropped silently (q3c); now one note, the loop goes on, never a raise
             self.owe_row("log_append.py", *row, what=f"journal row {row[0] if row else '(empty)'}")
+
+    def failures_to_triage(self, awaiting: str = "") -> str:
+        return s7_failures_to_triage(self.task_root, awaiting)
+
+    def s7_close_places(self, why: str) -> list:
+        return s7_close_places(self, why)
+
+    def s7_investigation_gate(self) -> tuple:
+        return s7_investigation_gate(self)
+
+    def s7_investigation_dispatch(self, targets, budget) -> tuple:
+        """FV3-26 F3a: the skill road never runs the pass; it says one is owed and the conductor starts it (the next `start` closes S7)."""
+        print(f"S7: {len(targets)} observation(s) the run left open are not investigated; one bounded read-only investigation is owed")
+        return "dispatch_owed", ""
 
     def manual_request_paths(self, cases) -> list:
         import manual_evidence
