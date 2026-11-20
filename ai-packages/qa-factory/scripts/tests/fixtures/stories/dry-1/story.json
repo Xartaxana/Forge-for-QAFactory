@@ -145,6 +145,68 @@
     }
    }
   },
+  "qa-bug-reporter@S8": {
+   "verdict": "ok",
+   "result_text": "qa-bug-reporter S8 DRY-1 · ok\ngate_b · nothing_chosen · the person chose no draft at gate B\nwork/handoffs/S8-qa-bug-reporter-1.yaml",
+   "overrides": {
+    "s8-bug-reporter-to-scribe": {
+     "inputs_read[0].path": "work/handoffs/S8-qa-doc-scribe-1.yaml",
+     "scope[0].id": "gate_b",
+     "scope[0].state": "nothing_chosen",
+     "scope[0].reason": "the person chose no draft at gate B",
+     "filed": [],
+     "not_filed": [],
+     "quarantined": [],
+     "unresolved": [],
+     "blocked": {"$absent": true},
+     "claims.every_chosen_draft_has_a_row_in_scope": true,
+     "claims.every_filed_bug_names_its_draft_and_its_case_or_says_why_not": true,
+     "claims.no_bug_was_filed_for_a_draft_the_person_did_not_choose": true,
+     "claims.nothing_was_written_to_the_tracker_by_the_role": true,
+     "tried_note": {"$absent": true},
+     "tried[0].requirement": "gate_b",
+     "tried[0].technique": "read the gate B decision for chosen drafts before filing",
+     "tried[0].observation": "no draft was chosen, so there is nothing to search for or reproduce",
+     "tried[0].evidence": "work/handoffs/S8-qa-doc-scribe-1.yaml"
+    }
+   }
+  },
+  "qa-retro-analyst@S9": {
+   "verdict": "ok",
+   "result_text": "qa-retro-analyst S9 DRY-1 · ok\nTC-1 · not_executed · passed at S6; nothing owed to the next story\nTC-2 · deferred · left unchecked by the person's word; stays with the person\nretro.md\nwork/handoffs/S9-qa-retro-analyst-1.yaml",
+   "overrides": {
+    "s9-retro-to-project": {
+     "inputs_read[1].path": "work/retro-numbers.md",
+     "inputs_read[1].version": "none",
+     "inputs_read[1].decisions_folded": "0",
+     "retro_mode": {"$absent": true},
+     "scope[0].id": "TC-2",
+     "scope[0].state": "deferred",
+     "scope[0].reason": "left unchecked by the person's word at S6",
+     "scope[0].text": "the manual check of this case stays with the person",
+     "scope[0].trigger": "the next story that touches the cart total",
+     "scope[0].owner": "person",
+     "knowledge_fold": [],
+     "factory_backlog": [],
+     "numbers.estimation_ledger_line": "skipped",
+     "numbers.orchestrator_share": "not measured in the dry pass",
+     "numbers.stages_out_of_order": "none",
+     "delivery_bookkeeping.manifest_rebuilt": false,
+     "delivery_bookkeeping.post_s9_update": "not_applicable",
+     "unresolved": [],
+     "blocked": {"$absent": true},
+     "claims.every_trap_names_exactly_one_owning_document": true,
+     "claims.nothing_was_archived_by_a_role": true,
+     "claims.the_feedback_answer_is_verbatim_or_declined": true,
+     "claims.the_dashboard_was_rebuilt": false,
+     "tried_note": {"$absent": true},
+     "tried[0].requirement": "S8 delivery",
+     "tried[0].technique": "read the gate B decision and the delivery answer in the journal",
+     "tried[0].observation": "the person ended the delivery, so nothing went out and nothing is owed",
+     "tried[0].evidence": "work/handoffs/S8-qa-doc-scribe-1.yaml"
+    }
+   }
+  },
   "qa-case-designer@S4": {
    "result_text": "qa-case-designer S4 DRY-1 · ok\nTC-1 · created · the case checks the cart total with a quantity\nwork/handoffs/S4-qa-case-designer-1.yaml",
    "overrides": {
@@ -191,7 +253,7 @@
   {"stage": "S5", "role": "qa-automator", "door": {"kind": "driver"}, "answers": {"environment": "go on"}},
   {"stage": "S6", "role": "qa-runner", "door": {"kind": "driver"}},
   {"stage": "S7", "role": "qa-failure-analyst", "door": {"kind": "driver"}},
-  {"stage": "S8", "role": "qa-doc-scribe", "door": {"kind": "driver"}, "answers": {"gate_B": "approve"}},
-  {"stage": "S9", "role": "qa-retro-analyst", "door": {"kind": "driver"}}
+  {"stage": "S8", "role": "qa-doc-scribe", "door": {"kind": "driver"}, "answers": {"gate_B": "approve", "delivery": "no delivery"}},
+  {"stage": "S9", "role": "qa-retro-analyst", "door": {"kind": "driver"}, "answers": {"retro": "skip"}}
  ]
 }
