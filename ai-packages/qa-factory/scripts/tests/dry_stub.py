@@ -1082,6 +1082,8 @@ def claude_main(argv: list) -> int:
         found = re.search(r"Dispatch: (\S+)\.", prompt)
         derived = re.fullmatch(r"stub-(.+)-\d+", resume)      # a resume names the session the stub answered before: `stub-<dispatch>-<n>`
         key = found.group(1) if found else (derived.group(1) if derived else (resume or role))
+        if resume and not role:         # t-1553 F1: a resume carries no --agent; the role is the dispatch id's own (the shape of DriverDispatch.dispatch_role), else stays "" (nothing guessed)
+            role = (re.fullmatch(r"S\d+-(qa-[a-z-]+)-\d+", key) or [None, ""])[1]
         n = calls_before(task_dir, key) + 1
         repair = (control.get("stub") or {}).get(role, {}).get("repair_on_round")
         if resume and not (isinstance(repair, int) and not isinstance(repair, bool) and n >= repair):
@@ -1518,6 +1520,15 @@ def selftest_n2(tmp: Path) -> None:
     repaired = fill_handover(contract, kit_context(kit, "D2"), overrides=overrides_for({"overrides": {contract: {key: "seeded-by-the-row"}}, "repair_on_round": 2}, contract, 2))
     check_eq("N2 row: an override of the row reaches the filled form on round 1 and is gone on the repair round (bytes equal to the clean fill)",
              ("seeded-by-the-row" in seeded.text, seeded.text != base_form.text, repaired.text == base_form.text), (True, True, True))
+    # t-1553 F1: a resume with no --agent takes the role from the dispatch id in the session key (one row, two keys); a key of no shape keeps the empty text
+    project, task_dir = world("resume")
+    stub_row = {"stub": {"qa-code-critic": {"result_text": "the saved words"}}}
+    got = []
+    for sid in ("stub-S5-qa-code-critic-1-1", "stub-hand-made-1"):
+        rc, answer, err = call(project, dict(control, **stub_row), "Repair.\n", "-p", "--resume", sid)
+        got.append((rc, answer.get("result")))
+    check_eq("t-1553 F1: a resume with no --agent serves the row's result_text by the key's role; a key of no shape keeps the empty text",
+             got, [(0, "the saved words"), (0, "")])
     # N2 (2), (6): the automator, the world's profile
     for tag, commands in (("auto", True), ("nocmd", False)):
         project, task_dir = world(tag, commands)
