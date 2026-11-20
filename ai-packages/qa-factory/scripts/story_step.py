@@ -919,14 +919,21 @@ def start(args) -> int:
     state = controller.state()
     # FV3-41 (t-1558 R1) POSITION INVARIANT: ahead of `_manual_block_check` - an S6 the code closed (`code_only`, by either road) is never
     # prepared again: X3 `prepare_for_block` and X2 `write_case_refusal` rewrite `request.json` files the receipt hashed. Writes nothing.
-    # ERROR DIRECTION: `_s6_reentry` (step 1b's reader); a record that cannot be read -> the E9 door, exit 2. An S6 not closed by code -> None.
+    # ERROR DIRECTION: `_code_close_reentry` (step 1b's reader); a record that cannot be read -> the E9 door, exit 2. An S6 not closed by code -> None.
     if args.role == "qa-runner" and args.stage == "S6" and (getattr(args, "execution_kind", "") or "") == "manual":
         held = (((state or {}).get("stages") or {}).get("S6") or {})
-        closed = _s6_reentry(args.task, task_root, controller, held, 'python "${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py" where --task '
-                             + args.task) if held.get("status") == "completed" else None
+        closed = _code_close_reentry(args.task, task_root, controller, held, 'python "${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py" where --task '
+                                     + args.task, "S6") if held.get("status") == "completed" else None
         if closed is not None:
             print("\n".join(closed[1]))
             return closed[2]
+    # FV3-26 K5b POSITION INVARIANT: after the run-mode switch refusal (a refused switch writes nothing), before `_manual_block_check`, the
+    # stamp, `_pre_work`, `controller.prepare` and `apply("dispatch")`: a close registers no dispatch, brief, card, stamp or judge file; a call
+    # `_s7_code_close` answers None for reaches today's code unchanged.
+    s7_closed = _s7_code_close(args, controller, state)
+    if s7_closed is not None:
+        print("\n".join(s7_closed[0]))
+        return s7_closed[1]
     block, refusal, code = _manual_block_check(args, controller, state)
     if code or (refusal and block is None):      # FV3-22 K5.h: a close prints its lines and exits 0 with no block; every refusal today has code 2
         print("\n".join(refusal))
@@ -1176,18 +1183,104 @@ def _manual_cases_left(state: dict, scope: list, spent) -> list:
     return [case for case in scope if case not in done and case not in spent]
 
 
-def _s6_reentry(task: str, task_root, controller, held: dict, where: str):
-    """Step 1b of `_s6_manual_close`: a completed S6 is never reduced again (a report the receipt hashed is never rewritten, AR-21). A stage
-    the controller completed otherwise (a role's accept, no `code_only`) is not this close's world: None, today's lines. A `code_only` S6 with
-    its record written: nothing to close; without a readable record: the E9 door (`stage_close.record_door`), exit 2."""
+def _code_close_reentry(task: str, task_root, controller, held: dict, next_line: str, stage: str):
+    """Step 1b of `_s6_manual_close` and step 2 of `_s7_code_close` (FV3-26: one reader for both stages): a completed S6/S7 is never closed again
+    (a report the receipt hashed is never rewritten, AR-21). A stage the controller completed otherwise (a role's accept, no `code_only`) is
+    not this close's world: None, today's lines. A `code_only` stage with its record written: nothing to close; without a readable record:
+    the E9 door (`stage_close.record_door`), exit 2."""
     import stage_close
     if not held.get("code_only"):
         return None
-    if stage_close.stage_record_written(task_root, controller, "S6"):
-        return "done", ["S6 is completed already: nothing is closed again", "next: " + where], 0, {}
+    if stage_close.stage_record_written(task_root, controller, stage):
+        return "done", [f"{stage} is completed already: nothing is closed again", "next: " + next_line], 0, {}
     reason = held.get("reason") if isinstance(held.get("reason"), str) and held.get("reason") else "<the close reason>"
-    return "done", ["story_step: refused - S6 is completed in the controller but its stage record is not written",
-                    stage_close.record_door(task, "S6", ["--status", "done", "--digest", reason, "--no-journal"])], 2, {}
+    return "done", [f"story_step: refused - {stage} is completed in the controller but its stage record is not written",
+                    stage_close.record_door(task, stage, ["--status", "done", "--digest", reason, "--no-journal"])], 2, {}
+
+
+def _wait_line(where: str) -> str:
+    return f"next: the investigation dispatch is still running: {where}; after it ends run this same start again: it closes S7"
+
+
+def _refused_close_lines(stage: str, exc, captured) -> list:
+    """The lines of a refused close by code, shared by `_s6_manual_close` and `_s7_code_close` (F4): what the module printed, the refusal
+    (a text that ENDS with `\ndoor: <command>` names that door), and the door - the default one when the text names none."""
+    head, sep, tail = str(exc).rpartition("\ndoor: ")
+    return [*captured.getvalue().splitlines(), f"story_step: refused - {stage} was not closed: " + (head if sep else str(exc)),
+            "door: " + tail if sep else "door: repair what the line above names, then run this start again"]
+
+
+def _s7_code_close(args, controller, state: dict):
+    """FV3-26 (P31): `start --stage S7 --role qa-failure-analyst` with nothing left to triage closes S7 by the SAME body as the driver's
+    `s7.no_failures` (`stage_close.s7_code_close` over `SkillRoad`) instead of dispatching an analyst. Returns None (not applicable: today's
+    lines) or `(lines, code)`. ERROR DIRECTION (a GATE that closes S7): it may err only toward None or a refusal - an unreadable state,
+    an accepted or live analyst, S6 awaiting its consumer, a failure, a counting need row and a run that halted never close. Registers no
+    dispatch, brief or event of its own; writes only what the shared body writes (places, investigation register, receipt, record)."""
+    import contextlib
+    import io
+    import acceptance
+    import manual_evidence
+    import stage_close
+    from controller import code_close_conflicts
+    from event_store import StateConflict
+    if args.stage != "S7" or args.role != "qa-failure-analyst" or getattr(args, "purpose", ""):
+        return None
+    task, task_root = args.task, _task_root(args.task)
+    card = 'python "${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py" card --stage S8'
+    where = f'python "${{CLAUDE_PLUGIN_ROOT}}/scripts/story_step.py" where --task {task}'
+    try:
+        held = (((controller.state() or {}).get("stages") or {}).get("S7") or {})
+        if held.get("status") == "completed":
+            closed = _code_close_reentry(task, task_root, controller, held, card, "S7")
+            return None if closed is None else (closed[1], closed[2])
+        if any(d.get("status") == "accepted" for d in acceptance.author_dispatches(state, acceptance.stage_def_of("S7"))):
+            return None                                 # an accepted analyst: the driver's re-triage / scribe roads, not this close
+        if acceptance.awaits_acceptance(state, "S6", _read_pipeline(task_root)):
+            return None                                 # S6 awaits its consumer: the analyst is let in for S6 (E7)
+        if code_close_conflicts(state, "S7"):           # a live dispatch, S6 behind: the one predicate (AR-13)
+            # F1 (t-1597): a running dispatch that is only an S7 investigation pass (`investigation.pass_members`, the one predicate) is
+            # waited for - the T6 lines, no `s7_code_close` (no place gap over a running pass); any other running id keeps today's None
+            import investigation
+            running = {str(d.get("id") or key) for key, d in state["dispatches"].items() if d.get("status") == "running"}
+            passes = {m["id"] for m in investigation.pass_members(state) if m.get("status") == "running"}
+            if running and running <= passes:
+                return [f"S7: the investigation {', '.join(sorted(running))} is running; S7 is not closed over it", _wait_line(where)], 0
+            return None
+    except Exception:  # noqa: BLE001 - an unreadable state never yields a "closed" line (E2): today's lines
+        return None
+    road = stage_close.SkillRoad(task, task_root, controller)
+    try:
+        reasons = road.failures_to_triage("")
+    except stage_close.Refused as exc:
+        return [f"story_step: refused - S7 was not closed: {exc}",
+                f'door: python "${{CLAUDE_PLUGIN_ROOT}}/scripts/story_step.py" card --stage S6'], 2
+    if reasons:
+        return None                                     # a failure: today's dispatch (pre-triage is FV3-26b)
+    need = [row for row in manual_evidence.unprepared_rows(hooklib.read_json(task_root / "work/run-report.json", {})) if row.get("need")]
+    if need:                                            # F2a: no S7 close over a need record with no answer (the extra-instance step is FV3-26n)
+        import stand_gaps
+        cases = ", ".join(sorted({str(row.get("case")) for row in need}))
+        return [f"story_step: refused - S7 is not closed: {cases} need another instance of {stand_gaps.stand_name(task_root)}; "
+                "the skill road closes this world after FV3-26n",
+                'door: ask the person once by section "Another instance of the stand" of the S7 card; a person who decides to close S7 anyway: '
+                + person_words.door(f'waiver.py --task {task} --stage S7 --block "no accepted controller stage"')], 2
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(captured):
+            verdict = stage_close.s7_code_close(road, "no_failures")
+    except (stage_close.Refused, StateConflict, ValueError) as exc:
+        lines = _refused_close_lines("S7", exc, captured)
+        if "\ndoor: " in str(exc):     # F8a: the record door completes the record only; the tail row is not re-filed on it
+            lines.insert(-1, "note: journal row dispatch_skipped was not filed: the record door does not file it")
+        return lines, 2
+    lines = captured.getvalue().splitlines()
+    if verdict == "wait":
+        return [*lines, _wait_line(where)], 0
+    if verdict == "dispatch_owed":
+        return [*lines, f'next: python "${{CLAUDE_PLUGIN_ROOT}}/scripts/story_step.py" start --task {task} --stage S7 --role qa-failure-analyst '
+                "--purpose investigation (bind, finish --not-complete as the card's section Investigation says); then run this same start again: it closes S7"], 0
+    why = ((controller.state().get("stages") or {}).get("S7") or {}).get("reason") or "no failures — nothing to triage"
+    return [*lines, f"S7 is closed by code: {why}", "next: " + card], 0
 
 
 def _s6_manual_close(args, controller, state: dict, spent: dict):
@@ -1210,7 +1303,7 @@ def _s6_manual_close(args, controller, state: dict, spent: dict):
     where = f'python "${{CLAUDE_PLUGIN_ROOT}}/scripts/story_step.py" where --task {args.task}'
     held = (((controller.state() or {}).get("stages") or {}).get("S6") or {})
     if held.get("status") == "completed":
-        return _s6_reentry(args.task, task_root, controller, held, where)
+        return _code_close_reentry(args.task, task_root, controller, held, where, "S6")
     auto = controller.stage_scope("S6", state, "automation")
     manual = controller.stage_scope("S6", state, "manual")
     if not (auto.get("derived") and manual.get("derived") and isinstance(auto.get("scope"), list) and isinstance(manual.get("scope"), list)):
@@ -1242,11 +1335,7 @@ def _s6_manual_close(args, controller, state: dict, spent: dict):
         with contextlib.redirect_stdout(captured):
             closed = stage_close.manual_half_close(road, done, list(refused.items()))
     except (stage_close.Refused, StateConflict, ValueError) as exc:
-        text = str(exc)
-        head, sep, tail = text.rpartition("\ndoor: ")
-        door_line = "door: " + tail if sep else "door: repair what the line above names, then run this start again"
-        return "done", [*case_lines, *captured.getvalue().splitlines(),
-                        "story_step: refused - S6 was not closed: " + (head if sep else text), door_line], 2, refused
+        return "done", [*case_lines, *_refused_close_lines("S6", exc, captured)], 2, refused
     lines = [*case_lines, *captured.getvalue().splitlines()]
     card = 'python "${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py" card --stage S7'
     if closed:
